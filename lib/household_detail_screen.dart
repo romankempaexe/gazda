@@ -153,32 +153,54 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
 
   Widget _buildRozpisTab() {
     final currentUser = _auth.currentUser?.email ?? '';
-    
+
     // Filtrovať činnosti priradené aktuálnemu užívateľovi
-    final myTasks = _cinnosti.where((c) => c.assignedTo == currentUser).toList();
-    
+    final myTasks = _cinnosti
+        .where((c) => c.assignedTo == currentUser)
+        .toList();
+
     // Rozdeliť na dnešné, zmešané a budúce
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
-    
-    final todayTasks = myTasks.where((c) {
-      final dueDate = DateTime(c.dueDate.year, c.dueDate.month, c.dueDate.day);
-      return dueDate.compareTo(todayOnly) == 0 && !c.completed;
-    }).toList()..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // Zoradené podľa času
-    
-    final lateTasks = myTasks.where((c) {
-      final dueDate = DateTime(c.dueDate.year, c.dueDate.month, c.dueDate.day);
-      return dueDate.isBefore(todayOnly) && !c.completed;
-    }).toList()..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // Najstarší prvý
-    
-    final upcomingTasks = myTasks.where((c) {
-      final dueDate = DateTime(c.dueDate.year, c.dueDate.month, c.dueDate.day);
-      return dueDate.isAfter(todayOnly) && !c.completed;
-    }).toList()..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // Zoradené podľa času
-    
+
+    final todayTasks =
+        myTasks.where((c) {
+          final dueDate = DateTime(
+            c.dueDate.year,
+            c.dueDate.month,
+            c.dueDate.day,
+          );
+          return dueDate.compareTo(todayOnly) == 0 && !c.completed;
+        }).toList()..sort(
+          (a, b) => a.dueDate.compareTo(b.dueDate),
+        ); // Zoradené podľa času
+
+    final lateTasks =
+        myTasks.where((c) {
+            final dueDate = DateTime(
+              c.dueDate.year,
+              c.dueDate.month,
+              c.dueDate.day,
+            );
+            return dueDate.isBefore(todayOnly) && !c.completed;
+          }).toList()
+          ..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // Najstarší prvý
+
+    final upcomingTasks =
+        myTasks.where((c) {
+          final dueDate = DateTime(
+            c.dueDate.year,
+            c.dueDate.month,
+            c.dueDate.day,
+          );
+          return dueDate.isAfter(todayOnly) && !c.completed;
+        }).toList()..sort(
+          (a, b) => a.dueDate.compareTo(b.dueDate),
+        ); // Zoradené podľa času
+
     // Zlúčiť všetky úlohy v poradí: zmešané -> dnes -> budúce (podľa času)
     final allTasks = [...lateTasks, ...todayTasks, ...upcomingTasks];
-    
+
     if (myTasks.isEmpty) {
       return Center(
         child: Column(
@@ -203,23 +225,27 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
         ),
       );
     }
-    
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
           ...allTasks.map((task) {
             // Urči na základe dátumu
-            final dueDate = DateTime(task.dueDate.year, task.dueDate.month, task.dueDate.day);
+            final dueDate = DateTime(
+              task.dueDate.year,
+              task.dueDate.month,
+              task.dueDate.day,
+            );
             final isMissed = dueDate.isBefore(todayOnly);
-            
+
             return _buildTaskItem(task, showButton: true);
           }),
         ],
       ),
     );
   }
-  
+
   Widget _buildTaskItem(Cinnost task, {bool showButton = false}) {
     final priestor = _priestory.firstWhere(
       (p) => p.id == task.priestorId,
@@ -230,7 +256,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
         createdAt: DateTime.now(),
       ),
     );
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       color: AppColors.background,
@@ -262,22 +288,36 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.location_on, size: 14, color: AppColors.textSecondary),
+                Icon(
+                  Icons.location_on,
+                  size: 14,
+                  color: AppColors.textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   priestor.name,
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 14, color: AppColors.textSecondary),
+                Icon(
+                  Icons.calendar_today,
+                  size: 14,
+                  color: AppColors.textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   _formatDate(task.dueDate),
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -290,11 +330,14 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                   onPressed: () async {
                     try {
                       DateTime? nextDueDate;
-                      
+
                       // Ak nema opakovanie, vymas ju
                       if (task.periodicity == Periodicity.none) {
-                        await _firestore.collection('cinnosti').doc(task.id).delete();
-                        
+                        await _firestore
+                            .collection('cinnosti')
+                            .doc(task.id)
+                            .delete();
+
                         setState(() {
                           _cinnosti.removeWhere((c) => c.id == task.id);
                         });
@@ -302,10 +345,12 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                         // Ma opakovanie - vypocitaj dalsi datum
                         nextDueDate = task.dueDate;
                         final repeatDays = task.repeatInterval ?? 1;
-                        
+
                         switch (task.periodicity) {
                           case Periodicity.weekly:
-                            nextDueDate = task.dueDate.add(Duration(days: repeatDays * 7));
+                            nextDueDate = task.dueDate.add(
+                              Duration(days: repeatDays * 7),
+                            );
                             break;
                           case Periodicity.monthly:
                             nextDueDate = DateTime(
@@ -324,16 +369,21 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                           case Periodicity.none:
                             break;
                         }
-                        
+
                         // Aktualizuj v Firestore
-                        await _firestore.collection('cinnosti').doc(task.id).update({
-                          'dueDate': nextDueDate,
-                          'completed': false,
-                        });
-                        
+                        await _firestore
+                            .collection('cinnosti')
+                            .doc(task.id)
+                            .update({
+                              'dueDate': nextDueDate,
+                              'completed': false,
+                            });
+
                         // Aktualizuj v zozname
                         setState(() {
-                          final index = _cinnosti.indexWhere((c) => c.id == task.id);
+                          final index = _cinnosti.indexWhere(
+                            (c) => c.id == task.id,
+                          );
                           if (index != -1) {
                             _cinnosti[index] = _cinnosti[index].copyWith(
                               dueDate: nextDueDate!,
@@ -342,7 +392,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                           }
                         });
                       }
-                      
+
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -353,9 +403,9 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                         ),
                       );
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Chyba: $e')),
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Chyba: $e')));
                     }
                   },
                   icon: const Icon(Icons.check_circle_outline, size: 16),
@@ -366,7 +416,10 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green[600],
                     side: BorderSide(color: Colors.green[600]!, width: 1.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                   ),
                 ),
               )
@@ -376,11 +429,14 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                   if (value == true) {
                     try {
                       DateTime? nextDueDate;
-                      
+
                       // Ak nema opakovanie, vymas ju
                       if (task.periodicity == Periodicity.none) {
-                        await _firestore.collection('cinnosti').doc(task.id).delete();
-                        
+                        await _firestore
+                            .collection('cinnosti')
+                            .doc(task.id)
+                            .delete();
+
                         setState(() {
                           _cinnosti.removeWhere((c) => c.id == task.id);
                         });
@@ -388,10 +444,12 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                         // Ma opakovanie - vypocitaj dalsi datum
                         nextDueDate = task.dueDate;
                         final repeatDays = task.repeatInterval ?? 1;
-                        
+
                         switch (task.periodicity) {
                           case Periodicity.weekly:
-                            nextDueDate = task.dueDate.add(Duration(days: repeatDays * 7));
+                            nextDueDate = task.dueDate.add(
+                              Duration(days: repeatDays * 7),
+                            );
                             break;
                           case Periodicity.monthly:
                             nextDueDate = DateTime(
@@ -410,16 +468,21 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                           case Periodicity.none:
                             break;
                         }
-                        
+
                         // Aktualizuj v Firestore
-                        await _firestore.collection('cinnosti').doc(task.id).update({
-                          'dueDate': nextDueDate,
-                          'completed': false,
-                        });
-                        
+                        await _firestore
+                            .collection('cinnosti')
+                            .doc(task.id)
+                            .update({
+                              'dueDate': nextDueDate,
+                              'completed': false,
+                            });
+
                         // Aktualizuj v zozname
                         setState(() {
-                          final index = _cinnosti.indexWhere((c) => c.id == task.id);
+                          final index = _cinnosti.indexWhere(
+                            (c) => c.id == task.id,
+                          );
                           if (index != -1) {
                             _cinnosti[index] = _cinnosti[index].copyWith(
                               dueDate: nextDueDate!,
@@ -428,7 +491,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                           }
                         });
                       }
-                      
+
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -439,9 +502,9 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                         ),
                       );
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Chyba: $e')),
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Chyba: $e')));
                     }
                   }
                 },
@@ -455,7 +518,9 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     // Zoskupenie činností podľa užívateľa
     Map<String, List<Cinnost>> groupedByUser = {};
     for (var cinnost in _cinnosti) {
-      final user = cinnost.assignedTo.isNotEmpty ? cinnost.assignedTo : 'Nepriradené';
+      final user = cinnost.assignedTo.isNotEmpty
+          ? cinnost.assignedTo
+          : 'Nepriradené';
       groupedByUser.putIfAbsent(user, () => []).add(cinnost);
     }
 
@@ -473,15 +538,15 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                 spacing: 8,
                 children: userList.map((user) {
                   final count = groupedByUser[user]?.length ?? 0;
-                  final userName = user == 'Nepriradené' 
-                      ? 'Nepriradené' 
+                  final userName = user == 'Nepriradené'
+                      ? 'Nepriradené'
                       : user.split('@')[0];
                   return FilterChip(
                     label: Text(
                       '$userName ($count)',
                       style: TextStyle(
-                        color: _selectedUser == user 
-                            ? Colors.white 
+                        color: _selectedUser == user
+                            ? Colors.white
                             : AppColors.textPrimary,
                         fontWeight: FontWeight.w500,
                       ),
@@ -516,12 +581,12 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                   ),
                   itemBuilder: (context, index) {
                     final cinnost = _filteredCinnosti[index];
-                  // Nájdi priestor tejto činnosti
-                  final priestor = _priestory.firstWhere(
-                    (p) => p.id == cinnost.priestorId,
-                    orElse: () => Priestor(
-                      id: '',
-                      householdId: widget.household.id,
+                    // Nájdi priestor tejto činnosti
+                    final priestor = _priestory.firstWhere(
+                      (p) => p.id == cinnost.priestorId,
+                      orElse: () => Priestor(
+                        id: '',
+                        householdId: widget.household.id,
                         name: 'Neznámy priestor',
                         createdAt: DateTime.now(),
                       ),
@@ -701,7 +766,15 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   }
 
   String _formatDate(DateTime date) {
-    final days = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
+    final days = [
+      'Nedeľa',
+      'Pondelok',
+      'Utorok',
+      'Streda',
+      'Štvrtok',
+      'Piatok',
+      'Sobota',
+    ];
     final dayName = days[date.weekday % 7];
     return '$dayName, ${date.day}.${date.month}.${date.year}';
   }
@@ -719,16 +792,19 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     }
   }
 
-  String _getPeriodityLabelWithInterval(Periodicity periodicity, int? repeatInterval) {
+  String _getPeriodityLabelWithInterval(
+    Periodicity periodicity,
+    int? repeatInterval,
+  ) {
     if (periodicity.index == 0) return '';
-    
+
     final label = _getPeriodityLabel(periodicity);
     final interval = repeatInterval ?? 1;
-    
+
     if (interval == 1) {
       return label;
     }
-    
+
     return '$label ($interval)';
   }
 
@@ -1160,8 +1236,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                                   child: Text(
                                                     'Ja',
                                                     style: TextStyle(
-                                                      color: AppColors
-                                                          .textPrimary,
+                                                      color:
+                                                          AppColors.textPrimary,
                                                       fontSize: 12,
                                                     ),
                                                     overflow:
@@ -1200,9 +1276,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                                                 .textPrimary,
                                                             fontSize: 12,
                                                           ),
-                                                          overflow:
-                                                              TextOverflow
-                                                                  .ellipsis,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
                                                           maxLines: 1,
                                                         ),
                                                       ),
@@ -1243,7 +1318,10 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                       lastDate: DateTime.now().add(
                                         const Duration(days: 365),
                                       ),
-                                      locale: const Locale('sk', 'SK'), // Slovenčina - začína od pondelka
+                                      locale: const Locale(
+                                        'sk',
+                                        'SK',
+                                      ), // Slovenčina - začína od pondelka
                                       builder: (context, child) {
                                         return Theme(
                                           data: Theme.of(context).copyWith(
@@ -1375,7 +1453,9 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
 
                     // Interval opakovania
                     if (selectedPeriodicity.index > 0) ...[
-                      _buildFormLabel(_getRepeatIntervalLabel(selectedPeriodicity)),
+                      _buildFormLabel(
+                        _getRepeatIntervalLabel(selectedPeriodicity),
+                      ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: repeatIntervalController,
@@ -1576,9 +1656,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 14,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
                               ),

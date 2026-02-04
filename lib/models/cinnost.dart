@@ -1,11 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum Periodicity {
-  none,
-  weekly,
-  monthly,
-  annually,
-}
+enum Periodicity { none, weekly, monthly, annually }
 
 class Cinnost {
   final String id;

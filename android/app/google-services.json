@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1018439403349",
+    "project_id": "gazda-3a022",
+    "storage_bucket": "gazda-3a022.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1018439403349:android:85073fbcfa1cc250e091dc",
+        "android_client_info": {
+          "package_name": "com.kempa.gazda"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1018439403349-1cg0aqf308hib2hjmqel5m1feapulpv1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kempa.gazda",
+            "certificate_hash": "409c1deee3d76876f56c4fae1aea03c99df49410"
+          }
+        },
+        {
+          "client_id": "1018439403349-7q8j1bfv6qq1sdu2ageiun51ab8lfib1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCry7BHqtezKHDBYsZos8ut2XboEQypbig"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1018439403349-7q8j1bfv6qq1sdu2ageiun51ab8lfib1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

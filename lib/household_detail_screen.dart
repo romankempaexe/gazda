@@ -24,12 +24,55 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   List<Priestor> _priestory = [];
   List<Cinnost> _cinnosti = [];
   String? _selectedUser;
+  
+  // Kalendár
+  DateTime _selectedDate = DateTime.now();
+  int _calendarMonth = 0;
+  int _calendarYear = 0;
 
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _calendarMonth = now.month;
+    _calendarYear = now.year;
+    _selectedDate = now;
     _loadPriestory();
     _loadCinnosti();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  void _previousMonth() {
+    setState(() {
+      _calendarMonth--;
+      if (_calendarMonth < 1) {
+        _calendarMonth = 12;
+        _calendarYear--;
+      }
+    });
+  }
+
+  void _nextMonth() {
+    setState(() {
+      _calendarMonth++;
+      if (_calendarMonth > 12) {
+        _calendarMonth = 1;
+        _calendarYear++;
+      }
+    });
+  }
+
+  void _goToToday() {
+    final now = DateTime.now();
+    setState(() {
+      _calendarMonth = now.month;
+      _calendarYear = now.year;
+      _selectedDate = now;
+    });
   }
 
   Future<void> _loadPriestory() async {
@@ -115,13 +158,28 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      extendBody: false,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         title: Text(widget.household.name),
         centerTitle: true,
       ),
-      body: _buildBody(),
+      body: Stack(
+        children: [
+          // Background image
+          Container(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/textures/screens_bcg.png'),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          // Content
+          Column(children: [_buildBody()]),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) {
@@ -129,9 +187,11 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
             _selectedIndex = index;
           });
         },
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.transparent,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
+        type: BottomNavigationBarType.fixed,
+        elevation: 0,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.list), label: 'Moj Rozpis'),
           BottomNavigationBarItem(
@@ -159,47 +219,10 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
         .where((c) => c.assignedTo == currentUser)
         .toList();
 
-    // Rozdeliť na dnešné, zmešané a budúce
-    final today = DateTime.now();
-    final todayOnly = DateTime(today.year, today.month, today.day);
-
-    final todayTasks =
-        myTasks.where((c) {
-          final dueDate = DateTime(
-            c.dueDate.year,
-            c.dueDate.month,
-            c.dueDate.day,
-          );
-          return dueDate.compareTo(todayOnly) == 0 && !c.completed;
-        }).toList()..sort(
-          (a, b) => a.dueDate.compareTo(b.dueDate),
-        ); // Zoradené podľa času
-
-    final lateTasks =
-        myTasks.where((c) {
-            final dueDate = DateTime(
-              c.dueDate.year,
-              c.dueDate.month,
-              c.dueDate.day,
-            );
-            return dueDate.isBefore(todayOnly) && !c.completed;
-          }).toList()
-          ..sort((a, b) => a.dueDate.compareTo(b.dueDate)); // Najstarší prvý
-
-    final upcomingTasks =
-        myTasks.where((c) {
-          final dueDate = DateTime(
-            c.dueDate.year,
-            c.dueDate.month,
-            c.dueDate.day,
-          );
-          return dueDate.isAfter(todayOnly) && !c.completed;
-        }).toList()..sort(
-          (a, b) => a.dueDate.compareTo(b.dueDate),
-        ); // Zoradené podľa času
-
-    // Zlúčiť všetky úlohy v poradí: zmešané -> dnes -> budúce (podľa času)
-    final allTasks = [...lateTasks, ...todayTasks, ...upcomingTasks];
+    // Filtrovať iba činnosti na vybraný deň
+    final tasksForSelectedDay = _getTasksForDate(_selectedDate)
+        .where((c) => c.assignedTo == currentUser)
+        .toList();
 
     if (myTasks.isEmpty) {
       return Center(
@@ -226,21 +249,29 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+    return Expanded(
       child: Column(
         children: [
-          ...allTasks.map((task) {
-            // Urči na základe dátumu
-            final dueDate = DateTime(
-              task.dueDate.year,
-              task.dueDate.month,
-              task.dueDate.day,
-            );
-            final isMissed = dueDate.isBefore(todayOnly);
-
-            return _buildTaskItem(task, showButton: true);
-          }),
+          _buildCalendarHeader(),
+          Expanded(
+            child: tasksForSelectedDay.isEmpty
+                ? Center(
+                    child: Text(
+                      'Žiadne činnosti na ${_formatDate(_selectedDate)}',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                    child: Column(
+                      children: [
+                        ...tasksForSelectedDay.map((task) {
+                          return _buildTaskItem(task, showButton: true);
+                        }),
+                      ],
+                    ),
+                  ),
+          ),
         ],
       ),
     );
@@ -258,21 +289,21 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     );
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      color: AppColors.background,
+      margin: const EdgeInsets.only(bottom: 6),
+      color: AppColors.background.withOpacity(0.7),
       elevation: 1,
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         leading: Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: CinnostColors.hexToColor(task.color),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             CinnostIcons.getIcon(task.icon),
             color: Colors.white,
-            size: 20,
+            size: 18,
           ),
         ),
         title: Text(
@@ -280,30 +311,32 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
           style: TextStyle(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.w600,
+            fontSize: 14,
           ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Row(
               children: [
                 Icon(
                   Icons.location_on,
-                  size: 14,
+                  size: 12,
                   color: AppColors.textSecondary,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 3),
                 Text(
                   priestor.name,
                   style: TextStyle(
                     color: AppColors.textSecondary,
-                    fontSize: 12,
+                    fontSize: 11,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
-            const SizedBox(height: 4),
             Row(
               children: [
                 Icon(
@@ -515,9 +548,12 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   }
 
   Widget _buildPlanovaneTab() {
+    // Filtrovať činnosti pre vybraný deň
+    final tasksForSelectedDay = _getTasksForDate(_selectedDate);
+    
     // Zoskupenie činností podľa užívateľa
     Map<String, List<Cinnost>> groupedByUser = {};
-    for (var cinnost in _cinnosti) {
+    for (var cinnost in tasksForSelectedDay) {
       final user = cinnost.assignedTo.isNotEmpty
           ? cinnost.assignedTo
           : 'Nepriradené';
@@ -525,213 +561,152 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     }
 
     final userList = groupedByUser.keys.toList();
+    
+    // Filtrovať podľa vybraného užívateľa
+    final filteredByUser = _selectedUser != null
+        ? tasksForSelectedDay.where((c) => c.assignedTo == _selectedUser).toList()
+        : tasksForSelectedDay;
 
-    return Column(
-      children: [
-        // Záložky užívateľov
-        if (userList.isNotEmpty)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Wrap(
-                spacing: 8,
-                children: userList.map((user) {
-                  final count = groupedByUser[user]?.length ?? 0;
-                  final userName = user == 'Nepriradené'
-                      ? 'Nepriradené'
-                      : user.split('@')[0];
-                  return FilterChip(
-                    label: Text(
-                      '$userName ($count)',
-                      style: TextStyle(
-                        color: _selectedUser == user
-                            ? Colors.white
-                            : AppColors.textPrimary,
-                        fontWeight: FontWeight.w500,
-                      ),
+    return Expanded(
+      child: Column(
+        children: [
+          _buildCalendarHeader(),
+          Expanded(
+            child: tasksForSelectedDay.isEmpty
+                ? Center(
+                    child: Text(
+                      'Žiadne činnosti na ${_formatDate(_selectedDate)}',
+                      style: TextStyle(color: AppColors.textSecondary),
                     ),
-                    selected: _selectedUser == user,
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedUser = selected ? user : null;
-                      });
-                    },
-                    backgroundColor: Colors.grey[100],
-                    selectedColor: AppColors.primary,
-                    showCheckmark: false,
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-        Expanded(
-          child: _cinnosti.isEmpty
-              ? Center(
-                  child: Text(
-                    'Žiadne činnosti',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: _filteredCinnosti.length,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  itemBuilder: (context, index) {
-                    final cinnost = _filteredCinnosti[index];
-                    // Nájdi priestor tejto činnosti
-                    final priestor = _priestory.firstWhere(
-                      (p) => p.id == cinnost.priestorId,
-                      orElse: () => Priestor(
-                        id: '',
-                        householdId: widget.household.id,
-                        name: 'Neznámy priestor',
-                        createdAt: DateTime.now(),
-                      ),
-                    );
+                  )
+                : ListView.builder(
+                    itemCount: filteredByUser.length,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
+                    itemBuilder: (context, index) {
+                      final cinnost = filteredByUser[index];
+                      // Nájdi priestor tejto činnosti
+                      final priestor = _priestory.firstWhere(
+                        (p) => p.id == cinnost.priestorId,
+                        orElse: () => Priestor(
+                          id: '',
+                          householdId: widget.household.id,
+                          name: 'Neznámy priestor',
+                          createdAt: DateTime.now(),
+                        ),
+                      );
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      elevation: 2,
-                      color: AppColors.background,
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Header: Ikona + Názov + Menu
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: CinnostColors.hexToColor(
-                                      cinnost.color,
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        elevation: 1,
+                        color: AppColors.background.withOpacity(0.7),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Header: Ikona + Názov + Menu
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: CinnostColors.hexToColor(
+                                        cinnost.color,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
-                                    borderRadius: BorderRadius.circular(8),
+                                    child: Icon(
+                                      CinnostIcons.getIcon(cinnost.icon),
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
                                   ),
-                                  child: Icon(
-                                    CinnostIcons.getIcon(cinnost.icon),
-                                    color: Colors.white,
-                                    size: 24,
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          cinnost.name,
+                                          style: TextStyle(
+                                            color: AppColors.textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        if (cinnost.description.isNotEmpty)
+                                          Text(
+                                            cinnost.description,
+                                            style: TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 11,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        cinnost.name,
-                                        style: TextStyle(
-                                          color: AppColors.textPrimary,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
+                                  PopupMenuButton(
+                                    onSelected: (value) async {
+                                      if (value == 'delete') {
+                                        try {
+                                          await _firestore
+                                              .collection('cinnosti')
+                                              .doc(cinnost.id)
+                                              .delete();
+
+                                          setState(() {
+                                            _cinnosti.removeWhere((c) => c.id == cinnost.id);
+                                          });
+
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Činnosť "${cinnost.name}" bola vymazaná'),
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Chyba pri mazaní: $e')),
+                                          );
+                                        }
+                                      }
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.delete,
+                                              color: Colors.red,
+                                            ),
+                                            SizedBox(width: 8),
+                                            Text('Vymazať'),
+                                          ],
                                         ),
                                       ),
-                                      if (cinnost.description.isNotEmpty)
-                                        Text(
-                                          cinnost.description,
-                                          style: TextStyle(
-                                            color: AppColors.textSecondary,
-                                            fontSize: 13,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
                                     ],
                                   ),
-                                ),
-                                PopupMenuButton(
-                                  onSelected: (value) {
-                                    if (value == 'delete') {
-                                      // TODO: Implementovať mazanie činnosti
-                                    }
-                                  },
-                                  itemBuilder: (context) => [
-                                    const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.delete, color: Colors.red),
-                                          SizedBox(width: 8),
-                                          Text('Vymazať'),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            // Info row: Priestor
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.room,
-                                  size: 18,
-                                  color: AppColors.textSecondary,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  priestor.name,
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            // Info row: Kedy
-                            if (cinnost.dueDate != null)
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.calendar_today,
-                                    size: 18,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Do: ${_formatDate(cinnost.dueDate!)}',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  if (cinnost.periodicity.index > 0)
-                                    Text(
-                                      '• ${_getPeriodityLabelWithInterval(cinnost.periodicity, cinnost.repeatInterval)}',
-                                      style: TextStyle(
-                                        color: AppColors.textSecondary,
-                                        fontSize: 12,
-                                      ),
-                                    ),
                                 ],
                               ),
-                            const SizedBox(height: 8),
-                            // Info row: Pridelená
-                            if (cinnost.assignedTo.isNotEmpty)
+                              const SizedBox(height: 4),
+                              // Info row: Priestor
                               Row(
                                 children: [
                                   Icon(
-                                    Icons.person,
-                                    size: 18,
+                                    Icons.room,
+                                    size: 14,
                                     color: AppColors.textSecondary,
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(
-                                      cinnost.assignedTo,
+                                      priestor.name,
                                       style: TextStyle(
                                         color: AppColors.textSecondary,
-                                        fontSize: 13,
+                                        fontSize: 11,
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
@@ -739,29 +714,80 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                   ),
                                 ],
                               ),
-                          ],
+                              if (cinnost.periodicity.index > 0 || cinnost.assignedTo.isNotEmpty)
+                                const SizedBox(height: 3),
+                              // Info row: Opakovanie (ak existuje)
+                              if (cinnost.periodicity.index > 0)
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.repeat,
+                                      size: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        _getPeriodityLabelWithInterval(cinnost.periodicity, cinnost.repeatInterval),
+                                        style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 10,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              if (cinnost.assignedTo.isNotEmpty && cinnost.periodicity.index > 0)
+                                const SizedBox(height: 3),
+                              // Info row: Pridelená
+                              if (cinnost.assignedTo.isNotEmpty)
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.person,
+                                      size: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        cinnost.assignedTo.split('@')[0],
+                                        style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 10,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showCinnostPriestorSelector,
+                icon: const Icon(Icons.add),
+                label: const Text('Pridať činnosť'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
                 ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(8),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _showCinnostPriestorSelector,
-              icon: const Icon(Icons.add),
-              label: const Text('Pridať činnosť'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1056,7 +1082,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     // Form state
     final nameController = TextEditingController();
     final descriptionController = TextEditingController();
-    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    DateTime selectedDate = _selectedDate; // Používaj vybraný deň z kalendára
     String selectedAssignedTo = _auth.currentUser?.email ?? '';
     Periodicity selectedPeriodicity = Periodicity.none;
     final repeatIntervalController = TextEditingController(text: '1');
@@ -1307,81 +1333,36 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                             children: [
                               _buildFormLabel('Termín'),
                               const SizedBox(height: 8),
-                              Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () async {
-                                    final picked = await showDatePicker(
-                                      context: context,
-                                      initialDate: selectedDate,
-                                      firstDate: DateTime.now(),
-                                      lastDate: DateTime.now().add(
-                                        const Duration(days: 365),
-                                      ),
-                                      locale: const Locale(
-                                        'sk',
-                                        'SK',
-                                      ), // Slovenčina - začína od pondelka
-                                      builder: (context, child) {
-                                        return Theme(
-                                          data: Theme.of(context).copyWith(
-                                            colorScheme: ColorScheme.light(
-                                              primary: AppColors.primary,
-                                              onPrimary: Colors.white,
-                                              surface: Colors.white,
-                                              onSurface: AppColors.textPrimary,
-                                            ),
-                                            textButtonTheme:
-                                                TextButtonThemeData(
-                                                  style: TextButton.styleFrom(
-                                                    foregroundColor:
-                                                        AppColors.primary,
-                                                  ),
-                                                ),
-                                          ),
-                                          child: child!,
-                                        );
-                                      },
-                                    );
-                                    if (picked != null) {
-                                      setState(() {
-                                        selectedDate = picked;
-                                      });
-                                    }
-                                  },
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 14,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      border: Border.all(
-                                        color: Colors.grey[300]!,
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          _formatDate(selectedDate),
-                                          style: TextStyle(
-                                            color: AppColors.textPrimary,
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        Icon(
-                                          Icons.calendar_today,
-                                          size: 18,
-                                          color: AppColors.primary,
-                                        ),
-                                      ],
-                                    ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.05),
+                                  border: Border.all(
+                                    color: AppColors.primary.withOpacity(0.3),
                                   ),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _formatDate(selectedDate),
+                                      style: TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.calendar_today,
+                                      size: 18,
+                                      color: AppColors.primary,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1792,4 +1773,264 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
         return '1';
     }
   }
+
+  // Filtruj činnosti podľa vybraného dňa
+  List<Cinnost> _getTasksForDate(DateTime date) {
+    return _cinnosti.where((c) {
+      final cDate = DateTime(c.dueDate.year, c.dueDate.month, c.dueDate.day);
+      final selectedDate = DateTime(date.year, date.month, date.day);
+      
+      // Presný dátum
+      if (cDate.compareTo(selectedDate) == 0) {
+        return true;
+      }
+      
+      // Opakovanie
+      if (c.periodicity != Periodicity.none) {
+        final daysDiff = selectedDate.difference(cDate).inDays;
+        
+        // Len budúce alebo dnešné dátumy
+        if (daysDiff < 0) return false;
+        
+        switch (c.periodicity) {
+          case Periodicity.weekly:
+            final interval = c.repeatInterval ?? 1;
+            // Skontroluj deň v týždni (1=Pondelok, 7=Nedeľa)
+            if (cDate.weekday != selectedDate.weekday) return false;
+            // Skontroluj počet týždňov
+            final weeksDiff = daysDiff ~/ 7;
+            return weeksDiff % interval == 0;
+            
+          case Periodicity.monthly:
+            final interval = c.repeatInterval ?? 1;
+            // Skontroluj deň mesiaca
+            if (cDate.day != selectedDate.day) return false;
+            // Skontroluj mesiac
+            final monthsDiff = (selectedDate.year - cDate.year) * 12 + 
+                               (selectedDate.month - cDate.month);
+            return monthsDiff % interval == 0;
+            
+          case Periodicity.annually:
+            final interval = c.repeatInterval ?? 1;
+            // Skontroluj deň a mesiac
+            if (cDate.day != selectedDate.day || 
+                cDate.month != selectedDate.month) {
+              return false;
+            }
+            // Skontroluj rok
+            final yearsDiff = selectedDate.year - cDate.year;
+            return yearsDiff % interval == 0;
+            
+          case Periodicity.none:
+            return false;
+        }
+      }
+      
+      return false;
+    }).toList();
+  }
+
+  // Horizontálny kalendár
+  Widget _buildCalendarHeader() {
+    String monthName(int month, int year) {
+      const months = [
+        'Január',
+        'Február',
+        'Marec',
+        'Apríl',
+        'Máj',
+        'Jún',
+        'Júl',
+        'August',
+        'September',
+        'Október',
+        'November',
+        'December',
+      ];
+      return '${months[month - 1]} $year';
+    }
+
+    // Zistiť prvý deň mesiaca
+    final firstDay = DateTime(_calendarYear, _calendarMonth, 1);
+    final lastDay = DateTime(_calendarYear, _calendarMonth + 1, 0);
+    final daysInMonth = lastDay.day;
+    final startingWeekday = firstDay.weekday; // 1=Monday, 7=Sunday
+
+    // Dni z predchádzajúceho mesiaca
+    final emptyDays = startingWeekday - 1;
+
+    const dayNames = ['Po', 'Ut', 'St', 'Št', 'Pi', 'So', 'Ne'];
+
+    return Column(
+      children: [
+        // Header s mesiacom a navigáciou
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                color: AppColors.textPrimary,
+                onPressed: _previousMonth,
+              ),
+              Column(
+                children: [
+                  Text(
+                    monthName(_calendarMonth, _calendarYear),
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (_calendarMonth != DateTime.now().month || _calendarYear != DateTime.now().year)
+                    GestureDetector(
+                      onTap: _goToToday,
+                      child: Text(
+                        'Dnes',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                color: AppColors.textPrimary,
+                onPressed: _nextMonth,
+              ),
+            ],
+          ),
+        ),
+        // Dni v týždni
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: dayNames
+                .map((day) => SizedBox(
+                      width: 40,
+                      child: Center(
+                        child: Text(
+                          day,
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+        // Grid s dňami
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 4,
+            ),
+            itemCount: emptyDays + daysInMonth,
+            itemBuilder: (context, index) {
+              if (index < emptyDays) {
+                return const SizedBox.shrink();
+              }
+
+              final dayNumber = index - emptyDays + 1;
+              final date = DateTime(_calendarYear, _calendarMonth, dayNumber);
+              final isSelected = _selectedDate.year == date.year &&
+                  _selectedDate.month == date.month &&
+                  _selectedDate.day == date.day;
+              final isToday = DateTime.now().year == date.year &&
+                  DateTime.now().month == date.month &&
+                  DateTime.now().day == date.day;
+
+              // Zisti činnosti na tento deň
+              final tasksOnDay = _getTasksForDate(date);
+              
+              // Zbierka iniciálov osôb s úlohami
+              final initials = <String>{};
+              for (var task in tasksOnDay) {
+                if (task.assignedTo.isNotEmpty) {
+                  final parts = task.assignedTo.split('@')[0].split('.');
+                  if (parts.isNotEmpty) {
+                    // Iniciály: prvé písmeno prvej a druhej časti
+                    final initial = parts.length > 1 
+                        ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
+                        : parts[0][0].toUpperCase();
+                    initials.add(initial);
+                  }
+                }
+              }
+              final initialsText = initials.join(', ');
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedDate = date;
+                  });
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primary
+                        : isToday
+                            ? AppColors.primary.withOpacity(0.2)
+                            : Colors.white.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isToday ? AppColors.primary : Colors.transparent,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '$dayNumber',
+                        style: TextStyle(
+                          color: isSelected
+                              ? Colors.white
+                              : isToday
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                          fontWeight:
+                              isSelected || isToday ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      if (initialsText.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            initialsText,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white.withOpacity(0.8)
+                                  : AppColors.textSecondary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
 }
+

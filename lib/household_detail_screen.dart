@@ -24,7 +24,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   List<Priestor> _priestory = [];
   List<Cinnost> _cinnosti = [];
   String? _selectedUser;
-  
+
   // Kalendár
   DateTime _selectedDate = DateTime.now();
   int _calendarMonth = 0;
@@ -220,9 +220,9 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
         .toList();
 
     // Filtrovať iba činnosti na vybraný deň
-    final tasksForSelectedDay = _getTasksForDate(_selectedDate)
-        .where((c) => c.assignedTo == currentUser)
-        .toList();
+    final tasksForSelectedDay = _getTasksForDate(
+      _selectedDate,
+    ).where((c) => c.assignedTo == currentUser).toList();
 
     if (myTasks.isEmpty) {
       return Center(
@@ -550,7 +550,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
   Widget _buildPlanovaneTab() {
     // Filtrovať činnosti pre vybraný deň
     final tasksForSelectedDay = _getTasksForDate(_selectedDate);
-    
+
     // Zoskupenie činností podľa užívateľa
     Map<String, List<Cinnost>> groupedByUser = {};
     for (var cinnost in tasksForSelectedDay) {
@@ -561,10 +561,12 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     }
 
     final userList = groupedByUser.keys.toList();
-    
+
     // Filtrovať podľa vybraného užívateľa
     final filteredByUser = _selectedUser != null
-        ? tasksForSelectedDay.where((c) => c.assignedTo == _selectedUser).toList()
+        ? tasksForSelectedDay
+              .where((c) => c.assignedTo == _selectedUser)
+              .toList()
         : tasksForSelectedDay;
 
     return Expanded(
@@ -658,17 +660,29 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                               .delete();
 
                                           setState(() {
-                                            _cinnosti.removeWhere((c) => c.id == cinnost.id);
+                                            _cinnosti.removeWhere(
+                                              (c) => c.id == cinnost.id,
+                                            );
                                           });
 
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             SnackBar(
-                                              content: Text('Činnosť "${cinnost.name}" bola vymazaná'),
+                                              content: Text(
+                                                'Činnosť "${cinnost.name}" bola vymazaná',
+                                              ),
                                             ),
                                           );
                                         } catch (e) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('Chyba pri mazaní: $e')),
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Chyba pri mazaní: $e',
+                                              ),
+                                            ),
                                           );
                                         }
                                       }
@@ -714,7 +728,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                   ),
                                 ],
                               ),
-                              if (cinnost.periodicity.index > 0 || cinnost.assignedTo.isNotEmpty)
+                              if (cinnost.periodicity.index > 0 ||
+                                  cinnost.assignedTo.isNotEmpty)
                                 const SizedBox(height: 3),
                               // Info row: Opakovanie (ak existuje)
                               if (cinnost.periodicity.index > 0)
@@ -728,7 +743,10 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                     const SizedBox(width: 4),
                                     Expanded(
                                       child: Text(
-                                        _getPeriodityLabelWithInterval(cinnost.periodicity, cinnost.repeatInterval),
+                                        _getPeriodityLabelWithInterval(
+                                          cinnost.periodicity,
+                                          cinnost.repeatInterval,
+                                        ),
                                         style: TextStyle(
                                           color: AppColors.textSecondary,
                                           fontSize: 10,
@@ -739,7 +757,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                                     ),
                                   ],
                                 ),
-                              if (cinnost.assignedTo.isNotEmpty && cinnost.periodicity.index > 0)
+                              if (cinnost.assignedTo.isNotEmpty &&
+                                  cinnost.periodicity.index > 0)
                                 const SizedBox(height: 3),
                               // Info row: Pridelená
                               if (cinnost.assignedTo.isNotEmpty)
@@ -1779,19 +1798,19 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     return _cinnosti.where((c) {
       final cDate = DateTime(c.dueDate.year, c.dueDate.month, c.dueDate.day);
       final selectedDate = DateTime(date.year, date.month, date.day);
-      
+
       // Presný dátum
       if (cDate.compareTo(selectedDate) == 0) {
         return true;
       }
-      
+
       // Opakovanie
       if (c.periodicity != Periodicity.none) {
         final daysDiff = selectedDate.difference(cDate).inDays;
-        
+
         // Len budúce alebo dnešné dátumy
         if (daysDiff < 0) return false;
-        
+
         switch (c.periodicity) {
           case Periodicity.weekly:
             final interval = c.repeatInterval ?? 1;
@@ -1800,32 +1819,33 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
             // Skontroluj počet týždňov
             final weeksDiff = daysDiff ~/ 7;
             return weeksDiff % interval == 0;
-            
+
           case Periodicity.monthly:
             final interval = c.repeatInterval ?? 1;
             // Skontroluj deň mesiaca
             if (cDate.day != selectedDate.day) return false;
             // Skontroluj mesiac
-            final monthsDiff = (selectedDate.year - cDate.year) * 12 + 
-                               (selectedDate.month - cDate.month);
+            final monthsDiff =
+                (selectedDate.year - cDate.year) * 12 +
+                (selectedDate.month - cDate.month);
             return monthsDiff % interval == 0;
-            
+
           case Periodicity.annually:
             final interval = c.repeatInterval ?? 1;
             // Skontroluj deň a mesiac
-            if (cDate.day != selectedDate.day || 
+            if (cDate.day != selectedDate.day ||
                 cDate.month != selectedDate.month) {
               return false;
             }
             // Skontroluj rok
             final yearsDiff = selectedDate.year - cDate.year;
             return yearsDiff % interval == 0;
-            
+
           case Periodicity.none:
             return false;
         }
       }
-      
+
       return false;
     }).toList();
   }
@@ -1884,7 +1904,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (_calendarMonth != DateTime.now().month || _calendarYear != DateTime.now().year)
+                  if (_calendarMonth != DateTime.now().month ||
+                      _calendarYear != DateTime.now().year)
                     GestureDetector(
                       onTap: _goToToday,
                       child: Text(
@@ -1912,19 +1933,21 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: dayNames
-                .map((day) => SizedBox(
-                      width: 40,
-                      child: Center(
-                        child: Text(
-                          day,
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
+                .map(
+                  (day) => SizedBox(
+                    width: 40,
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
                         ),
                       ),
-                    ))
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -1947,16 +1970,18 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
 
               final dayNumber = index - emptyDays + 1;
               final date = DateTime(_calendarYear, _calendarMonth, dayNumber);
-              final isSelected = _selectedDate.year == date.year &&
+              final isSelected =
+                  _selectedDate.year == date.year &&
                   _selectedDate.month == date.month &&
                   _selectedDate.day == date.day;
-              final isToday = DateTime.now().year == date.year &&
+              final isToday =
+                  DateTime.now().year == date.year &&
                   DateTime.now().month == date.month &&
                   DateTime.now().day == date.day;
 
               // Zisti činnosti na tento deň
               final tasksOnDay = _getTasksForDate(date);
-              
+
               // Zbierka iniciálov osôb s úlohami
               final initials = <String>{};
               for (var task in tasksOnDay) {
@@ -1964,7 +1989,7 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                   final parts = task.assignedTo.split('@')[0].split('.');
                   if (parts.isNotEmpty) {
                     // Iniciály: prvé písmeno prvej a druhej časti
-                    final initial = parts.length > 1 
+                    final initial = parts.length > 1
                         ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
                         : parts[0][0].toUpperCase();
                     initials.add(initial);
@@ -1984,8 +2009,8 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                     color: isSelected
                         ? AppColors.primary
                         : isToday
-                            ? AppColors.primary.withOpacity(0.2)
-                            : Colors.white.withOpacity(0.5),
+                        ? AppColors.primary.withOpacity(0.2)
+                        : Colors.white.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: isToday ? AppColors.primary : Colors.transparent,
@@ -2000,10 +2025,11 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
                           color: isSelected
                               ? Colors.white
                               : isToday
-                                  ? AppColors.primary
-                                  : AppColors.textPrimary,
-                          fontWeight:
-                              isSelected || isToday ? FontWeight.bold : FontWeight.normal,
+                              ? AppColors.primary
+                              : AppColors.textPrimary,
+                          fontWeight: isSelected || isToday
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                         ),
                       ),
                       if (initialsText.isNotEmpty)
@@ -2033,4 +2059,3 @@ class _HouseholdDetailScreenState extends State<HouseholdDetailScreen> {
     );
   }
 }
-

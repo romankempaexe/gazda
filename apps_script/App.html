@@ -150,6 +150,11 @@
     return email ? email.split('@')[0] : 'Nepriradené';
   }
 
+  function membersLabel(n) {
+    if (n === 1) return '1 člen';
+    return n + (n >= 2 && n <= 4 ? ' členovia' : ' členov');
+  }
+
   function iconName(name) {
     return ICONS[name] || 'home';
   }
@@ -230,7 +235,9 @@
       const res = await api('getHouseholds');
       state.email = res.email;
       state.households = res.households;
-      $('userEmail').textContent = res.email;
+      $('avatar').textContent = res.email.charAt(0);
+      $('avatar').title = res.email;
+      $('avatar').classList.remove('hidden');
       renderHouseholds();
     } catch (err) {
       $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
@@ -241,6 +248,7 @@
     state.detail = null;
     $('title').textContent = 'Gazda';
     $('backBtn').classList.add('hidden');
+    $('brand').classList.remove('hidden');
     $('tabs').classList.add('hidden');
     document.body.classList.remove('with-tabs');
 
@@ -248,24 +256,24 @@
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
 
-    let html;
+    let html =
+      '<div class="page-head"><h2>Ahoj, ' + esc(shortName(state.email)) + '</h2>' +
+      '<p>' + (list.length ? 'Tvoje domácnosti' : 'Začni vytvorením domácnosti') + '</p></div>';
     if (!list.length) {
-      html =
+      html +=
         '<div class="empty"><span class="ms">home</span>' +
         '<h2>Žiadne domácnosti</h2><div>Vytvor si prvú domácnosť a pozvi do nej ostatných.</div></div>';
     } else {
-      html = list
+      html += list
         .map((h) => {
           const isOwner = h.createdByEmail === state.email;
-          const others = h.members.filter((m) => m.email !== state.email).length;
           return (
             '<div class="card clickable" data-open="' + esc(h.id) + '">' +
             '<span class="ms house-icon">home</span>' +
             '<div class="card-body"><div class="card-title">' + esc(h.name) + '</div>' +
-            '<div class="card-sub"><span class="ms">' + (isOwner ? 'person' : 'group') + '</span>' +
-            (isOwner ? 'Moja domácnosť' : 'Zdieľa ' + esc(h.createdByEmail)) +
-            (others ? ' · ' + others + ' ' + (isOwner ? 'zdieľaní' : 'ďalší') : '') +
-            '</div></div>' +
+            '<div class="card-sub">' + (isOwner ? 'Moja domácnosť' : 'Zdieľa ' + esc(shortName(h.createdByEmail))) +
+            '</div><div class="meta"><span class="tag"><span class="ms">group</span>' +
+            membersLabel(h.members.length) + '</span></div></div>' +
             '<button class="icon-btn" title="Zdieľať" data-share="' + esc(h.id) + '"><span class="ms">share</span></button>' +
             (isOwner
               ? '<button class="icon-btn danger" title="Vymazať" data-delete="' + esc(h.id) + '"><span class="ms">delete</span></button>'
@@ -377,7 +385,7 @@
         '<div class="subtitle">Domácnosť „' + esc(h.name) + '“ sa vymaže aj so všetkými ' +
         'priestormi a činnosťami. Táto akcia sa nedá vrátiť.</div>' +
         '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
-        '<button class="btn" style="background:var(--error)" id="ok">Vymazať</button></div>',
+        '<button class="btn danger" id="ok">Vymazať</button></div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
         root.querySelector('#ok').onclick = async () => {
@@ -442,6 +450,7 @@
     const d = state.detail;
     $('title').textContent = d.household.name;
     $('backBtn').classList.remove('hidden');
+    $('brand').classList.add('hidden');
     $('tabs').classList.remove('hidden');
     document.body.classList.add('with-tabs');
     document.querySelectorAll('#tabs .tab').forEach((t) => {
@@ -477,22 +486,21 @@
       '<div class="calendar"><div class="cal-head">' +
       '<button class="icon-btn" data-month="-1" title="Predchádzajúci mesiac"><span class="ms">chevron_left</span></button>' +
       '<div class="month">' + MONTHS[state.calMonth - 1] + ' ' + state.calYear + '</div>' +
-      '<button class="btn outline small" id="todayBtn">Dnes</button>' +
+      '<button class="btn tonal small" id="todayBtn">Dnes</button>' +
       '<button class="icon-btn" data-month="1" title="Ďalší mesiac"><span class="ms">chevron_right</span></button>' +
       '</div><div class="cal-days">' + days + '</div></div>'
     );
   }
 
   function taskCard(c, mode) {
-    const info = [
-      '<span class="ms">room</span>' + esc(priestorName(c.priestorId)),
-    ];
-    if (c.periodicity !== 'none') info.push('<span class="ms">repeat</span>' + esc(periodicityLabel(c)));
-    if (mode === 'plan') info.push('<span class="ms">person</span>' + esc(shortName(c.assignedTo)));
+    const tag = (icon, text) => '<span class="tag"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
+    const info = [tag('location_on', priestorName(c.priestorId))];
+    if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
+    if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
 
     const action =
       mode === 'mine'
-        ? '<button class="btn outline small" data-complete="' + esc(c.id) + '">' +
+        ? '<button class="btn tonal small" data-complete="' + esc(c.id) + '">' +
           '<span class="ms">check</span>Hotové</button>'
         : '<button class="icon-btn danger" title="Vymazať" data-delete-task="' + esc(c.id) + '">' +
           '<span class="ms">delete</span></button>';
@@ -502,9 +510,16 @@
       '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
       '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
       (c.description ? '<div class="card-sub">' + esc(c.description) + '</div>' : '') +
-      '<div class="card-sub">' + info.join('&nbsp;&nbsp;') + '</div></div>' +
+      '<div class="meta">' + info.join('') + '</div></div>' +
       action +
       '</div>'
+    );
+  }
+
+  function emptyDay() {
+    return (
+      '<div class="empty compact"><span class="ms">event_available</span>' +
+      '<div>Na ' + formatDate(state.selectedDate) + ' nie sú žiadne činnosti</div></div>'
     );
   }
 
@@ -519,7 +534,7 @@
     const tasks = tasksForDate(state.selectedDate, true);
     let html = '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
     if (!tasks.length) {
-      html += '<div class="empty">Žiadne činnosti na ' + formatDate(state.selectedDate) + '</div>';
+      html += emptyDay();
     } else {
       html += tasks.map((c) => taskCard(c, 'mine')).join('');
     }
@@ -553,7 +568,7 @@
     }
 
     if (!tasks.length) {
-      html += '<div class="empty">Žiadne činnosti na ' + formatDate(state.selectedDate) + '</div>';
+      html += emptyDay();
     } else {
       html += tasks.map((c) => taskCard(c, 'plan')).join('');
     }
@@ -618,7 +633,7 @@
       '<h2>Vymazať činnosť?</h2><div class="subtitle">„' + esc(c.name) + '“' +
         (c.periodicity !== 'none' ? ' – vymažú sa aj všetky jej opakovania.' : '') + '</div>' +
         '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
-        '<button class="btn" style="background:var(--error)" id="ok">Vymazať</button></div>',
+        '<button class="btn danger" id="ok">Vymazať</button></div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
         root.querySelector('#ok').onclick = async () => {
@@ -646,7 +661,7 @@
         '<div class="field"><input id="search" placeholder="Hľadaj priestor…"></div>' +
         '<div class="list-select" id="plist"></div>' +
         '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
-        '<button class="btn outline" id="newP"><span class="ms">add</span>Nový priestor</button></div>',
+        '<button class="btn tonal" id="newP"><span class="ms">add</span>Nový priestor</button></div>',
       (root) => {
         const renderList = () => {
           const q = root.querySelector('#search').value.trim().toLowerCase();
@@ -657,7 +672,7 @@
             ? items
                 .map(
                   (p) =>
-                    '<div class="card" data-pid="' + esc(p.id) + '"><span class="ms">room</span>' +
+                    '<div class="card" data-pid="' + esc(p.id) + '"><span class="ms">location_on</span>' +
                     '<div class="card-body card-title">' + esc(p.name) + '</div>' +
                     '<span class="ms muted">chevron_right</span></div>'
                 )

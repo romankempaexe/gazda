@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="sk">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+    />
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <header class="appbar">
+      <button id="backBtn" class="icon-btn hidden" title="Späť">
+        <span class="ms">arrow_back</span>
+      </button>
+      <h1 id="title">Gazda</h1>
+      <span id="userEmail" class="user-email"></span>
+    </header>
+
+    <main id="view">
+      <div class="center muted">Načítavam…</div>
+    </main>
+
+    <nav id="tabs" class="bottom-nav hidden">
+      <button data-tab="rozpis" class="tab active">
+        <span class="ms">list</span><span>Môj rozpis</span>
+      </button>
+      <button data-tab="planovanie" class="tab">
+        <span class="ms">calendar_month</span><span>Plánovanie</span>
+      </button>
+    </nav>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-card" id="modalContent"></div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="busy" class="busy hidden"><div class="spinner"></div></div>
+
+    <?!= include('App'); ?>
+  </body>
+</html>

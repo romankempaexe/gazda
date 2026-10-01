@@ -1,0 +1,818 @@
+<script>
+  // -------------------------------------------------------------------------
+  // Konštanty
+  // -------------------------------------------------------------------------
+
+  // Názov ikony (uložený v tabuľke) -> Material Symbol
+  const ICONS = {
+    home: 'home', kitchen: 'kitchen', bathtub: 'bathtub', bed: 'bed', chair: 'chair',
+    door: 'door_front', window: 'window', light: 'lightbulb', floor: 'apartment',
+    roof: 'roofing', stairs: 'stairs', garage: 'garage', garden: 'nature', grass: 'grass',
+    pool: 'pool', balcony: 'balcony', dining: 'dinner_dining', shopping: 'shopping_cart',
+    clean: 'cleaning_services', laundry: 'local_laundry_service', wash: 'wash',
+    dishes: 'dishwasher', trash: 'delete', recycle: 'recycling',
+    repair: 'home_repair_service', tools: 'construction', hammer: 'handyman',
+    wrench: 'plumbing', paint: 'format_paint', drill: 'precision_manufacturing', key: 'key',
+    lock: 'lock', unlock: 'lock_open', security: 'security', camera: 'videocam',
+    plants: 'eco', water: 'water_drop', sun: 'wb_sunny', snow: 'ac_unit', wind: 'air',
+    thermometer: 'thermostat', humidity: 'opacity', calendar: 'calendar_month',
+    clock: 'schedule', star: 'star', favorite: 'favorite', person: 'person',
+    family: 'group', check: 'check_circle', done: 'done_all', task: 'task_alt', list: 'list',
+  };
+
+  const COLORS = {
+    'Zelená': '#4CAF50', 'Modrá': '#2196F3', 'Červená': '#F44336', 'Oranžová': '#FF9800',
+    'Fialová': '#9C27B0', 'Ružová': '#E91E63', 'Tyrkysová': '#00BCD4', 'Žltá': '#FFEB3B',
+    'Hnedá': '#795548', 'Šedá': '#9E9E9E',
+  };
+
+  const PERIODICITY = {
+    none: { label: 'Bez opakovania' },
+    weekly: { label: 'Týždenne', unit: 'týždňov', hint: 'Napr. 2 = každé 2 týždne' },
+    monthly: { label: 'Mesačne', unit: 'mesiacov', hint: 'Napr. 3 = každé 3 mesiace' },
+    annually: { label: 'Ročne', unit: 'rokov', hint: 'Napr. 2 = každé 2 roky' },
+  };
+
+  const MONTHS = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August',
+    'September', 'Október', 'November', 'December'];
+  const WEEKDAYS_SHORT = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+  const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
+
+  // -------------------------------------------------------------------------
+  // Stav
+  // -------------------------------------------------------------------------
+
+  const state = {
+    email: '',
+    households: [],
+    detail: null, // { household, members, priestory, cinnosti, role }
+    tab: 'rozpis',
+    selectedDate: todayYmd(),
+    calYear: new Date().getFullYear(),
+    calMonth: new Date().getMonth() + 1,
+    selectedUser: null,
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  // -------------------------------------------------------------------------
+  // Komunikácia so serverom
+  // -------------------------------------------------------------------------
+
+  let pending = 0;
+
+  function api(fn, ...args) {
+    pending++;
+    $('busy').classList.remove('hidden');
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((err) => reject(err))
+        [fn](...args);
+    }).finally(() => {
+      pending--;
+      if (!pending) $('busy').classList.add('hidden');
+    });
+  }
+
+  function errorMessage(err) {
+    return (err && err.message ? err.message : String(err)).replace(/^Error:\s*/, '');
+  }
+
+  let toastTimer;
+  function toast(message, isError = false) {
+    const el = $('toast');
+    el.textContent = message;
+    el.classList.toggle('error', isError);
+    el.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.add('hidden'), isError ? 6000 : 3000);
+  }
+
+  function showError(err) {
+    toast(errorMessage(err), true);
+  }
+
+  function showWarnings(warnings) {
+    if (warnings && warnings.length) toast(warnings.join(' '), true);
+  }
+
+  // -------------------------------------------------------------------------
+  // Pomocné funkcie
+  // -------------------------------------------------------------------------
+
+  function esc(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function pad(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function todayYmd() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function parseYmd(s) {
+    const [y, m, d] = s.split('-').map(Number);
+    return { y, m, d };
+  }
+
+  function ymd(y, m, d) {
+    return y + '-' + pad(m) + '-' + pad(d);
+  }
+
+  function dayNumber(p) {
+    return Math.round(Date.UTC(p.y, p.m - 1, p.d) / 86400000);
+  }
+
+  function weekday(s) {
+    const p = parseYmd(s);
+    return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+  }
+
+  function formatDate(s) {
+    const p = parseYmd(s);
+    return p.d + '. ' + p.m + '. ' + p.y;
+  }
+
+  function formatDateLong(s) {
+    return WEEKDAYS[weekday(s)] + ', ' + formatDate(s);
+  }
+
+  function shortName(email) {
+    return email ? email.split('@')[0] : 'Nepriradené';
+  }
+
+  function iconName(name) {
+    return ICONS[name] || 'home';
+  }
+
+  function periodicityLabel(c) {
+    const p = PERIODICITY[c.periodicity] || PERIODICITY.none;
+    if (c.periodicity === 'none') return p.label;
+    const n = c.repeatInterval || 1;
+    return n === 1 ? p.label : p.label + ' (každých ' + n + ' ' + p.unit + ')';
+  }
+
+  /** Vyskytuje sa činnosť v daný deň? (rovnaká logika ako vo Flutter verzii) */
+  function occursOn(c, date) {
+    if (c.dueDate === date) return true;
+    if (c.periodicity === 'none') return false;
+
+    const a = parseYmd(c.dueDate);
+    const b = parseYmd(date);
+    const diff = dayNumber(b) - dayNumber(a);
+    if (diff < 0) return false;
+    const n = Math.max(1, c.repeatInterval || 1);
+
+    switch (c.periodicity) {
+      case 'weekly':
+        return diff % 7 === 0 && (diff / 7) % n === 0;
+      case 'monthly':
+        return a.d === b.d && ((b.y - a.y) * 12 + (b.m - a.m)) % n === 0;
+      case 'annually':
+        return a.d === b.d && a.m === b.m && (b.y - a.y) % n === 0;
+    }
+    return false;
+  }
+
+  function tasksForDate(date, onlyMine) {
+    if (!state.detail) return [];
+    return state.detail.cinnosti
+      .filter((c) => occursOn(c, date))
+      .filter((c) => !onlyMine || c.assignedTo === state.email)
+      .sort((x, y) => x.name.localeCompare(y.name, 'sk'));
+  }
+
+  function priestorName(id) {
+    const p = state.detail.priestory.find((p) => p.id === id);
+    return p ? p.name : 'Neznámy priestor';
+  }
+
+  // -------------------------------------------------------------------------
+  // Modálne okno
+  // -------------------------------------------------------------------------
+
+  function openModal(html, onMount) {
+    $('modalContent').innerHTML = html;
+    $('modal').classList.remove('hidden');
+    if (onMount) onMount($('modalContent'));
+    const first = $('modalContent').querySelector('input, textarea, select');
+    if (first) first.focus();
+  }
+
+  function closeModal() {
+    $('modal').classList.add('hidden');
+    $('modalContent').innerHTML = '';
+  }
+
+  $('modal').addEventListener('click', (e) => {
+    if (e.target === $('modal')) closeModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) closeModal();
+  });
+
+  // -------------------------------------------------------------------------
+  // Zoznam domácností
+  // -------------------------------------------------------------------------
+
+  async function loadHouseholds() {
+    try {
+      const res = await api('getHouseholds');
+      state.email = res.email;
+      state.households = res.households;
+      $('userEmail').textContent = res.email;
+      renderHouseholds();
+    } catch (err) {
+      $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
+    }
+  }
+
+  function renderHouseholds() {
+    state.detail = null;
+    $('title').textContent = 'Gazda';
+    $('backBtn').classList.add('hidden');
+    $('tabs').classList.add('hidden');
+    document.body.classList.remove('with-tabs');
+
+    const list = state.households
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+
+    let html;
+    if (!list.length) {
+      html =
+        '<div class="empty"><span class="ms">home</span>' +
+        '<h2>Žiadne domácnosti</h2><div>Vytvor si prvú domácnosť a pozvi do nej ostatných.</div></div>';
+    } else {
+      html = list
+        .map((h) => {
+          const isOwner = h.createdByEmail === state.email;
+          const others = h.members.filter((m) => m.email !== state.email).length;
+          return (
+            '<div class="card clickable" data-open="' + esc(h.id) + '">' +
+            '<span class="ms house-icon">home</span>' +
+            '<div class="card-body"><div class="card-title">' + esc(h.name) + '</div>' +
+            '<div class="card-sub"><span class="ms">' + (isOwner ? 'person' : 'group') + '</span>' +
+            (isOwner ? 'Moja domácnosť' : 'Zdieľa ' + esc(h.createdByEmail)) +
+            (others ? ' · ' + others + ' ' + (isOwner ? 'zdieľaní' : 'ďalší') : '') +
+            '</div></div>' +
+            '<button class="icon-btn" title="Zdieľať" data-share="' + esc(h.id) + '"><span class="ms">share</span></button>' +
+            (isOwner
+              ? '<button class="icon-btn danger" title="Vymazať" data-delete="' + esc(h.id) + '"><span class="ms">delete</span></button>'
+              : '') +
+            '</div>'
+          );
+        })
+        .join('');
+    }
+
+    html +=
+      '<div class="fab-bar"><button class="btn" id="addHouseholdBtn">' +
+      '<span class="ms">add</span>Pridať domácnosť</button></div>';
+    $('view').innerHTML = html;
+
+    $('addHouseholdBtn').onclick = showAddHousehold;
+    $('view').querySelectorAll('[data-open]').forEach((el) => {
+      el.onclick = () => openHousehold(el.dataset.open);
+    });
+    $('view').querySelectorAll('[data-share]').forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        showShareHousehold(el.dataset.share);
+      };
+    });
+    $('view').querySelectorAll('[data-delete]').forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        confirmDeleteHousehold(el.dataset.delete);
+      };
+    });
+  }
+
+  function showAddHousehold() {
+    openModal(
+      '<h2>Nová domácnosť</h2><div class="subtitle">Napr. Byt, Chata, Dom u rodičov</div>' +
+        '<form id="f"><div class="field"><label>Názov *</label><input name="name" maxlength="80" required></div>' +
+        '<div class="field"><label>Zdieľať s (e-maily)</label>' +
+        '<textarea name="emails" rows="2" placeholder="jana@gmail.com, peter@gmail.com"></textarea>' +
+        '<div class="hint">Oddeľ čiarkou alebo novým riadkom. Môžeš pridať aj neskôr.</div></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn">Vytvoriť</button></div></form>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#f').onsubmit = async (e) => {
+          e.preventDefault();
+          const form = e.target;
+          form.querySelector('button:not([type])').disabled = true;
+          try {
+            const res = await api('createHousehold', form.name.value, form.emails.value);
+            state.households = res.households;
+            closeModal();
+            renderHouseholds();
+            toast('Domácnosť „' + form.name.value.trim() + '“ bola vytvorená');
+            showWarnings(res.warnings);
+          } catch (err) {
+            form.querySelector('button:not([type])').disabled = false;
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  function showShareHousehold(householdId) {
+    const h = state.households.find((x) => x.id === householdId);
+    const members = h.members
+      .map(
+        (m) =>
+          '<div><span class="ms">' + (m.role === 'owner' ? 'star' : 'person') + '</span>' +
+          esc(m.email) + (m.role === 'owner' ? ' <span class="muted">(zakladateľ)</span>' : '') + '</div>'
+      )
+      .join('');
+    openModal(
+      '<h2>Zdieľať domácnosť</h2><div class="subtitle">' + esc(h.name) + '</div>' +
+        '<div class="members">' + members + '</div>' +
+        '<form id="f"><div class="field"><label>E-mail</label>' +
+        '<input name="email" type="email" required placeholder="meno@gmail.com"></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn">Zdieľať</button></div></form>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#f').onsubmit = async (e) => {
+          e.preventDefault();
+          const email = e.target.email.value.trim();
+          try {
+            const res = await api('shareHousehold', householdId, email);
+            state.households = res.households;
+            closeModal();
+            if (state.detail) {
+              await reloadDetail();
+            } else {
+              renderHouseholds();
+            }
+            toast('Domácnosť zdieľaná s ' + email);
+            showWarnings(res.warnings);
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  function confirmDeleteHousehold(householdId) {
+    const h = state.households.find((x) => x.id === householdId);
+    openModal(
+      '<h2>Vymazať domácnosť?</h2>' +
+        '<div class="subtitle">Domácnosť „' + esc(h.name) + '“ sa vymaže aj so všetkými ' +
+        'priestormi a činnosťami. Táto akcia sa nedá vrátiť.</div>' +
+        '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn" style="background:var(--error)" id="ok">Vymazať</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#ok').onclick = async () => {
+          try {
+            const res = await api('deleteHousehold', householdId);
+            state.households = res.households;
+            closeModal();
+            renderHouseholds();
+            toast('Domácnosť bola vymazaná');
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Detail domácnosti
+  // -------------------------------------------------------------------------
+
+  async function openHousehold(householdId) {
+    $('view').innerHTML = '<div class="center muted">Načítavam…</div>';
+    try {
+      state.detail = await api('getHouseholdData', householdId);
+      state.tab = 'rozpis';
+      state.selectedUser = null;
+      goToToday(false);
+      renderDetail();
+    } catch (err) {
+      showError(err);
+      renderHouseholds();
+    }
+  }
+
+  async function reloadDetail() {
+    state.detail = await api('getHouseholdData', state.detail.household.id);
+    renderDetail();
+  }
+
+  function goToToday(render = true) {
+    const now = new Date();
+    state.calYear = now.getFullYear();
+    state.calMonth = now.getMonth() + 1;
+    state.selectedDate = todayYmd();
+    if (render) renderDetail();
+  }
+
+  function changeMonth(delta) {
+    state.calMonth += delta;
+    if (state.calMonth < 1) {
+      state.calMonth = 12;
+      state.calYear--;
+    } else if (state.calMonth > 12) {
+      state.calMonth = 1;
+      state.calYear++;
+    }
+    renderDetail();
+  }
+
+  function renderDetail() {
+    const d = state.detail;
+    $('title').textContent = d.household.name;
+    $('backBtn').classList.remove('hidden');
+    $('tabs').classList.remove('hidden');
+    document.body.classList.add('with-tabs');
+    document.querySelectorAll('#tabs .tab').forEach((t) => {
+      t.classList.toggle('active', t.dataset.tab === state.tab);
+    });
+
+    const onlyMine = state.tab === 'rozpis';
+    let html = renderCalendar(onlyMine);
+    html += onlyMine ? renderRozpis() : renderPlanovanie();
+    $('view').innerHTML = html;
+    bindDetailEvents();
+
+    const selected = $('view').querySelector('.cal-day.selected');
+    if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  function renderCalendar(onlyMine) {
+    const daysInMonth = new Date(state.calYear, state.calMonth, 0).getDate();
+    const today = todayYmd();
+    let days = '';
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = ymd(state.calYear, state.calMonth, day);
+      const cls = ['cal-day'];
+      if (date === state.selectedDate) cls.push('selected');
+      if (date === today) cls.push('today');
+      if (tasksForDate(date, onlyMine).length) cls.push('has');
+      days +=
+        '<button class="' + cls.join(' ') + '" data-date="' + date + '">' +
+        '<div class="wd">' + WEEKDAYS_SHORT[weekday(date)] + '</div>' +
+        '<div class="num">' + day + '</div><div class="dot"></div></button>';
+    }
+    return (
+      '<div class="calendar"><div class="cal-head">' +
+      '<button class="icon-btn" data-month="-1" title="Predchádzajúci mesiac"><span class="ms">chevron_left</span></button>' +
+      '<div class="month">' + MONTHS[state.calMonth - 1] + ' ' + state.calYear + '</div>' +
+      '<button class="btn outline small" id="todayBtn">Dnes</button>' +
+      '<button class="icon-btn" data-month="1" title="Ďalší mesiac"><span class="ms">chevron_right</span></button>' +
+      '</div><div class="cal-days">' + days + '</div></div>'
+    );
+  }
+
+  function taskCard(c, mode) {
+    const info = [
+      '<span class="ms">room</span>' + esc(priestorName(c.priestorId)),
+    ];
+    if (c.periodicity !== 'none') info.push('<span class="ms">repeat</span>' + esc(periodicityLabel(c)));
+    if (mode === 'plan') info.push('<span class="ms">person</span>' + esc(shortName(c.assignedTo)));
+
+    const action =
+      mode === 'mine'
+        ? '<button class="btn outline small" data-complete="' + esc(c.id) + '">' +
+          '<span class="ms">check</span>Hotové</button>'
+        : '<button class="icon-btn danger" title="Vymazať" data-delete-task="' + esc(c.id) + '">' +
+          '<span class="ms">delete</span></button>';
+
+    return (
+      '<div class="card">' +
+      '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
+      '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
+      (c.description ? '<div class="card-sub">' + esc(c.description) + '</div>' : '') +
+      '<div class="card-sub">' + info.join('&nbsp;&nbsp;') + '</div></div>' +
+      action +
+      '</div>'
+    );
+  }
+
+  function renderRozpis() {
+    const myTasks = state.detail.cinnosti.filter((c) => c.assignedTo === state.email);
+    if (!myTasks.length) {
+      return (
+        '<div class="empty"><span class="ms">checklist</span><h2>Môj rozpis</h2>' +
+        '<div>Nemáš žiadne priradené činnosti</div></div>'
+      );
+    }
+    const tasks = tasksForDate(state.selectedDate, true);
+    let html = '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
+    if (!tasks.length) {
+      html += '<div class="empty">Žiadne činnosti na ' + formatDate(state.selectedDate) + '</div>';
+    } else {
+      html += tasks.map((c) => taskCard(c, 'mine')).join('');
+    }
+    return html;
+  }
+
+  function renderPlanovanie() {
+    const all = tasksForDate(state.selectedDate, false);
+    const users = [...new Set(all.map((c) => c.assignedTo))].sort();
+    if (state.selectedUser !== null && !users.includes(state.selectedUser)) {
+      state.selectedUser = null;
+    }
+    const tasks =
+      state.selectedUser === null ? all : all.filter((c) => c.assignedTo === state.selectedUser);
+
+    let html = '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
+    if (users.length > 1) {
+      html +=
+        '<div class="chips"><button class="chip' + (state.selectedUser === null ? ' active' : '') +
+        '" data-user="">Všetci (' + all.length + ')</button>' +
+        users
+          .map((u) => {
+            const n = all.filter((c) => c.assignedTo === u).length;
+            return (
+              '<button class="chip' + (state.selectedUser === u ? ' active' : '') +
+              '" data-user="' + esc(u) + '" data-user-set="1">' + esc(shortName(u)) + ' (' + n + ')</button>'
+            );
+          })
+          .join('') +
+        '</div>';
+    }
+
+    if (!tasks.length) {
+      html += '<div class="empty">Žiadne činnosti na ' + formatDate(state.selectedDate) + '</div>';
+    } else {
+      html += tasks.map((c) => taskCard(c, 'plan')).join('');
+    }
+
+    html +=
+      '<div class="fab-bar"><button class="btn" id="addTaskBtn">' +
+      '<span class="ms">add</span>Pridať činnosť</button></div>';
+    return html;
+  }
+
+  function bindDetailEvents() {
+    const view = $('view');
+    view.querySelectorAll('[data-date]').forEach((el) => {
+      el.onclick = () => {
+        state.selectedDate = el.dataset.date;
+        renderDetail();
+      };
+    });
+    view.querySelectorAll('[data-month]').forEach((el) => {
+      el.onclick = () => changeMonth(Number(el.dataset.month));
+    });
+    $('todayBtn').onclick = () => goToToday();
+
+    view.querySelectorAll('[data-user]').forEach((el) => {
+      el.onclick = () => {
+        state.selectedUser = el.dataset.userSet ? el.dataset.user : null;
+        renderDetail();
+      };
+    });
+    view.querySelectorAll('[data-complete]').forEach((el) => {
+      el.onclick = () => completeTask(el.dataset.complete, el);
+    });
+    view.querySelectorAll('[data-delete-task]').forEach((el) => {
+      el.onclick = () => deleteTask(el.dataset.deleteTask);
+    });
+    if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
+  }
+
+  async function completeTask(id, button) {
+    button.disabled = true;
+    try {
+      const res = await api('completeCinnost', id);
+      const list = state.detail.cinnosti;
+      const index = list.findIndex((c) => c.id === id);
+      if (res.deleted) {
+        if (index !== -1) list.splice(index, 1);
+        toast('Úloha bola vymazaná');
+      } else {
+        if (index !== -1) list[index] = res.cinnost;
+        toast('Úloha presunutá na ' + formatDate(res.cinnost.dueDate));
+      }
+      renderDetail();
+    } catch (err) {
+      button.disabled = false;
+      showError(err);
+    }
+  }
+
+  function deleteTask(id) {
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    openModal(
+      '<h2>Vymazať činnosť?</h2><div class="subtitle">„' + esc(c.name) + '“' +
+        (c.periodicity !== 'none' ? ' – vymažú sa aj všetky jej opakovania.' : '') + '</div>' +
+        '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn" style="background:var(--error)" id="ok">Vymazať</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#ok').onclick = async () => {
+          try {
+            await api('deleteCinnost', id);
+            state.detail.cinnosti = state.detail.cinnosti.filter((x) => x.id !== id);
+            closeModal();
+            renderDetail();
+            toast('Činnosť „' + c.name + '“ bola vymazaná');
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Priestory a nová činnosť
+  // -------------------------------------------------------------------------
+
+  function showPriestorSelector() {
+    openModal(
+      '<h2>Vyber priestor</h2><div class="subtitle">Kde sa má činnosť robiť?</div>' +
+        '<div class="field"><input id="search" placeholder="Hľadaj priestor…"></div>' +
+        '<div class="list-select" id="plist"></div>' +
+        '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn outline" id="newP"><span class="ms">add</span>Nový priestor</button></div>',
+      (root) => {
+        const renderList = () => {
+          const q = root.querySelector('#search').value.trim().toLowerCase();
+          const items = state.detail.priestory
+            .filter((p) => p.name.toLowerCase().includes(q))
+            .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+          root.querySelector('#plist').innerHTML = items.length
+            ? items
+                .map(
+                  (p) =>
+                    '<div class="card" data-pid="' + esc(p.id) + '"><span class="ms">room</span>' +
+                    '<div class="card-body card-title">' + esc(p.name) + '</div>' +
+                    '<span class="ms muted">chevron_right</span></div>'
+                )
+                .join('')
+            : '<div class="empty">' +
+              (state.detail.priestory.length ? 'Nič sa nenašlo' : 'Žiadne priestory. Vytvor si prvý!') +
+              '</div>';
+          root.querySelectorAll('[data-pid]').forEach((el) => {
+            el.onclick = () => showCinnostForm(el.dataset.pid);
+          });
+        };
+        root.querySelector('#search').oninput = renderList;
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#newP').onclick = showNewPriestor;
+        renderList();
+      }
+    );
+  }
+
+  function showNewPriestor() {
+    openModal(
+      '<h2>Nový priestor</h2><div class="subtitle">Zadajte názov priestoru (napr. Kuchyňa, Záhrada)</div>' +
+        '<form id="f"><div class="field"><input name="name" maxlength="60" required></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn">Pridať</button></div></form>',
+      (root) => {
+        root.querySelector('#cancel').onclick = showPriestorSelector;
+        root.querySelector('#f').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const p = await api('addPriestor', state.detail.household.id, e.target.name.value);
+            state.detail.priestory.push(p);
+            toast('Priestor „' + p.name + '“ bol pridaný');
+            showCinnostForm(p.id);
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  function showCinnostForm(priestorId) {
+    const members = state.detail.members.map((m) => m.email).sort();
+    const memberOptions =
+      '<option value="">Nepriradené</option>' +
+      members
+        .map(
+          (e) =>
+            '<option value="' + esc(e) + '"' + (e === state.email ? ' selected' : '') + '>' +
+            esc(e === state.email ? shortName(e) + ' (ja)' : shortName(e)) + '</option>'
+        )
+        .join('');
+    const periodOptions = Object.keys(PERIODICITY)
+      .map((k) => '<option value="' + k + '">' + PERIODICITY[k].label + '</option>')
+      .join('');
+    const iconButtons = Object.keys(ICONS)
+      .map(
+        (k) =>
+          '<button type="button" data-icon="' + k + '" class="' + (k === 'home' ? 'selected' : '') +
+          '" title="' + k + '"><span class="ms">' + ICONS[k] + '</span></button>'
+      )
+      .join('');
+    const colorButtons = Object.keys(COLORS)
+      .map(
+        (name, i) =>
+          '<button type="button" data-color="' + COLORS[name] + '" title="' + name + '" class="' +
+          (i === 0 ? 'selected' : '') + '" style="background:' + COLORS[name] + '"></button>'
+      )
+      .join('');
+
+    openModal(
+      '<h2>Nová činnosť</h2><div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>' +
+        '<form id="f">' +
+        '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?"></div>' +
+        '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…"></textarea></div>' +
+        '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
+        '<div class="field"><label>Termín</label><input type="date" name="dueDate" required value="' + state.selectedDate + '"></div></div>' +
+        '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
+        '<div class="field hidden" id="intervalField"><label id="intervalLabel">Každých X</label>' +
+        '<input type="number" name="repeatInterval" min="1" max="99" value="1"><div class="hint" id="intervalHint"></div></div></div>' +
+        '<div class="field"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
+        '<div class="field"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn">Vytvoriť činnosť</button></div></form>',
+      (root) => {
+        const form = root.querySelector('#f');
+        let icon = 'home';
+        let color = COLORS['Zelená'];
+
+        form.periodicity.onchange = () => {
+          const p = PERIODICITY[form.periodicity.value];
+          root.querySelector('#intervalField').classList.toggle('hidden', form.periodicity.value === 'none');
+          root.querySelector('#intervalLabel').textContent = p.unit ? 'Každých X ' + p.unit : '';
+          root.querySelector('#intervalHint').textContent = p.hint || '';
+        };
+        root.querySelectorAll('[data-icon]').forEach((b) => {
+          b.onclick = () => {
+            root.querySelectorAll('[data-icon]').forEach((x) => x.classList.remove('selected'));
+            b.classList.add('selected');
+            icon = b.dataset.icon;
+          };
+        });
+        root.querySelectorAll('[data-color]').forEach((b) => {
+          b.onclick = () => {
+            root.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('selected'));
+            b.classList.add('selected');
+            color = b.dataset.color;
+          };
+        });
+        root.querySelector('#cancel').onclick = closeModal;
+
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const submit = form.querySelector('button:not([type])');
+          submit.disabled = true;
+          try {
+            const c = await api('addCinnost', state.detail.household.id, {
+              priestorId,
+              name: form.name.value,
+              description: form.description.value,
+              assignedTo: form.assignedTo.value,
+              dueDate: form.dueDate.value,
+              periodicity: form.periodicity.value,
+              repeatInterval: form.repeatInterval.value,
+              icon,
+              color,
+            });
+            state.detail.cinnosti.push(c);
+            closeModal();
+            renderDetail();
+            toast('Činnosť „' + c.name + '“ bola vytvorená');
+          } catch (err) {
+            submit.disabled = false;
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Štart
+  // -------------------------------------------------------------------------
+
+  $('backBtn').onclick = () => {
+    loadHouseholds();
+  };
+
+  document.querySelectorAll('#tabs .tab').forEach((t) => {
+    t.onclick = () => {
+      state.tab = t.dataset.tab;
+      renderDetail();
+    };
+  });
+
+  loadHouseholds();
+</script>

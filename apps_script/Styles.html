@@ -1,0 +1,604 @@
+<style>
+  :root {
+    --primary: #2f6930;
+    --secondary: #4caf50;
+    --accent: #e74c3c;
+    --background: #f6e6cc;
+    --card: #fbf3e6;
+    --surface: #8b5e3c;
+    --text: #1f1f1f;
+    --muted: #6b6b6b;
+    --border: #e2cfae;
+    --error: #d32f2f;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+  }
+
+  body {
+    font-family: 'Roboto', system-ui, sans-serif;
+    background: var(--background);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  .ms {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 22px;
+    line-height: 1;
+    display: inline-block;
+    white-space: nowrap;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .center {
+    text-align: center;
+    padding: 48px 16px;
+  }
+
+  /* App bar */
+  .appbar {
+    background: var(--primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    height: 56px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .appbar h1 {
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-email {
+    font-size: 12px;
+    opacity: 0.85;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .icon-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    display: inline-flex;
+  }
+
+  .icon-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+  }
+
+  .appbar .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .icon-btn.danger {
+    color: var(--error);
+  }
+
+  /* Hlavný obsah */
+  main {
+    flex: 1;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 12px 12px 96px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .btn:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn.block {
+    width: 100%;
+  }
+
+  .btn.outline {
+    background: transparent;
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+  }
+
+  .btn.text {
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .btn.small {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .fab-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 12px;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .fab-bar .btn {
+    pointer-events: auto;
+    width: 100%;
+    max-width: 736px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  }
+
+  body.with-tabs .fab-bar {
+    bottom: 60px;
+  }
+
+  /* Karty */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .card.clickable {
+    cursor: pointer;
+  }
+
+  .card.clickable:hover {
+    border-color: var(--primary);
+  }
+
+  .card-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .card-title {
+    font-weight: 500;
+    font-size: 15px;
+  }
+
+  .card-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-sub .ms {
+    font-size: 14px;
+  }
+
+  .house-icon {
+    background: var(--primary);
+    color: #fff;
+    border-radius: 10px;
+    padding: 10px;
+  }
+
+  .task-icon {
+    color: #fff;
+    border-radius: 8px;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+
+  .empty {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--muted);
+  }
+
+  .empty .ms {
+    font-size: 64px;
+  }
+
+  .empty h2 {
+    color: var(--text);
+    font-size: 20px;
+    margin: 12px 0 4px;
+  }
+
+  /* Kalendár */
+  .calendar {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    margin-bottom: 12px;
+  }
+
+  .cal-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .cal-head .month {
+    flex: 1;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .cal-days {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 8px 2px 4px;
+    scrollbar-width: thin;
+  }
+
+  .cal-day {
+    flex: 0 0 46px;
+    border: 1px solid var(--border);
+    background: #fff8ee;
+    border-radius: 10px;
+    padding: 6px 0;
+    cursor: pointer;
+    text-align: center;
+    position: relative;
+  }
+
+  .cal-day .wd {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .cal-day .num {
+    font-size: 17px;
+    font-weight: 500;
+  }
+
+  .cal-day.today {
+    border-color: var(--primary);
+  }
+
+  .cal-day.selected {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  .cal-day.selected .wd {
+    color: #e6f2e6;
+  }
+
+  .cal-day .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin: 3px auto 0;
+  }
+
+  .cal-day:not(.has) .dot {
+    visibility: hidden;
+  }
+
+  .section-title {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 4px 2px 8px;
+  }
+
+  /* Filtrovacie čipy */
+  .chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    margin-bottom: 10px;
+  }
+
+  .chip {
+    border: 1px solid var(--border);
+    background: #fff8ee;
+    border-radius: 16px;
+    padding: 5px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  .chip.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  /* Spodná navigácia */
+  .bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 60px;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    display: flex;
+  }
+
+  .tab {
+    flex: 1;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 12px;
+  }
+
+  .tab.active {
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  /* Modálne okno */
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 10;
+  }
+
+  .modal-card {
+    background: var(--background);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 20px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .modal-card h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+  }
+
+  .modal-card .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .field input:focus,
+  .field select:focus,
+  .field textarea:focus {
+    outline: 2px solid var(--secondary);
+    border-color: transparent;
+  }
+
+  .field .hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .row > * {
+    flex: 1;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 6px;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 2px;
+  }
+
+  .icon-grid button {
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 8px;
+    padding: 7px 0;
+    cursor: pointer;
+    color: var(--text);
+  }
+
+  .icon-grid button.selected {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+
+  .color-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .color-grid button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    cursor: pointer;
+  }
+
+  .color-grid button.selected {
+    border-color: var(--text);
+  }
+
+  .list-select .card {
+    cursor: pointer;
+  }
+
+  .members {
+    margin: 8px 0 14px;
+    font-size: 13px;
+  }
+
+  .members div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+  }
+
+  .members .ms {
+    font-size: 16px;
+    color: var(--muted);
+  }
+
+  /* Toast a načítavanie */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 76px;
+    transform: translateX(-50%);
+    background: #323232;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    max-width: calc(100% - 32px);
+    z-index: 20;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  body.with-tabs .toast {
+    bottom: 136px;
+  }
+
+  .toast.error {
+    background: var(--error);
+  }
+
+  .busy {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 30;
+    overflow: hidden;
+  }
+
+  .spinner {
+    height: 100%;
+    width: 40%;
+    background: var(--warning, #f2c94c);
+    animation: slide 1s infinite ease-in-out;
+  }
+
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(260%);
+    }
+  }
+</style>

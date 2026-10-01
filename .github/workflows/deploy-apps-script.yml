@@ -1,0 +1,91 @@
+name: Nasadenie Apps Script
+
+# Po pushnutí zmien v apps_script/ do main nahrá kód do Google Apps Script
+# a aktualizuje existujúce nasadenie web app (URL zostáva rovnaká).
+# Pri pull requeste len skontroluje syntax.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps_script/**'
+      - '.github/workflows/deploy-apps-script.yml'
+  pull_request:
+    paths:
+      - 'apps_script/**'
+      - '.github/workflows/deploy-apps-script.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: apps-script-deploy
+  cancel-in-progress: false
+
+env:
+  CLASP: npx --yes @google/clasp@3.4.1
+
+jobs:
+  check:
+    name: Kontrola
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kontrola syntaxe Code.gs
+        run: cp apps_script/Code.gs "$RUNNER_TEMP/Code.js" && node --check "$RUNNER_TEMP/Code.js"
+      - name: Kontrola appsscript.json
+        run: node -e "JSON.parse(require('fs').readFileSync('apps_script/appsscript.json', 'utf8'))"
+
+  deploy:
+    name: Nasadenie
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps_script
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Kontrola nastavení
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          missing=""
+          [ -n "$CLASPRC_JSON" ] || missing="$missing CLASPRC_JSON"
+          [ -n "$SCRIPT_ID" ] || missing="$missing APPS_SCRIPT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Chýbajú GitHub secrets:$missing (návod v apps_script/README.md)"
+            exit 1
+          fi
+
+      - name: Prihlásenie do clasp
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+
+      - name: Nahranie kódu (clasp push)
+        run: $CLASP push --force
+
+      - name: Aktualizácia nasadenia web app
+        env:
+          DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::warning::APPS_SCRIPT_DEPLOYMENT_ID nie je nastavené – kód je nahraný, ale /exec URL ostáva na starej verzii."
+            exit 0
+          fi
+          $CLASP redeploy "$DEPLOYMENT_ID" --description "GitHub ${GITHUB_SHA::7}"
+
+      - name: Odstránenie prihlasovacích údajov
+        if: always()
+        run: rm -f ~/.clasprc.json .clasp.json

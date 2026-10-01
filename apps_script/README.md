@@ -72,12 +72,12 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 6. Skopíruj URL webovej aplikácie (končí na `/exec`) a pošli ju ostatným.
 
 Po zmene kódu treba urobiť **Nasadiť → Spravovať nasadenia → upraviť → Nová verzia**,
-inak sa na `/exec` URL zmena neprejaví.
+inak sa na `/exec` URL zmena neprejaví. Toto sa dá zautomatizovať (pozri nižšie).
 
 ### Alternatíva: clasp (z príkazového riadku)
 
 ```bash
-npm install -g @google/clasp
+npm install -g @google/clasp@3.4.1
 clasp login
 cd apps_script
 cp .clasp.json.example .clasp.json   # doplň scriptId (Nastavenia projektu → ID skriptu)
@@ -85,6 +85,49 @@ clasp push
 ```
 
 Potom pokračuj krokmi 4–6.
+
+## Automatické nasadenie (GitHub Actions)
+
+Workflow `.github/workflows/deploy-apps-script.yml` sa spustí po každom pushnutí
+zmien v `apps_script/` do vetvy `main`. Nahrá kód do Apps Script (`clasp push`),
+vytvorí novú verziu a aktualizuje existujúce nasadenie (`clasp redeploy`), takže
+URL web app zostáva rovnaká. Pri pull requeste len skontroluje syntax. Dá sa
+spustiť aj ručne: **Actions → Nasadenie Apps Script → Run workflow**.
+
+### Jednorazové nastavenie
+
+1. Urob prvé nasadenie ručne (kroky 1–6 vyššie), aby existoval projekt aj nasadenie web app.
+2. Zapni **Google Apps Script API** na
+   [script.google.com/home/usersettings](https://script.google.com/home/usersettings).
+3. Na svojom počítači sa prihlás do clasp tým istým Google účtom, ktorý vlastní skript:
+
+   ```bash
+   npx @google/clasp@3.4.1 login
+   ```
+
+   Vytvorí sa súbor `~/.clasprc.json` (vo Windows `C:\Users\<meno>\.clasprc.json`).
+4. Zisti ID:
+   - **ID skriptu:** Apps Script editor → ⚙️ Nastavenia projektu → *ID skriptu*
+   - **ID nasadenia:** **Nasadiť → Spravovať nasadenia** → pri webovej aplikácii
+     *ID nasadenia* (začína `AKfycb…`)
+5. V GitHub repozitári otvor **Settings → Secrets and variables → Actions → New repository secret**
+   a pridaj:
+
+   | Názov | Hodnota |
+   |---|---|
+   | `CLASPRC_JSON` | celý obsah súboru `~/.clasprc.json` |
+   | `APPS_SCRIPT_ID` | ID skriptu |
+   | `APPS_SCRIPT_DEPLOYMENT_ID` | ID nasadenia web app |
+
+Odvtedy stačí zmeny zmergovať do `main` a o minútu sú nasadené.
+
+> `CLASPRC_JSON` obsahuje prístup k tvojim Apps Script projektom, nikdy ho nedávaj
+> do kódu. Ak ho chceš zneplatniť, odober prístup aplikácii *clasp* na
+> [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+Ak workflow zlyhá na prihlásení (`invalid_grant`), zopakuj krok 3 a aktualizuj
+secret `CLASPRC_JSON`. Ak sa zmenil `appsscript.json` a pribudli nové oprávnenia,
+otvor web app raz v prehliadači a oprávnenia povoľ.
 
 ## Prístup a zdieľanie – dôležité
 

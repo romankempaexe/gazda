@@ -1,0 +1,5 @@
+# Do Apps Script nahrávaj len kód aplikácie
+**/**
+!Code.gs
+!*.html
+!appsscript.json

@@ -46,16 +46,19 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **users** – nastavenia používateľov
 
-| email | ntfyTopic | createdAt |
-|---|---|---|
+| email | ntfyTopic | createdAt | lastHouseholdId |
+|---|---|---|---|
 
 - `ntfyTopic` – náhodný názov témy v ntfy, na ktorú chodia upozornenia (vytvorí sa
   pri prvom otvorení okna *Upozornenia*)
+- `lastHouseholdId` – naposledy otvorená domácnosť; pri ďalšom spustení sa otvorí rovno ona
 
 ## Funkcie
 
 - Prihlásenie Google účtom (rieši Google automaticky)
 - Domácnosti: vytvorenie, zdieľanie podľa e-mailu, vymazanie (len zakladateľ)
+- Aplikácia si pamätá naposledy otvorenú domácnosť a pri spustení ju rovno otvorí
+  (na každom zariadení; šípka späť vráti na zoznam domácností)
 - **Môj rozpis** – moje činnosti na vybraný deň, tlačidlo *Hotové*
   (jednorazová činnosť sa vymaže, opakovaná sa posunie na ďalší termín)
 - **Plánovanie** – všetky činnosti domácnosti na vybraný deň, filter podľa člena,

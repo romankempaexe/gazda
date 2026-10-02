@@ -234,16 +234,21 @@
   // Zoznam domácností
   // -------------------------------------------------------------------------
 
-  async function loadHouseholds() {
+  /** initial = true pri štarte aplikácie: rovno otvorí naposledy použitú domácnosť. */
+  async function loadHouseholds(initial = false) {
     try {
-      const res = await api('getHouseholds');
+      const res = await api(initial ? 'getStartData' : 'getHouseholds');
       state.email = res.email;
       state.households = res.households;
       $('avatar').textContent = res.email.charAt(0);
       $('avatar').title = res.email;
       $('avatar').classList.remove('hidden');
       $('bellBtn').classList.remove('hidden');
-      renderHouseholds();
+      if (res.lastDetail) {
+        showDetail(res.lastDetail);
+      } else {
+        renderHouseholds();
+      }
     } catch (err) {
       $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
     }
@@ -415,15 +420,19 @@
   async function openHousehold(householdId) {
     $('view').innerHTML = '<div class="center muted">Načítavam…</div>';
     try {
-      state.detail = await api('getHouseholdData', householdId);
-      state.tab = 'rozpis';
-      state.selectedUser = null;
-      goToToday(false);
-      renderDetail();
+      showDetail(await api('getHouseholdData', householdId));
     } catch (err) {
       showError(err);
       renderHouseholds();
     }
+  }
+
+  function showDetail(detail) {
+    state.detail = detail;
+    state.tab = 'rozpis';
+    state.selectedUser = null;
+    goToToday(false);
+    renderDetail();
   }
 
   async function reloadDetail() {
@@ -912,5 +921,5 @@
     };
   });
 
-  loadHouseholds();
+  loadHouseholds(true);
 </script>

@@ -6,7 +6,7 @@
  *   members    – členovia domácností (kto má k domácnosti prístup)
  *   priestory  – priestory domácnosti (kuchyňa, kúpeľňa, ...)
  *   cinnosti   – činnosti (úlohy) priradené k priestoru
- *   users      – nastavenia používateľov (téma pre upozornenia ntfy)
+ *   users      – nastavenia používateľov (téma pre upozornenia ntfy, posledná domácnosť)
  *
  * Pred prvým použitím spusti z editora funkciu setup().
  * Upozornenia: v editore pridaj spúšťač pre funkciu notificationTick (každých 15 minút).
@@ -30,7 +30,7 @@ const SHEETS = {
     'repeatInterval',
     'createdAt',
   ],
-  users: ['email', 'ntfyTopic', 'createdAt'],
+  users: ['email', 'ntfyTopic', 'createdAt', 'lastHouseholdId'],
 };
 
 const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
@@ -185,10 +185,25 @@ function deleteHousehold(householdId) {
   return getHouseholds();
 }
 
+/**
+ * Údaje pri štarte aplikácie: zoznam domácností a ak má používateľ uloženú
+ * naposledy otvorenú domácnosť, rovno aj jej detail.
+ */
+function getStartData() {
+  const res = getHouseholds();
+  const user = readTable_('users').find((u) => u.email === res.email);
+  const lastId = user && user.lastHouseholdId;
+  if (lastId && res.households.some((h) => h.id === lastId)) {
+    res.lastDetail = getHouseholdData(lastId);
+  }
+  return res;
+}
+
 function getHouseholdData(householdId) {
   const member = requireMember_(householdId);
   const household = readTable_('households').find((h) => h.id === householdId);
   if (!household) throw new Error('Domácnosť neexistuje.');
+  rememberLastHousehold_(member.email, householdId);
 
   return {
     email: member.email,
@@ -443,6 +458,24 @@ function sendNtfy_(topic, msg) {
   return false;
 }
 
+function rememberLastHousehold_(email, householdId) {
+  try {
+    const user = readTable_('users').find((u) => u.email === email);
+    if (user && user.lastHouseholdId === householdId) return;
+    withLock_(() => {
+      const row = readTable_('users').find((u) => u.email === email);
+      if (row) {
+        updateRow_('users', row._row, { ...row, lastHouseholdId: householdId });
+      } else {
+        appendRow_('users', { email, ntfyTopic: '', createdAt: nowIso_(), lastHouseholdId: householdId });
+      }
+    });
+  } catch (e) {
+    // Zapamätanie je len pohodlnosť – nesmie zabrániť otvoreniu domácnosti.
+    console.warn('Poslednú domácnosť sa nepodarilo uložiť: ' + e);
+  }
+}
+
 function ensureTopic_(email) {
   const existing = readTable_('users').find((u) => u.email === email);
   if (existing && existing.ntfyTopic) return existing.ntfyTopic;
@@ -596,10 +629,20 @@ function ensureSheet_(ss, name) {
   return sheet;
 }
 
+const checkedSheets_ = {};
+
 function getSheet_(name) {
   const ss = getSpreadsheet_();
-  // Chýbajúci list (napr. nový list po aktualizácii aplikácie) sa vytvorí automaticky.
-  return ss.getSheetByName(name) || ensureSheet_(ss, name);
+  // Chýbajúci list alebo stĺpec (po aktualizácii aplikácie) sa doplní automaticky.
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) return ensureSheet_(ss, name);
+  if (!checkedSheets_[name]) {
+    const headers = SHEETS[name];
+    const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    if (headers.some((h, i) => current[i] !== h)) ensureSheet_(ss, name);
+    checkedSheets_[name] = true;
+  }
+  return sheet;
 }
 
 function readTable_(name) {

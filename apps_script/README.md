@@ -16,7 +16,7 @@ Nepotrebuje Firebase ani Flutter.
 
 ## Dátová štruktúra (Google tabuľka)
 
-Funkcia `setup()` vytvorí štyri listy. Prvý riadok je hlavička, všetky hodnoty
+Funkcia `setup()` vytvorí päť listov (chýbajúci list sa vytvorí aj automaticky pri prvom použití). Prvý riadok je hlavička, všetky hodnoty
 sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **households** – domácnosti
@@ -44,6 +44,14 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - `repeatInterval` – každých X týždňov/mesiacov/rokov (pri `none` prázdne)
 - `icon` – názov ikony (`home`, `kitchen`, `trash`, …), `color` – hex farba (`#4CAF50`)
 
+**users** – nastavenia používateľov
+
+| email | ntfyTopic | createdAt |
+|---|---|---|
+
+- `ntfyTopic` – náhodný názov témy v ntfy, na ktorú chodia upozornenia (vytvorí sa
+  pri prvom otvorení okna *Upozornenia*)
+
 ## Funkcie
 
 - Prihlásenie Google účtom (rieši Google automaticky)
@@ -53,6 +61,55 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - **Plánovanie** – všetky činnosti domácnosti na vybraný deň, filter podľa člena,
   pridanie a vymazanie činnosti
 - Priestory, ikony, farby a opakovanie ako vo Flutter verzii
+- **Upozornenia na telefón** cez ntfy: ranný prehľad o 8:00, nová pridelená úloha,
+  úlohy po termíne (pozri nižšie)
+
+## Upozornenia (ntfy)
+
+Upozornenia chodia ako push notifikácie cez bezplatnú aplikáciu
+[ntfy](https://ntfy.sh) (Android aj iPhone):
+
+| Upozornenie | Kedy |
+|---|---|
+| **Dnes ťa čaká X úloh** | každé ráno medzi 8:00 a 8:15 – úlohy s termínom dnes |
+| **Po termíne: X úloh** | ráno spolu s prehľadom – úlohy, ktorých termín už prešiel |
+| **Nová úloha od …** | hneď, keď ti niekto iný pridelí činnosť |
+
+Upozornenie sa posiela len tým, kto má priradenú úlohu a otvoril si v aplikácii
+okno *Upozornenia* (zvonček vpravo hore).
+
+### Zapnutie (raz, robí vlastník skriptu)
+
+1. Nahraj nový kód a v editore spusti funkciu **`setup`** – Google si vypýta nové
+   oprávnenie *Pripojenie k externej službe*. Zaškrtni **Vybrať všetko**.
+2. V editore klikni vľavo na ⏰ **Spúšťače → + Pridať spúšťač** a nastav:
+   - Funkcia: **`notificationTick`**
+   - Nasadenie: **Head**
+   - Zdroj udalosti: **Časovo riadený**
+   - Typ: **Časovač minút**, interval **Každých 15 minút**
+3. Ulož. Ranný prehľad sa dá vyskúšať hneď funkciou **`testRannyPrehlad`**.
+4. Vytvor novú verziu nasadenia (alebo pushni do `main`, ak používaš GitHub Actions).
+
+Pri ďalšom otvorení aplikácie si všetci členovia musia povoliť nové oprávnenie –
+aplikácia im ukáže tlačidlo **Povoliť prístup**.
+
+### Prihlásenie na odber (každý člen)
+
+1. Nainštaluj si aplikáciu **ntfy**.
+2. V Gazdovi ťukni na 🔔 vpravo hore, skopíruj názov svojej témy a v ntfy ťukni
+   na **+**, vlož ho a ťukni **Prihlásiť odber** (alebo ťukni na **Otvoriť v ntfy**).
+3. Ťukni na **Poslať skúšobné upozornenie**.
+
+### Voliteľné nastavenia (Nastavenia projektu → Vlastnosti skriptu)
+
+| Vlastnosť | Význam |
+|---|---|
+| `NTFY_TOKEN` | prístupový token z bezplatného účtu na ntfy.sh – limity sa potom počítajú na tvoj účet, nie na zdieľané IP adresy Google |
+| `NTFY_SERVER` | vlastný ntfy server (predvolene `https://ntfy.sh`) |
+| `APP_URL` | adresa web app, ktorá sa otvorí po ťuknutí na upozornenie (nastaví sa sama pri otvorení `/exec`) |
+
+> Názov témy funguje ako heslo – kto ho pozná, vidí upozornenia. V upozorneniach sú
+> len názvy úloh, priestorov a domácností.
 
 ## Nasadenie (ručne, cez prehliadač)
 

@@ -76,7 +76,11 @@
   }
 
   function errorMessage(err) {
-    return (err && err.message ? err.message : String(err)).replace(/^Error:\s*/, '');
+    const message = (err && err.message ? err.message : String(err)).replace(/^Error:\s*/, '');
+    if (/povolenie|permission|authoriz/i.test(message)) {
+      return message + ' Obnov stránku a pri povolení prístupu zaškrtni „Vybrať všetko“.';
+    }
+    return message;
   }
 
   let toastTimer;
@@ -238,6 +242,7 @@
       $('avatar').textContent = res.email.charAt(0);
       $('avatar').title = res.email;
       $('avatar').classList.remove('hidden');
+      $('bellBtn').classList.remove('hidden');
       renderHouseholds();
     } catch (err) {
       $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
@@ -815,8 +820,86 @@
   }
 
   // -------------------------------------------------------------------------
+  // Upozornenia (ntfy)
+  // -------------------------------------------------------------------------
+
+  async function showNotificationSettings() {
+    let settings;
+    try {
+      settings = await api('getNotificationSettings');
+    } catch (err) {
+      showError(err);
+      return;
+    }
+    const host = settings.server.replace(/^https?:\/\//, '');
+    const subscribeLink = 'ntfy://' + host + '/' + settings.topic;
+    const isDefaultServer = host === 'ntfy.sh';
+
+    openModal(
+      '<h2>Upozornenia</h2>' +
+        '<div class="subtitle">Push upozornenia na telefón cez bezplatnú aplikáciu ntfy.</div>' +
+        '<div class="members">' +
+        '<div><span class="ms">wb_sunny</span>Každé ráno o ' + settings.morningHour + ':00 – úlohy na dnes</div>' +
+        '<div><span class="ms">assignment_add</span>Keď ti niekto pridelí novú úlohu</div>' +
+        '<div><span class="ms">warning</span>Ráno aj úlohy po termíne</div>' +
+        '</div>' +
+        '<div class="field"><label>1. Nainštaluj si aplikáciu ntfy</label>' +
+        '<div class="row">' +
+        '<a class="btn tonal small" target="_blank" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy">' +
+        '<span class="ms">android</span>Android</a>' +
+        '<a class="btn tonal small" target="_blank" href="https://apps.apple.com/app/ntfy/id1625396347">' +
+        '<span class="ms">phone_iphone</span>iPhone</a>' +
+        '</div></div>' +
+        '<div class="field"><label>2. Prihlás sa na odber svojej témy</label>' +
+        '<div class="row" style="align-items:center">' +
+        '<input id="topic" readonly value="' + esc(settings.topic) + '" style="flex:3">' +
+        '<button type="button" class="btn tonal small" id="copyTopic" style="flex:0 0 auto"><span class="ms">content_copy</span></button>' +
+        '</div>' +
+        '<div class="hint">V ntfy ťukni na <b>+</b>, vlož tento názov témy' +
+        (isDefaultServer ? '' : ' a server <b>' + esc(settings.server) + '</b>') +
+        ' a ťukni <b>Prihlásiť odber</b>. Názov témy nikomu neposielaj – kto ho pozná, vidí tvoje upozornenia.</div>' +
+        '<a class="btn tonal small" target="_top" href="' + esc(subscribeLink) + '" style="margin-top:10px">' +
+        '<span class="ms">open_in_new</span>Otvoriť v ntfy</a>' +
+        '</div>' +
+        '<div class="field"><label>3. Vyskúšaj to</label>' +
+        '<button type="button" class="btn small" id="testNotif"><span class="ms">send</span>Poslať skúšobné upozornenie</button></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#copyTopic').onclick = async () => {
+          const input = root.querySelector('#topic');
+          input.select();
+          try {
+            await navigator.clipboard.writeText(input.value);
+            toast('Názov témy skopírovaný');
+          } catch (e) {
+            const copied = document.execCommand && document.execCommand('copy');
+            toast(copied ? 'Názov témy skopírovaný' : 'Názov je označený – podrž prst a skopíruj ho');
+          }
+        };
+        root.querySelector('#testNotif').onclick = async (e) => {
+          const button = e.currentTarget;
+          button.disabled = true;
+          try {
+            await api('sendTestNotification');
+            toast('Upozornenie odoslané – pozri sa do ntfy');
+          } catch (err) {
+            showError(err);
+          } finally {
+            button.disabled = false;
+          }
+        };
+      }
+    );
+    // Na mobile nech sa klávesnica pri otvorení neukáže.
+    $('topic').blur();
+  }
+
+  // -------------------------------------------------------------------------
   // Štart
   // -------------------------------------------------------------------------
+
+  $('bellBtn').onclick = showNotificationSettings;
 
   $('backBtn').onclick = () => {
     loadHouseholds();

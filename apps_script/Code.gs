@@ -1,13 +1,15 @@
 /**
  * Gazda – Google Apps Script web aplikácia na plánovanie domácich prác.
  *
- * Dáta sú uložené v Google tabuľke v štyroch listoch:
+ * Dáta sú uložené v Google tabuľke v piatich listoch:
  *   households – domácnosti
  *   members    – členovia domácností (kto má k domácnosti prístup)
  *   priestory  – priestory domácnosti (kuchyňa, kúpeľňa, ...)
  *   cinnosti   – činnosti (úlohy) priradené k priestoru
+ *   users      – nastavenia používateľov (téma pre upozornenia ntfy)
  *
  * Pred prvým použitím spusti z editora funkciu setup().
+ * Upozornenia: v editore pridaj spúšťač pre funkciu notificationTick (každých 15 minút).
  */
 
 const SHEETS = {
@@ -28,6 +30,7 @@ const SHEETS = {
     'repeatInterval',
     'createdAt',
   ],
+  users: ['email', 'ntfyTopic', 'createdAt'],
 };
 
 const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
@@ -36,11 +39,27 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 
+// Upozornenia (ntfy.sh). Server a prístupový token sa dajú zmeniť vo vlastnostiach
+// skriptu NTFY_SERVER a NTFY_TOKEN, adresa aplikácie pre preklik vo vlastnosti APP_URL.
+const NTFY_DEFAULT_SERVER = 'https://ntfy.sh';
+const MORNING_HOUR = 8; // ranný prehľad chodí medzi 8:00 a 8:15
+const MORNING_LAST_HOUR = 11; // neskôr ako o 11:00 sa zmeškaný prehľad už neposiela
+const LAST_DIGEST_KEY = 'LAST_DIGEST_DATE';
+const DAY_NAMES_SHORT = ['ne', 'po', 'ut', 'st', 'št', 'pi', 'so'];
+
 // ---------------------------------------------------------------------------
 // Web app
 // ---------------------------------------------------------------------------
 
 function doGet() {
+  // Google pri autorizácii umožňuje odškrtnúť jednotlivé oprávnenia.
+  // Ak niektoré chýba, namiesto chyby ukáž stránku s odkazom na autorizáciu.
+  const auth = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+  if (auth.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
+    return authorizationPage_(auth.getAuthorizationUrl());
+  }
+  rememberAppUrl_();
+
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
     .setTitle('Gazda')
@@ -51,8 +70,33 @@ function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
+function authorizationPage_(url) {
+  const html =
+    '<!DOCTYPE html><html lang="sk"><head><base target="_top"><meta charset="UTF-8">' +
+    '<style>body{font-family:system-ui,sans-serif;background:#f4f6f3;color:#0f172a;margin:0;' +
+    'display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;box-sizing:border-box}' +
+    '.c{background:#fff;border-radius:24px;padding:28px;max-width:440px;box-shadow:0 4px 12px rgba(0,0,0,.08)}' +
+    'h1{font-size:22px;margin:0 0 8px}p{color:#64748b;line-height:1.5}' +
+    'a.b{display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:600;' +
+    'padding:12px 22px;border-radius:999px;margin-top:8px}</style></head><body><div class="c">' +
+    '<h1>Gazda potrebuje povolenie</h1>' +
+    '<p>Aplikácia ukladá dáta do Google tabuľky a posiela upozornenia, preto potrebuje prístup ' +
+    'k Tabuľkám, k tvojej e-mailovej adrese a k externým službám. Na stránke Google zaškrtni ' +
+    '<b>Vybrať všetko</b> a klikni <b>Pokračovať</b>.</p>' +
+    '<a class="b" href="' + url.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" target="_blank">Povoliť prístup</a>' +
+    '<p>Po povolení túto stránku obnov.</p></div></body></html>';
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('Gazda – povolenie')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
 /** Spusti raz z editora: vytvorí tabuľku (ak treba) a listy s hlavičkami. */
 function setup() {
+  // Ak pri autorizácii nebolo povolené všetko, editor si oprávnenia vypýta znova.
+  if (typeof ScriptApp.requireAllScopes === 'function') {
+    ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  }
+
   let ss = getSpreadsheet_(false);
   if (!ss) {
     ss = SpreadsheetApp.create('Gazda – dáta');
@@ -171,7 +215,7 @@ function addPriestor(householdId, name) {
 }
 
 function addCinnost(householdId, data) {
-  requireMember_(householdId);
+  const member = requireMember_(householdId);
   data = data || {};
 
   const priestor = readTable_('priestory').find(
@@ -213,6 +257,9 @@ function addCinnost(householdId, data) {
   };
 
   withLock_(() => appendRow_('cinnosti', cinnost));
+  if (assignedTo && assignedTo !== member.email) {
+    notifyAssigned_(cinnost, priestor, member.email);
+  }
   return toCinnost_(cinnost);
 }
 
@@ -245,6 +292,203 @@ function completeCinnost(cinnostId) {
     updateRow_('cinnosti', cinnost._row, { ...cinnost, dueDate: nextDueDate });
     return { deleted: false, cinnost: toCinnost_({ ...cinnost, dueDate: nextDueDate }) };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Upozornenia (ntfy)
+// ---------------------------------------------------------------------------
+
+/** Nastavenia upozornení pre prihláseného používateľa (téma sa vytvorí pri prvom otvorení). */
+function getNotificationSettings() {
+  const email = currentEmail_();
+  return {
+    topic: ensureTopic_(email),
+    server: ntfyServer_(),
+    morningHour: MORNING_HOUR,
+  };
+}
+
+function sendTestNotification() {
+  const email = currentEmail_();
+  const ok = sendNtfy_(ensureTopic_(email), {
+    title: 'Gazda funguje',
+    message: 'Toto je skúšobné upozornenie. Takto ti budú chodiť upozornenia na úlohy.',
+    tags: 'white_check_mark',
+  });
+  if (!ok) throw new Error('Upozornenie sa nepodarilo odoslať. Skús to neskôr.');
+  return { sent: true };
+}
+
+/**
+ * Spúšťa sa časovačom každých 15 minút. Raz denne po 8:00 pošle každému
+ * ranný prehľad úloh na dnes a zvlášť upozornenie na úlohy po termíne.
+ */
+function notificationTick() {
+  const tz = Session.getScriptTimeZone();
+  const now = new Date();
+  const hour = Number(Utilities.formatDate(now, tz, 'H'));
+  const today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+  const props = PropertiesService.getScriptProperties();
+
+  if (hour < MORNING_HOUR || hour > MORNING_LAST_HOUR) return;
+  if (props.getProperty(LAST_DIGEST_KEY) === today) return;
+
+  props.setProperty(LAST_DIGEST_KEY, today);
+  sendMorningDigest_(today);
+}
+
+/** Na vyskúšanie z editora: pošle ranný prehľad hneď. */
+function testRannyPrehlad() {
+  return sendMorningDigest_(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'));
+}
+
+function sendMorningDigest_(today) {
+  const households = new Map(readTable_('households').map((h) => [h.id, h]));
+  const priestory = new Map(readTable_('priestory').map((p) => [p.id, p]));
+  const memberKeys = new Set(readTable_('members').map((m) => m.householdId + '|' + m.email));
+  const topics = new Map(readTable_('users').filter((u) => u.ntfyTopic).map((u) => [u.email, u.ntfyTopic]));
+
+  const byUser = new Map();
+  readTable_('cinnosti').forEach((c) => {
+    if (!c.assignedTo || !topics.has(c.assignedTo) || !DATE_RE.test(c.dueDate)) return;
+    if (c.dueDate > today) return;
+    if (!households.has(c.householdId) || !memberKeys.has(c.householdId + '|' + c.assignedTo)) return;
+    if (!byUser.has(c.assignedTo)) byUser.set(c.assignedTo, { today: [], overdue: [] });
+    byUser.get(c.assignedTo)[c.dueDate === today ? 'today' : 'overdue'].push(c);
+  });
+
+  const where = (c) => {
+    const p = priestory.get(c.priestorId);
+    return (p ? p.name + ' · ' : '') + households.get(c.householdId).name;
+  };
+  const byName = (a, b) => a.name.localeCompare(b.name);
+
+  let sent = 0;
+  byUser.forEach((tasks, email) => {
+    const topic = topics.get(email);
+    if (tasks.today.length) {
+      const ok = sendNtfy_(topic, {
+        title: 'Dnes ťa čaká ' + tasksLabel_(tasks.today.length),
+        message: tasks.today.sort(byName).map((c) => '• ' + c.name + ' (' + where(c) + ')').join('\n'),
+        tags: 'house',
+      });
+      if (ok) sent++;
+    }
+    if (tasks.overdue.length) {
+      const ok = sendNtfy_(topic, {
+        title: 'Po termíne: ' + tasksLabel_(tasks.overdue.length),
+        message: tasks.overdue
+          .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+          .map((c) => '• ' + c.name + ' – od ' + formatShortDate_(c.dueDate) + ' (' + where(c) + ')')
+          .join('\n'),
+        tags: 'warning',
+        priority: 4,
+      });
+      if (ok) sent++;
+    }
+  });
+  return sent;
+}
+
+function notifyAssigned_(cinnost, priestor, fromEmail) {
+  try {
+    const user = readTable_('users').find((u) => u.email === cinnost.assignedTo && u.ntfyTopic);
+    if (!user) return;
+    const household = readTable_('households').find((h) => h.id === cinnost.householdId);
+    const details = [priestor.name + (household ? ' · ' + household.name : '')];
+    let when = 'Termín: ' + formatShortDate_(cinnost.dueDate);
+    if (cinnost.periodicity !== 'none') {
+      const labels = { weekly: 'týždenne', monthly: 'mesačne', annually: 'ročne' };
+      const n = Number(cinnost.repeatInterval) || 1;
+      when += ' · opakuje sa ' + labels[cinnost.periodicity] + (n > 1 ? ' (každých ' + n + ')' : '');
+    }
+    details.push(when);
+    if (cinnost.description) details.push(cinnost.description);
+    sendNtfy_(user.ntfyTopic, {
+      title: 'Nová úloha od ' + fromEmail.split('@')[0] + ': ' + cinnost.name,
+      message: details.join('\n'),
+      tags: 'memo',
+    });
+  } catch (e) {
+    // Upozornenie nesmie pokaziť uloženie činnosti.
+    console.warn('Upozornenie o pridelení sa nepodarilo odoslať: ' + e);
+  }
+}
+
+/** Pošle správu do témy ntfy. Vráti true, ak ju server prijal. */
+function sendNtfy_(topic, msg) {
+  const headers = {};
+  const token = PropertiesService.getScriptProperties().getProperty('NTFY_TOKEN');
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL');
+
+  const payload = { topic, title: msg.title, message: msg.message, tags: [].concat(msg.tags || []) };
+  if (msg.priority) payload.priority = msg.priority;
+  if (appUrl) payload.click = appUrl;
+
+  try {
+    const res = UrlFetchApp.fetch(ntfyServer_(), {
+      method: 'post',
+      contentType: 'application/json',
+      headers,
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    const code = res.getResponseCode();
+    if (code >= 200 && code < 300) return true;
+    console.warn('ntfy odpovedal ' + code + ': ' + res.getContentText());
+  } catch (e) {
+    console.warn('ntfy nedostupný: ' + e);
+  }
+  return false;
+}
+
+function ensureTopic_(email) {
+  const existing = readTable_('users').find((u) => u.email === email);
+  if (existing && existing.ntfyTopic) return existing.ntfyTopic;
+
+  return withLock_(() => {
+    const users = readTable_('users');
+    const row = users.find((u) => u.email === email);
+    if (row && row.ntfyTopic) return row.ntfyTopic;
+
+    const name = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'user';
+    const random = Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+    const topic = 'gazda-' + name + '-' + random;
+    if (row) {
+      updateRow_('users', row._row, { ...row, ntfyTopic: topic });
+    } else {
+      appendRow_('users', { email, ntfyTopic: topic, createdAt: nowIso_() });
+    }
+    return topic;
+  });
+}
+
+function ntfyServer_() {
+  const server = PropertiesService.getScriptProperties().getProperty('NTFY_SERVER') || NTFY_DEFAULT_SERVER;
+  return server.replace(/\/+$/, '');
+}
+
+/** Zapamätá si adresu web app (/exec), aby sa po ťuknutí na upozornenie otvorila aplikácia. */
+function rememberAppUrl_() {
+  try {
+    const url = ScriptApp.getService().getUrl();
+    if (!url || !/\/exec$/.test(url)) return;
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('APP_URL') !== url) props.setProperty('APP_URL', url);
+  } catch (e) {
+    // Bez adresy budú upozornenia fungovať, len bez prekliku.
+  }
+}
+
+function tasksLabel_(n) {
+  if (n === 1) return '1 úloha';
+  return n + (n >= 2 && n <= 4 ? ' úlohy' : ' úloh');
+}
+
+function formatShortDate_(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return DAY_NAMES_SHORT[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] + ' ' + d + '. ' + m + '.';
 }
 
 // ---------------------------------------------------------------------------
@@ -353,9 +597,9 @@ function ensureSheet_(ss, name) {
 }
 
 function getSheet_(name) {
-  const sheet = getSpreadsheet_().getSheetByName(name);
-  if (!sheet) throw new Error('Chýba list „' + name + '“ – spusti v editore funkciu setup().');
-  return sheet;
+  const ss = getSpreadsheet_();
+  // Chýbajúci list (napr. nový list po aktualizácii aplikácie) sa vytvorí automaticky.
+  return ss.getSheetByName(name) || ensureSheet_(ss, name);
 }
 
 function readTable_(name) {

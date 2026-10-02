@@ -330,7 +330,7 @@ function sendTestNotification() {
     message: 'Toto je skúšobné upozornenie. Takto ti budú chodiť upozornenia na úlohy.',
     tags: 'white_check_mark',
   });
-  if (!ok) throw new Error('Upozornenie sa nepodarilo odoslať. Skús to neskôr.');
+  if (!ok) throw new Error('Upozornenie sa nepodarilo odoslať. ' + explainNtfyError_(lastNtfyError_));
   return { sent: true };
 }
 
@@ -430,8 +430,12 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
   }
 }
 
+// Posledná chyba pri odosielaní do ntfy: { code, text } alebo { exception }.
+let lastNtfyError_ = null;
+
 /** Pošle správu do témy ntfy. Vráti true, ak ju server prijal. */
 function sendNtfy_(topic, msg) {
+  lastNtfyError_ = null;
   const headers = {};
   const token = PropertiesService.getScriptProperties().getProperty('NTFY_TOKEN');
   if (token) headers.Authorization = 'Bearer ' + token;
@@ -451,11 +455,37 @@ function sendNtfy_(topic, msg) {
     });
     const code = res.getResponseCode();
     if (code >= 200 && code < 300) return true;
-    console.warn('ntfy odpovedal ' + code + ': ' + res.getContentText());
+    lastNtfyError_ = { code, text: String(res.getContentText() || '').slice(0, 300) };
+    console.warn('ntfy odpovedal ' + code + ': ' + lastNtfyError_.text);
   } catch (e) {
-    console.warn('ntfy nedostupný: ' + e);
+    lastNtfyError_ = { exception: String((e && e.message) || e) };
+    console.warn('ntfy nedostupný: ' + lastNtfyError_.exception);
   }
   return false;
+}
+
+/** Zrozumiteľné vysvetlenie chyby z ntfy pre používateľa. */
+function explainNtfyError_(err) {
+  if (!err) return 'Skús to neskôr.';
+  if (err.exception) {
+    if (/UrlFetchApp|povolen|permission|authoriz|oprávnen/i.test(err.exception)) {
+      return (
+        'Chýba povolenie „Pripojenie k externej službe“. Obnov stránku a pri povolení prístupu ' +
+        'zaškrtni „Vybrať všetko“. (' + err.exception + ')'
+      );
+    }
+    return 'Server ntfy je nedostupný: ' + err.exception;
+  }
+  if (err.code === 429) {
+    return (
+      'ntfy dočasne odmieta správy pre prekročený limit (zdieľané servery Google). Vlastník aplikácie ' +
+      'môže nastaviť vlastnosť skriptu NTFY_TOKEN z bezplatného účtu na ntfy.sh. (HTTP 429)'
+    );
+  }
+  if (err.code === 401 || err.code === 403) {
+    return 'ntfy odmietol prístup – skontroluj vlastnosť skriptu NTFY_TOKEN. (HTTP ' + err.code + ': ' + err.text + ')';
+  }
+  return 'ntfy odpovedal HTTP ' + err.code + (err.text ? ': ' + err.text : '');
 }
 
 function rememberLastHousehold_(email, householdId) {

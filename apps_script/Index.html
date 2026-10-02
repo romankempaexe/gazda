@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="sk">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+    />
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <header class="appbar">
+      <button id="backBtn" class="icon-btn hidden" title="Späť">
+        <span class="ms">arrow_back</span>
+      </button>
+      <span id="brand" class="brand"><span class="ms">home</span></span>
+      <h1 id="title">Gazda</h1>
+      <button id="bellBtn" class="icon-btn hidden" title="Upozornenia">
+        <span class="ms">notifications</span>
+      </button>
+      <span id="avatar" class="avatar hidden"></span>
+    </header>
+
+    <main id="view">
+      <div class="center muted">Načítavam…</div>
+    </main>
+
+    <nav id="tabs" class="bottom-nav hidden">
+      <button data-tab="rozpis" class="tab active">
+        <span class="ms">list</span><span>Môj rozpis</span>
+      </button>
+      <button data-tab="planovanie" class="tab">
+        <span class="ms">calendar_month</span><span>Plánovanie</span>
+      </button>
+    </nav>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-card" id="modalContent"></div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="busy" class="busy hidden"><div class="spinner"></div></div>
+
+    <?!= include('App'); ?>
+  </body>
+</html>

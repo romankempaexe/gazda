@@ -44,18 +44,19 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - `repeatInterval` – každých X týždňov/mesiacov/rokov (pri `none` prázdne)
 - `icon` – názov ikony (`home`, `kitchen`, `trash`, …), `color` – hex farba (`#4CAF50`)
 
-**users** – nastavenia používateľov
+**users** – používatelia
 
-| email | ntfyTopic | createdAt | lastHouseholdId |
-|---|---|---|---|
+| email | ntfyTopic | createdAt | lastHouseholdId | tokenHash |
+|---|---|---|---|---|
 
 - `ntfyTopic` – náhodný názov témy v ntfy, na ktorú chodia upozornenia (vytvorí sa
   pri prvom otvorení okna *Upozornenia*)
 - `lastHouseholdId` – naposledy otvorená domácnosť; pri ďalšom spustení sa otvorí rovno ona
+- `tokenHash` – SHA-256 odtlačok kľúča z osobného odkazu (samotný kľúč sa neukladá)
 
 ## Funkcie
 
-- Prihlásenie Google účtom (rieši Google automaticky)
+- Vstup cez **osobný odkaz** (`…/exec?k=…`) – funguje na každom telefóne aj s viacerými Google účtami, bez prihlasovania
 - Domácnosti: vytvorenie, zdieľanie podľa e-mailu, vymazanie (len zakladateľ)
 - Aplikácia si pamätá naposledy otvorenú domácnosť a pri spustení ju rovno otvorí
   (na každom zariadení; šípka späť vráti na zoznam domácností)
@@ -93,8 +94,7 @@ okno *Upozornenia* (zvonček vpravo hore).
 3. Ulož. Ranný prehľad sa dá vyskúšať hneď funkciou **`testRannyPrehlad`**.
 4. Vytvor novú verziu nasadenia (alebo pushni do `main`, ak používaš GitHub Actions).
 
-Pri ďalšom otvorení aplikácie si všetci členovia musia povoliť nové oprávnenie –
-aplikácia im ukáže tlačidlo **Povoliť prístup**.
+Oprávnenia povoľuje len vlastník skriptu (aplikácia beží pod jeho účtom).
 
 ### Prihlásenie na odber (každý člen)
 
@@ -124,12 +124,18 @@ aplikácia im ukáže tlačidlo **Povoliť prístup**.
      obsah príslušných `.html` súborov,
    - v **Nastavenia projektu** zapni *Zobraziť súbor manifestu „appsscript.json“*
      a jeho obsah nahraď obsahom `appsscript.json`.
-4. Hore vyber funkciu `setup` a klikni **Spustiť**. Povoľ požadované oprávnenia.
+4. Hore vyber funkciu `setup` a klikni **Spustiť**. Povoľ požadované oprávnenia
+   (zaškrtni **Vybrať všetko**).
    Do tabuľky sa vytvoria listy s hlavičkami.
 5. **Nasadiť → Nové nasadenie → typ Webová aplikácia**:
-   - *Spustiť ako:* **Používateľ, ktorý pristupuje k webovej aplikácii**
-   - *Kto má prístup:* **Ktokoľvek s účtom Google**
-6. Skopíruj URL webovej aplikácie (končí na `/exec`) a pošli ju ostatným.
+   - *Spustiť ako:* **Ja**
+   - *Kto má prístup:* **Ktokoľvek**
+6. Otvor raz URL webovej aplikácie (končí na `/exec`) – aplikácia si tak zapamätá
+   svoju adresu. Zobrazí sa „Otvor Gazdu cez svoj odkaz“, to je v poriadku.
+7. V editore spusti funkciu **`mojOdkaz`**. V *Denníku spustení* sa vypíše tvoj osobný
+   odkaz. Otvor ho v telefóne a ulož si ho na plochu (menu prehliadača → *Pridať na plochu*).
+8. Ostatných pozveš v aplikácii: pri domácnosti ťukni na **Zdieľať**, zadaj ich e-mail
+   a pošli im odkaz, ktorý sa zobrazí (WhatsApp, SMS…).
 
 Po zmene kódu treba urobiť **Nasadiť → Spravovať nasadenia → upraviť → Nová verzia**,
 inak sa na `/exec` URL zmena neprejaví. Toto sa dá zautomatizovať (pozri nižšie).
@@ -189,25 +195,43 @@ Ak workflow zlyhá na prihlásení (`invalid_grant`), zopakuj krok 3 a aktualizu
 secret `CLASPRC_JSON`. Ak sa zmenil `appsscript.json` a pribudli nové oprávnenia,
 otvor web app raz v prehliadači a oprávnenia povoľ.
 
-## Prístup a zdieľanie – dôležité
+## Prístup a osobné odkazy
 
-Web app beží pod účtom toho, kto ju otvorí. Len tak Apps Script spoľahlivo zistí
-e-mail používateľa aj pri bežných @gmail.com účtoch. Dôsledok je, že **každý člen
-musí mať k tabuľke prístup ako Editor**:
+Web app beží pod účtom vlastníka skriptu (*Spustiť ako: Ja*, *Kto má prístup:
+Ktokoľvek*). Používateľov neidentifikuje Google prihlásenie, ale **osobný odkaz**:
 
-- Keď v aplikácii zdieľaš domácnosť s e-mailom, aplikácia sa pokúsi pridať ho
-  ako editora tabuľky automaticky (Google mu pošle e-mail).
-- Ak sa to nepodarí, aplikácia zobrazí upozornenie a tabuľku treba zdieľať ručne
-  (**Zdieľať → Editor**).
-- Pri prvom otvorení web app musí každý používateľ povoliť oprávnenia.
+```
+https://script.google.com/macros/s/AKfycb…/exec?k=8f3a9c1e…   (32 znakov)
+```
 
-Aplikácia sama kontroluje, že používateľ vidí a mení len domácnosti, ktorých je
-členom. Kto má prístup k tabuľke, však v nej môže priamo vidieť a upravovať všetky
-dáta. Aplikácia je preto vhodná pre rodinu alebo malú skupinu ľudí, ktorí si dôverujú.
+- Kľúč z odkazu patrí jednému e-mailu. Všetko ostatné (členstvo v domácnostiach,
+  pridelené úlohy, upozornenia) sa ďalej viaže na e-mail.
+- V liste `users` je len **SHA-256 odtlačok** kľúča (`tokenHash`), samotný kľúč sa
+  nikde neukladá. Každé volanie z prehliadača kľúč posiela a server ho overí.
+- Prehliadač si kľúč zapamätá, takže sa aplikácia otvorí aj z upozornenia (adresa bez `?k=`).
+- **Funguje na každom zariadení** – aj s viacerými Google účtami, aj bez Google účtu.
+- **Tabuľku netreba s nikým zdieľať** – vidí ju len vlastník. Ak si ju predtým
+  zdieľal s členmi ako Editor, zdieľanie môžeš zrušiť.
+
+### Kto môže vytvoriť odkaz
+
+| Situácia | Kto |
+|---|---|
+| Vlastník skriptu (prvý odkaz) | funkcia `mojOdkaz` v editore |
+| Nový člen pri zdieľaní domácnosti | ktokoľvek z domácnosti – odkaz sa ukáže hneď |
+| Člen, ktorý odkaz ešte nemá | ktokoľvek z domácnosti – tlačidlo **Vytvoriť odkaz** v okne Zdieľať |
+| Nový odkaz pre seba (stratený / prezradený) | každý sám – ťukni na svoj avatar → **Vytvoriť nový odkaz** |
+| Nový odkaz pre iného člena | zakladateľ domácnosti – **Nový odkaz** v okne Zdieľať |
+
+Vytvorením nového odkazu prestane starý fungovať.
+
+> Odkaz funguje ako heslo – kto ho má, vystupuje v aplikácii ako daný človek.
+> Posielaj ho len tomu, komu patrí. Funkcie pre editor (`setup`, `mojOdkaz`,
+> `testRannyPrehlad`) sa z webu spustiť nedajú.
 
 ## Rozdiely oproti Flutter verzii
 
-- Používatelia sa identifikujú e-mailom (nie Firebase UID).
+- Používatelia sa identifikujú e-mailom cez osobný odkaz (nie Firebase UID / Google prihlásenie).
 - Pri mesačnom opakovaní sa termín 31. posunie na posledný deň kratšieho mesiaca
   (Flutter verzia by z 31. 1. spravila 3. 3.).
 - Ikona *dishes* používa symbol umývačky riadu (pôvodný symbol vo fonte Material

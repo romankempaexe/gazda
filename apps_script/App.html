@@ -61,6 +61,31 @@
 
   let pending = 0;
 
+  // Osobný kľúč z odkazu …/exec?k=…; uloží sa, aby fungovalo aj otvorenie bez neho
+  // (napr. ťuknutím na upozornenie).
+  const TOKEN_KEY = 'gazda.token';
+  let token = window.GAZDA_TOKEN || '';
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else token = localStorage.getItem(TOKEN_KEY) || '';
+  } catch (e) {
+    // Úložisko nemusí byť dostupné – vtedy treba vždy otvárať cez osobný odkaz.
+  }
+
+  function saveToken(newToken) {
+    token = newToken;
+    try {
+      localStorage.setItem(TOKEN_KEY, newToken);
+    } catch (e) {}
+  }
+
+  function forgetToken() {
+    token = '';
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch (e) {}
+  }
+
   function api(fn, ...args) {
     pending++;
     $('busy').classList.remove('hidden');
@@ -68,15 +93,29 @@
       google.script.run
         .withSuccessHandler(resolve)
         .withFailureHandler((err) => reject(err))
-        [fn](...args);
-    }).finally(() => {
-      pending--;
-      if (!pending) $('busy').classList.add('hidden');
-    });
+        [fn](token, ...args);
+    })
+      .catch((err) => {
+        if (isInvalidLink(err)) {
+          forgetToken();
+          showLinkRequired(true);
+        }
+        throw err;
+      })
+      .finally(() => {
+        pending--;
+        if (!pending) $('busy').classList.add('hidden');
+      });
+  }
+
+  function isInvalidLink(err) {
+    return /NEPLATNY_ODKAZ/.test(err && err.message ? err.message : String(err));
   }
 
   function errorMessage(err) {
-    const message = (err && err.message ? err.message : String(err)).replace(/^Error:\s*/, '');
+    const message = (err && err.message ? err.message : String(err))
+      .replace(/^Error:\s*/, '')
+      .replace(/^NEPLATNY_ODKAZ:\s*/, '');
     if (/povolenie|permission|authoriz/i.test(message)) {
       return message + ' Obnov stránku a pri povolení prístupu zaškrtni „Vybrať všetko“.';
     }
@@ -97,8 +136,127 @@
     toast(errorMessage(err), true);
   }
 
-  function showWarnings(warnings) {
-    if (warnings && warnings.length) toast(warnings.join(' '), true);
+  // -------------------------------------------------------------------------
+  // Osobné odkazy
+  // -------------------------------------------------------------------------
+
+  function showLinkRequired(invalid) {
+    closeModal();
+    state.detail = null;
+    ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id).classList.add('hidden'));
+    $('brand').classList.remove('hidden');
+    document.body.classList.remove('with-tabs');
+    $('title').textContent = 'Gazda';
+    $('view').innerHTML =
+      '<div class="empty"><span class="ms">key</span>' +
+      '<h2>' + (invalid ? 'Odkaz už neplatí' : 'Otvor Gazdu cez svoj odkaz') + '</h2>' +
+      '<div>' +
+      (invalid
+        ? 'Tento osobný odkaz bol nahradený novým alebo je neplatný. '
+        : 'Do Gazdu sa vstupuje cez osobný odkaz, ktorý dostaneš od člena domácnosti. ') +
+      'Požiadaj niekoho z domácnosti, aby ti v okne <b>Zdieľať</b> vytvoril nový odkaz, ' +
+      'a ten si ulož na plochu telefónu.</div></div>';
+  }
+
+  /** Okno so zoznamom osobných odkazov (pozvánky alebo nový vlastný odkaz). */
+  function showLinks(title, intro, links, onClose) {
+    const items = links
+      .map(
+        (l, i) =>
+          '<div class="field"><label>' + esc(l.email) + '</label>' +
+          '<div class="row" style="align-items:center">' +
+          '<input readonly id="link' + i + '" value="' + esc(l.link) + '" style="flex:3">' +
+          '<button type="button" class="btn tonal small" data-copy="' + i + '" style="flex:0 0 auto" title="Kopírovať">' +
+          '<span class="ms">content_copy</span></button>' +
+          '<button type="button" class="btn tonal small" data-share-link="' + i + '" style="flex:0 0 auto" title="Poslať">' +
+          '<span class="ms">share</span></button>' +
+          '</div></div>'
+      )
+      .join('');
+    openModal(
+      '<h2>' + esc(title) + '</h2><div class="subtitle">' + intro + '</div>' + items +
+        '<div class="hint muted" style="font-size:12px;margin-bottom:8px">Odkaz funguje ako heslo – ' +
+        'kto ho má, vystupuje v Gazdovi ako daný človek. Posielaj ho len jemu.</div>' +
+        '<div class="actions"><button type="button" class="btn" id="done">Hotovo</button></div>',
+      (root) => {
+        root.querySelector('#done').onclick = () => {
+          closeModal();
+          if (onClose) onClose();
+        };
+        root.querySelectorAll('[data-copy]').forEach((b) => {
+          b.onclick = () => copyText(root.querySelector('#link' + b.dataset.copy));
+        });
+        root.querySelectorAll('[data-share-link]').forEach((b) => {
+          b.onclick = async () => {
+            const l = links[Number(b.dataset.shareLink)];
+            const text = 'Tvoj odkaz do aplikácie Gazda (ulož si ho na plochu): ' + l.link;
+            if (navigator.share) {
+              try {
+                await navigator.share({ title: 'Gazda', text });
+                return;
+              } catch (e) {
+                if (e && e.name === 'AbortError') return;
+              }
+            }
+            window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+          };
+        });
+      }
+    );
+    const first = $('modalContent').querySelector('input');
+    if (first) first.blur();
+  }
+
+  async function copyText(input) {
+    input.select();
+    try {
+      await navigator.clipboard.writeText(input.value);
+      toast('Skopírované');
+    } catch (e) {
+      const copied = document.execCommand && document.execCommand('copy');
+      toast(copied ? 'Skopírované' : 'Text je označený – podrž prst a skopíruj ho');
+    }
+  }
+
+  function showInvites(invites, onClose) {
+    if (!invites || !invites.length) {
+      if (onClose) onClose();
+      return;
+    }
+    showLinks(
+      invites.length === 1 ? 'Pošli pozvánku' : 'Pošli pozvánky',
+      'Nový člen potrebuje svoj osobný odkaz. Pošli mu ho napríklad cez WhatsApp alebo SMS.',
+      invites,
+      onClose
+    );
+  }
+
+  function showAccount() {
+    openModal(
+      '<h2>Môj účet</h2><div class="subtitle">' + esc(state.email) + '</div>' +
+        '<div class="members"><div><span class="ms">key</span>Do Gazdu vstupuješ cez svoj osobný odkaz. ' +
+        'Ak si ho stratil alebo ho má niekto cudzí, vytvor nový – starý prestane fungovať.</div></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+        '<button type="button" class="btn danger" id="regen">Vytvoriť nový odkaz</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#regen').onclick = async (e) => {
+          e.currentTarget.disabled = true;
+          try {
+            const res = await api('regenerateMyLink');
+            saveToken(res.token);
+            showLinks(
+              'Tvoj nový odkaz',
+              'Ulož si ho na plochu telefónu (otvor ho a v menu prehliadača zvoľ <b>Pridať na plochu</b>). ' +
+                'Starý odkaz už nefunguje.',
+              [{ email: res.email, link: res.link }]
+            );
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -236,6 +394,10 @@
 
   /** initial = true pri štarte aplikácie: rovno otvorí naposledy použitú domácnosť. */
   async function loadHouseholds(initial = false) {
+    if (!token) {
+      showLinkRequired(false);
+      return;
+    }
     try {
       const res = await api(initial ? 'getStartData' : 'getHouseholds');
       state.email = res.email;
@@ -250,7 +412,9 @@
         renderHouseholds();
       }
     } catch (err) {
-      $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
+      if (!isInvalidLink(err)) {
+        $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
+      }
     }
   }
 
@@ -338,7 +502,7 @@
             closeModal();
             renderHouseholds();
             toast('Domácnosť „' + form.name.value.trim() + '“ bola vytvorená');
-            showWarnings(res.warnings);
+            showInvites(res.invites);
           } catch (err) {
             form.querySelector('button:not([type])').disabled = false;
             showError(err);
@@ -350,12 +514,25 @@
 
   function showShareHousehold(householdId) {
     const h = state.households.find((x) => x.id === householdId);
+    const iAmOwner = h.members.some((m) => m.email === state.email && m.role === 'owner');
     const members = h.members
-      .map(
-        (m) =>
+      .map((m) => {
+        let action = '';
+        if (m.email !== state.email) {
+          if (!m.hasLink) {
+            action = '<button type="button" class="btn tonal small" data-link="' + esc(m.email) + '">Vytvoriť odkaz</button>';
+          } else if (iAmOwner) {
+            action = '<button type="button" class="btn text small" data-link="' + esc(m.email) + '" data-replace="1">Nový odkaz</button>';
+          }
+        }
+        return (
           '<div><span class="ms">' + (m.role === 'owner' ? 'star' : 'person') + '</span>' +
-          esc(m.email) + (m.role === 'owner' ? ' <span class="muted">(zakladateľ)</span>' : '') + '</div>'
-      )
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' + esc(m.email) +
+          (m.role === 'owner' ? ' <span class="muted">(zakladateľ)</span>' : '') +
+          (m.email !== state.email && !m.hasLink ? ' <span class="muted">· nemá odkaz</span>' : '') +
+          '</span>' + action + '</div>'
+        );
+      })
       .join('');
     openModal(
       '<h2>Zdieľať domácnosť</h2><div class="subtitle">' + esc(h.name) + '</div>' +
@@ -366,6 +543,28 @@
         '<button class="btn">Zdieľať</button></div></form>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
+        root.querySelectorAll('[data-link]').forEach((b) => {
+          b.onclick = async () => {
+            const email = b.dataset.link;
+            // Nahradenie existujúceho odkazu treba potvrdiť druhým ťuknutím.
+            if (b.dataset.replace && !b.dataset.armed) {
+              b.dataset.armed = '1';
+              b.textContent = 'Naozaj? Ťukni znova';
+              toast('Starý odkaz pre ' + email + ' prestane fungovať.');
+              return;
+            }
+            b.disabled = true;
+            try {
+              const res = await api('createMemberLink', householdId, email);
+              const member = h.members.find((m) => m.email === email);
+              if (member) member.hasLink = true;
+              showLinks('Odkaz pre ' + email, 'Pošli mu tento osobný odkaz.', [res]);
+            } catch (err) {
+              b.disabled = false;
+              showError(err);
+            }
+          };
+        });
         root.querySelector('#f').onsubmit = async (e) => {
           e.preventDefault();
           const email = e.target.email.value.trim();
@@ -379,7 +578,7 @@
               renderHouseholds();
             }
             toast('Domácnosť zdieľaná s ' + email);
-            showWarnings(res.warnings);
+            showInvites(res.invites);
           } catch (err) {
             showError(err);
           }
@@ -909,6 +1108,7 @@
   // -------------------------------------------------------------------------
 
   $('bellBtn').onclick = showNotificationSettings;
+  $('avatar').onclick = showAccount;
 
   $('backBtn').onclick = () => {
     loadHouseholds();

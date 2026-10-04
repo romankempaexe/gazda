@@ -6,9 +6,13 @@
  *   members    – členovia domácností (kto má k domácnosti prístup)
  *   priestory  – priestory domácnosti (kuchyňa, kúpeľňa, ...)
  *   cinnosti   – činnosti (úlohy) priradené k priestoru
- *   users      – nastavenia používateľov (téma pre upozornenia ntfy, posledná domácnosť)
+ *   users      – používatelia (odtlačok osobného kľúča, téma ntfy, posledná domácnosť)
  *
- * Pred prvým použitím spusti z editora funkciu setup().
+ * Web app beží pod účtom vlastníka („Spustiť ako: Ja“, prístup „Ktokoľvek“).
+ * Používateľa identifikuje osobný tajný odkaz …/exec?k=<kľúč>; v tabuľke je len
+ * SHA-256 odtlačok kľúča. Každé volanie z prehliadača posiela kľúč ako prvý parameter.
+ *
+ * Pred prvým použitím spusti z editora funkciu setup() a potom mojOdkaz().
  * Upozornenia: v editore pridaj spúšťač pre funkciu notificationTick (každých 15 minút).
  */
 
@@ -30,7 +34,7 @@ const SHEETS = {
     'repeatInterval',
     'createdAt',
   ],
-  users: ['email', 'ntfyTopic', 'createdAt', 'lastHouseholdId'],
+  users: ['email', 'ntfyTopic', 'createdAt', 'lastHouseholdId', 'tokenHash'],
 };
 
 const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
@@ -38,6 +42,8 @@ const SPREADSHEET_ID_KEY = 'SPREADSHEET_ID';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
+const TOKEN_RE = /^[0-9a-f]{32}$/;
+const INVALID_LINK = 'NEPLATNY_ODKAZ';
 
 // Upozornenia (ntfy.sh). Server a prístupový token sa dajú zmeniť vo vlastnostiach
 // skriptu NTFY_SERVER a NTFY_TOKEN, adresa aplikácie pre preklik vo vlastnosti APP_URL.
@@ -51,16 +57,20 @@ const DAY_NAMES_SHORT = ['ne', 'po', 'ut', 'st', 'št', 'pi', 'so'];
 // Web app
 // ---------------------------------------------------------------------------
 
-function doGet() {
-  // Google pri autorizácii umožňuje odškrtnúť jednotlivé oprávnenia.
-  // Ak niektoré chýba, namiesto chyby ukáž stránku s odkazom na autorizáciu.
+function doGet(e) {
+  // Web app beží pod účtom vlastníka. Ak vlastník nepovolil všetky oprávnenia,
+  // ukáž stránku s odkazom na autorizáciu (návštevníkom len vysvetlenie).
   const auth = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
   if (auth.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED) {
     return authorizationPage_(auth.getAuthorizationUrl());
   }
   rememberAppUrl_();
 
-  return HtmlService.createTemplateFromFile('Index')
+  const template = HtmlService.createTemplateFromFile('Index');
+  // Kľúč z adresy sa do stránky vloží len ak má presne očakávaný tvar (ochrana pred XSS).
+  const k = e && e.parameter && String(e.parameter.k || '').toLowerCase();
+  template.token = TOKEN_RE.test(k) ? k : '';
+  return template
     .evaluate()
     .setTitle('Gazda')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -79,12 +89,11 @@ function authorizationPage_(url) {
     'h1{font-size:22px;margin:0 0 8px}p{color:#64748b;line-height:1.5}' +
     'a.b{display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:600;' +
     'padding:12px 22px;border-radius:999px;margin-top:8px}</style></head><body><div class="c">' +
-    '<h1>Gazda potrebuje povolenie</h1>' +
-    '<p>Aplikácia ukladá dáta do Google tabuľky a posiela upozornenia, preto potrebuje prístup ' +
-    'k Tabuľkám, k tvojej e-mailovej adrese a k externým službám. Na stránke Google zaškrtni ' +
-    '<b>Vybrať všetko</b> a klikni <b>Pokračovať</b>.</p>' +
-    '<a class="b" href="' + url.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" target="_blank">Povoliť prístup</a>' +
-    '<p>Po povolení túto stránku obnov.</p></div></body></html>';
+    '<h1>Gazda čaká na nastavenie</h1>' +
+    '<p>Vlastník aplikácie musí v Apps Script editore spustiť funkciu <b>setup</b> a povoliť ' +
+    'všetky oprávnenia (zaškrtnúť <b>Vybrať všetko</b>).</p>' +
+    '<a class="b" href="' + url.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" target="_blank">Povoliť prístup (vlastník)</a>' +
+    '<p>Potom túto stránku obnov.</p></div></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle('Gazda – povolenie')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -92,6 +101,7 @@ function authorizationPage_(url) {
 
 /** Spusti raz z editora: vytvorí tabuľku (ak treba) a listy s hlavičkami. */
 function setup() {
+  requireEditor_();
   // Ak pri autorizácii nebolo povolené všetko, editor si oprávnenia vypýta znova.
   if (typeof ScriptApp.requireAllScopes === 'function') {
     ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
@@ -114,12 +124,30 @@ function setup() {
   return ss.getUrl();
 }
 
+/**
+ * Spusti z editora: vytvorí NOVÝ osobný odkaz pre vlastníka skriptu a vypíše ho
+ * do denníka. Predchádzajúci odkaz vlastníka prestane fungovať.
+ */
+function mojOdkaz() {
+  requireEditor_();
+  const email = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!email) throw new Error('Nepodarilo sa zistiť e-mail vlastníka skriptu.');
+  const link = personalLink_(issueToken_(email));
+  Logger.log('Tvoj osobný odkaz do Gazdu (' + email + '):\n' + link +
+    '\nOtvor ho v telefóne a ulož si ho na plochu. Nikomu ho neposielaj.');
+  if (!/\/exec\?/.test(link)) {
+    Logger.log('Pozor: adresa aplikácie ešte nie je známa. Otvor raz URL /exec z „Spravovať nasadenia“ ' +
+      'a funkciu spusti znova, alebo nastav vlastnosť skriptu APP_URL.');
+  }
+  return link;
+}
+
 // ---------------------------------------------------------------------------
 // API volané z prehliadača (google.script.run)
 // ---------------------------------------------------------------------------
 
-function getHouseholds() {
-  const email = currentEmail_();
+function getHouseholds(token) {
+  const email = authenticate_(token);
   const members = readTable_('members');
   const myIds = new Set(members.filter((m) => m.email === email).map((m) => m.householdId));
 
@@ -127,51 +155,81 @@ function getHouseholds() {
     .filter((h) => myIds.has(h.id))
     .map((h) => ({
       ...strip_(h),
-      members: members.filter((m) => m.householdId === h.id).map(strip_),
+      members: publicMembers_(members.filter((m) => m.householdId === h.id)),
     }));
 
   return { email, households };
 }
 
-function createHousehold(name, emails) {
-  const email = currentEmail_();
+function createHousehold(token, name, emails) {
+  const email = authenticate_(token);
   name = requireText_(name, 'Zadaj názov domácnosti.');
   const shareWith = parseEmails_(emails).filter((e) => e !== email);
 
-  const warnings = withLock_(() => {
+  withLock_(() => {
     const now = nowIso_();
     const id = Utilities.getUuid();
     appendRow_('households', { id, name, createdByEmail: email, createdAt: now });
     appendRow_('members', { householdId: id, email, role: 'owner', addedAt: now });
-    return shareWith
-      .map((e) => {
-        appendRow_('members', { householdId: id, email: e, role: 'member', addedAt: now });
-        return shareSpreadsheet_(e);
-      })
-      .filter(Boolean);
+    shareWith.forEach((e) => {
+      appendRow_('members', { householdId: id, email: e, role: 'member', addedAt: now });
+    });
   });
 
-  return { ...getHouseholds(), warnings };
+  // Novým používateľom (bez odkazu) rovno vytvor pozývací odkaz.
+  const invites = shareWith.map((e) => inviteFor_(e)).filter(Boolean);
+  return { ...getHouseholds(token), invites };
 }
 
-function shareHousehold(householdId, newEmail) {
+function shareHousehold(token, householdId, newEmail) {
+  authenticate_(token);
   requireMember_(householdId);
   newEmail = String(newEmail || '').trim().toLowerCase();
   if (!EMAIL_RE.test(newEmail)) throw new Error('Zadaj platný e-mail.');
 
-  const warning = withLock_(() => {
+  withLock_(() => {
     const exists = readTable_('members').some(
       (m) => m.householdId === householdId && m.email === newEmail
     );
     if (exists) throw new Error('Domácnosť je už zdieľaná s ' + newEmail);
     appendRow_('members', { householdId, email: newEmail, role: 'member', addedAt: nowIso_() });
-    return shareSpreadsheet_(newEmail);
   });
 
-  return { ...getHouseholds(), warnings: warning ? [warning] : [] };
+  const invite = inviteFor_(newEmail);
+  return { ...getHouseholds(token), invites: invite ? [invite] : [] };
 }
 
-function deleteHousehold(householdId) {
+/**
+ * Vytvorí osobný odkaz pre člena domácnosti. Člen bez odkazu ho môže dostať od
+ * hocikoho z domácnosti; nový odkaz pre člena, ktorý už odkaz má, môže vytvoriť
+ * len on sám alebo zakladateľ domácnosti (starý odkaz tým prestane fungovať).
+ */
+function createMemberLink(token, householdId, memberEmail) {
+  const email = authenticate_(token);
+  const me = requireMember_(householdId);
+  memberEmail = String(memberEmail || '').trim().toLowerCase();
+  const target = readTable_('members').find(
+    (m) => m.householdId === householdId && m.email === memberEmail
+  );
+  if (!target) throw new Error('Tento človek nie je členom domácnosti.');
+
+  const user = readTable_('users').find((u) => u.email === memberEmail);
+  const hasLink = Boolean(user && user.tokenHash);
+  if (hasLink && memberEmail !== email && me.role !== 'owner') {
+    throw new Error('Nový odkaz pre iného člena môže vytvoriť len zakladateľ domácnosti.');
+  }
+  return { email: memberEmail, link: personalLink_(issueToken_(memberEmail)), replaced: hasLink };
+}
+
+/** Vytvorí nový osobný odkaz pre prihláseného používateľa; starý prestane fungovať. */
+function regenerateMyLink(token) {
+  const email = authenticate_(token);
+  const newToken = issueToken_(email);
+  return { email, token: newToken, link: personalLink_(newToken) };
+}
+
+function deleteHousehold(token, householdId) {
+  authenticate_(token);
   const member = requireMember_(householdId);
   if (member.role !== 'owner') throw new Error('Domácnosť môže vymazať len jej zakladateľ.');
 
@@ -182,24 +240,25 @@ function deleteHousehold(householdId) {
     deleteRowsWhere_('households', (r) => r.id === householdId);
   });
 
-  return getHouseholds();
+  return getHouseholds(token);
 }
 
 /**
  * Údaje pri štarte aplikácie: zoznam domácností a ak má používateľ uloženú
  * naposledy otvorenú domácnosť, rovno aj jej detail.
  */
-function getStartData() {
-  const res = getHouseholds();
+function getStartData(token) {
+  const res = getHouseholds(token);
   const user = readTable_('users').find((u) => u.email === res.email);
   const lastId = user && user.lastHouseholdId;
   if (lastId && res.households.some((h) => h.id === lastId)) {
-    res.lastDetail = getHouseholdData(lastId);
+    res.lastDetail = getHouseholdData(token, lastId);
   }
   return res;
 }
 
-function getHouseholdData(householdId) {
+function getHouseholdData(token, householdId) {
+  authenticate_(token);
   const member = requireMember_(householdId);
   const household = readTable_('households').find((h) => h.id === householdId);
   if (!household) throw new Error('Domácnosť neexistuje.');
@@ -209,9 +268,7 @@ function getHouseholdData(householdId) {
     email: member.email,
     role: member.role,
     household: strip_(household),
-    members: readTable_('members')
-      .filter((m) => m.householdId === householdId)
-      .map(strip_),
+    members: publicMembers_(readTable_('members').filter((m) => m.householdId === householdId)),
     priestory: readTable_('priestory')
       .filter((p) => p.householdId === householdId)
       .map(strip_),
@@ -221,7 +278,8 @@ function getHouseholdData(householdId) {
   };
 }
 
-function addPriestor(householdId, name) {
+function addPriestor(token, householdId, name) {
+  authenticate_(token);
   requireMember_(householdId);
   name = requireText_(name, 'Zadaj názov priestoru.');
   const priestor = { id: Utilities.getUuid(), householdId, name, createdAt: nowIso_() };
@@ -229,7 +287,8 @@ function addPriestor(householdId, name) {
   return priestor;
 }
 
-function addCinnost(householdId, data) {
+function addCinnost(token, householdId, data) {
+  authenticate_(token);
   const member = requireMember_(householdId);
   data = data || {};
 
@@ -278,7 +337,8 @@ function addCinnost(householdId, data) {
   return toCinnost_(cinnost);
 }
 
-function deleteCinnost(cinnostId) {
+function deleteCinnost(token, cinnostId) {
+  authenticate_(token);
   withLock_(() => {
     const cinnost = findCinnost_(cinnostId);
     deleteRowsWhere_('cinnosti', (r) => r.id === cinnost.id);
@@ -290,7 +350,8 @@ function deleteCinnost(cinnostId) {
  * Označí činnosť za hotovú. Jednorazová činnosť sa vymaže,
  * opakovaná sa posunie na ďalší termín.
  */
-function completeCinnost(cinnostId) {
+function completeCinnost(token, cinnostId) {
+  authenticate_(token);
   return withLock_(() => {
     const cinnost = findCinnost_(cinnostId);
 
@@ -314,8 +375,8 @@ function completeCinnost(cinnostId) {
 // ---------------------------------------------------------------------------
 
 /** Nastavenia upozornení pre prihláseného používateľa (téma sa vytvorí pri prvom otvorení). */
-function getNotificationSettings() {
-  const email = currentEmail_();
+function getNotificationSettings(token) {
+  const email = authenticate_(token);
   return {
     topic: ensureTopic_(email),
     server: ntfyServer_(),
@@ -323,8 +384,8 @@ function getNotificationSettings() {
   };
 }
 
-function sendTestNotification() {
-  const email = currentEmail_();
+function sendTestNotification(token) {
+  const email = authenticate_(token);
   const ok = sendNtfy_(ensureTopic_(email), {
     title: 'Gazda funguje',
     message: 'Toto je skúšobné upozornenie. Takto ti budú chodiť upozornenia na úlohy.',
@@ -354,6 +415,7 @@ function notificationTick() {
 
 /** Na vyskúšanie z editora: pošle ranný prehľad hneď. */
 function testRannyPrehlad() {
+  requireEditor_();
   return sendMorningDigest_(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'));
 }
 
@@ -603,15 +665,86 @@ function toCinnost_(row) {
 // Používateľ a oprávnenia
 // ---------------------------------------------------------------------------
 
-function currentEmail_() {
-  const email = String(Session.getActiveUser().getEmail() || '').toLowerCase();
-  if (!email) {
-    throw new Error(
-      'Nepodarilo sa zistiť tvoj Google účet. Web app musí bežať ako ' +
-        '„Používateľ, ktorý k aplikácii pristupuje“.'
-    );
+// E-mail používateľa overeného v aktuálnom volaní (nastaví authenticate_).
+let currentUserEmail_ = null;
+
+/** Overí osobný kľúč z odkazu a vráti e-mail používateľa, ktorému patrí. */
+function authenticate_(token) {
+  currentUserEmail_ = null;
+  token = String(token || '').toLowerCase();
+  if (TOKEN_RE.test(token)) {
+    const hash = hashToken_(token);
+    const user = readTable_('users').find((u) => u.tokenHash === hash);
+    if (user && user.email) currentUserEmail_ = user.email;
   }
-  return email;
+  if (!currentUserEmail_) {
+    throw new Error(INVALID_LINK + ': Tento odkaz je neplatný alebo bol nahradený novým.');
+  }
+  return currentUserEmail_;
+}
+
+function currentEmail_() {
+  if (!currentUserEmail_) throw new Error(INVALID_LINK + ': Chýba osobný odkaz.');
+  return currentUserEmail_;
+}
+
+/** Vytvorí nový kľúč pre používateľa (uloží len jeho odtlačok) a vráti ho. */
+function issueToken_(email) {
+  const token = Utilities.getUuid().replace(/-/g, '').toLowerCase();
+  const tokenHash = hashToken_(token);
+  withLock_(() => {
+    const row = readTable_('users').find((u) => u.email === email);
+    if (row) {
+      updateRow_('users', row._row, { ...row, tokenHash });
+    } else {
+      appendRow_('users', { email, ntfyTopic: '', createdAt: nowIso_(), lastHouseholdId: '', tokenHash });
+    }
+  });
+  return token;
+}
+
+function hashToken_(token) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token, Utilities.Charset.UTF_8);
+  return bytes.map((b) => ((b + 256) % 256).toString(16).padStart(2, '0')).join('');
+}
+
+function personalLink_(token) {
+  const props = PropertiesService.getScriptProperties();
+  let base = props.getProperty('APP_URL');
+  if (!base) {
+    try {
+      base = ScriptApp.getService().getUrl();
+    } catch (e) {
+      base = '';
+    }
+  }
+  return (base || '<adresa aplikácie /exec>') + '?k=' + token;
+}
+
+/** Pozývací odkaz pre nového používateľa; ak už odkaz má, vráti null. */
+function inviteFor_(email) {
+  const user = readTable_('users').find((u) => u.email === email);
+  if (user && user.tokenHash) return null;
+  return { email, link: personalLink_(issueToken_(email)) };
+}
+
+/** Členovia domácnosti pre prehliadač – bez interných údajov, s informáciou, či majú odkaz. */
+function publicMembers_(members) {
+  const linked = new Set(readTable_('users').filter((u) => u.tokenHash).map((u) => u.email));
+  return members.map((m) => ({ ...strip_(m), hasLink: linked.has(m.email) }));
+}
+
+/**
+ * Funkcie určené len pre editor (setup, mojOdkaz…) sú verejné, takže by ich
+ * teoreticky šlo zavolať aj z webu. Z webu ich však volá anonymný návštevník,
+ * ktorého e-mail sa nedá zistiť – vtedy ich zablokujeme.
+ */
+function requireEditor_() {
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== owner) {
+    throw new Error('Túto funkciu môže spustiť len vlastník skriptu v Apps Script editore.');
+  }
 }
 
 function requireMember_(householdId) {
@@ -621,19 +754,6 @@ function requireMember_(householdId) {
   );
   if (!member) throw new Error('K tejto domácnosti nemáš prístup.');
   return member;
-}
-
-/**
- * Web app beží pod účtom používateľa, takže každý člen potrebuje
- * prístup na úpravu tabuľky. Vráti upozornenie, ak sa zdieľanie nepodarí.
- */
-function shareSpreadsheet_(email) {
-  try {
-    getSpreadsheet_().addEditor(email);
-    return null;
-  } catch (e) {
-    return 'Tabuľku sa nepodarilo zdieľať s ' + email + '. Zdieľaj ju ručne (Editor).';
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -6,14 +6,15 @@
  *   members    – členovia domácností (kto má k domácnosti prístup)
  *   priestory  – priestory domácnosti (kuchyňa, kúpeľňa, ...)
  *   cinnosti   – činnosti (úlohy) priradené k priestoru
- *   users      – používatelia (odtlačok osobného kľúča, téma ntfy, posledná domácnosť)
+ *   users      – používatelia (odtlačok osobného kľúča, kanál upozornení, Telegram, posledná domácnosť)
  *
  * Web app beží pod účtom vlastníka („Spustiť ako: Ja“, prístup „Ktokoľvek“).
  * Používateľa identifikuje osobný tajný odkaz …/exec?k=<kľúč>; v tabuľke je len
  * SHA-256 odtlačok kľúča. Každé volanie z prehliadača posiela kľúč ako prvý parameter.
  *
  * Pred prvým použitím spusti z editora funkciu setup() a potom mojOdkaz().
- * Upozornenia: v editore pridaj spúšťač pre funkciu notificationTick (každých 15 minút).
+ * Upozornenia (e-mail / Telegram): v editore pridaj spúšťač pre funkciu notificationTick
+ * (každých 15 minút); pre Telegram nastav vlastnosť skriptu TELEGRAM_BOT_TOKEN.
  */
 
 const SHEETS = {
@@ -34,7 +35,17 @@ const SHEETS = {
     'repeatInterval',
     'createdAt',
   ],
-  users: ['email', 'ntfyTopic', 'createdAt', 'lastHouseholdId', 'tokenHash'],
+  // ntfyTopic sa už nepoužíva; stĺpec ostáva, aby sa neposunuli dáta v existujúcich tabuľkách.
+  users: [
+    'email',
+    'ntfyTopic',
+    'createdAt',
+    'lastHouseholdId',
+    'tokenHash',
+    'notifyChannel',
+    'telegramChatId',
+    'telegramLinkCode',
+  ],
 };
 
 const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
@@ -45,9 +56,10 @@ const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
 const INVALID_LINK = 'NEPLATNY_ODKAZ';
 
-// Upozornenia (ntfy.sh). Server a prístupový token sa dajú zmeniť vo vlastnostiach
-// skriptu NTFY_SERVER a NTFY_TOKEN, adresa aplikácie pre preklik vo vlastnosti APP_URL.
-const NTFY_DEFAULT_SERVER = 'https://ntfy.sh';
+// Upozornenia chodia e-mailom (Gmail vlastníka) alebo cez Telegram bota.
+// Token bota je vo vlastnosti skriptu TELEGRAM_BOT_TOKEN, adresa aplikácie v APP_URL.
+const CHANNELS = ['telegram', 'email', 'none'];
+const TELEGRAM_API = 'https://api.telegram.org/bot';
 const MORNING_HOUR = 8; // ranný prehľad chodí medzi 8:00 a 8:15
 const MORNING_LAST_HOUR = 11; // neskôr ako o 11:00 sa zmeškaný prehľad už neposiela
 const LAST_DIGEST_KEY = 'LAST_DIGEST_DATE';
@@ -371,35 +383,89 @@ function completeCinnost(token, cinnostId) {
 }
 
 // ---------------------------------------------------------------------------
-// Upozornenia (ntfy)
+// Upozornenia (e-mail / Telegram)
 // ---------------------------------------------------------------------------
 
-/** Nastavenia upozornení pre prihláseného používateľa (téma sa vytvorí pri prvom otvorení). */
+/** Nastavenia upozornení prihláseného používateľa. */
 function getNotificationSettings(token) {
   const email = authenticate_(token);
+  const user = userRow_(email);
   return {
-    topic: ensureTopic_(email),
-    server: ntfyServer_(),
+    email,
+    channel: channelOf_(user),
     morningHour: MORNING_HOUR,
+    telegram: {
+      available: Boolean(telegramToken_()),
+      linked: Boolean(user && user.telegramChatId),
+      botUsername: telegramToken_() ? telegramBotUsername_() : '',
+    },
   };
+}
+
+function setNotificationChannel(token, channel) {
+  const email = authenticate_(token);
+  if (!CHANNELS.includes(channel)) throw new Error('Neznámy spôsob upozornení.');
+  if (channel === 'telegram') {
+    const user = userRow_(email);
+    if (!user || !user.telegramChatId) throw new Error('Najprv si prepoj Telegram.');
+  }
+  updateUser_(email, { notifyChannel: channel });
+  return getNotificationSettings(token);
+}
+
+/** Vytvorí jednorazový odkaz t.me/<bot>?start=<kód> na prepojenie Telegramu. */
+function startTelegramLink(token) {
+  const email = authenticate_(token);
+  if (!telegramToken_()) throw new Error('Vlastník aplikácie ešte nenastavil Telegram bota.');
+  const username = telegramBotUsername_();
+  if (!username) throw new Error('Telegram bota sa nepodarilo načítať – skontroluj TELEGRAM_BOT_TOKEN.');
+  const code = Utilities.getUuid().replace(/-/g, '').toLowerCase();
+  updateUser_(email, { telegramLinkCode: code });
+  return { url: 'https://t.me/' + username + '?start=' + code };
+}
+
+/** Spracuje nové správy pre bota (prepojenia) a vráti aktuálne nastavenia. */
+function checkTelegramLink(token) {
+  authenticate_(token);
+  processTelegramUpdates_();
+  return getNotificationSettings(token);
+}
+
+function unlinkTelegram(token) {
+  const email = authenticate_(token);
+  const user = userRow_(email);
+  updateUser_(email, {
+    telegramChatId: '',
+    telegramLinkCode: '',
+    notifyChannel: channelOf_(user) === 'telegram' ? 'email' : (user && user.notifyChannel) || '',
+  });
+  return getNotificationSettings(token);
 }
 
 function sendTestNotification(token) {
   const email = authenticate_(token);
-  const ok = sendNtfy_(ensureTopic_(email), {
+  const user = userRow_(email) || { email };
+  if (channelOf_(user) === 'none') throw new Error('Upozornenia máš vypnuté – vyber Telegram alebo e-mail.');
+  const result = notifyUser_(user, {
+    kind: 'test',
     title: 'Gazda funguje',
-    message: 'Toto je skúšobné upozornenie. Takto ti budú chodiť upozornenia na úlohy.',
-    tags: 'white_check_mark',
+    lines: ['Toto je skúšobné upozornenie. Takto ti budú chodiť upozornenia na úlohy.'],
   });
-  if (!ok) throw new Error('Upozornenie sa nepodarilo odoslať. ' + explainNtfyError_(lastNtfyError_));
-  return { sent: true };
+  if (!result.ok) throw new Error('Upozornenie sa nepodarilo odoslať. ' + result.error);
+  return { sent: true, channel: result.channel };
 }
 
 /**
- * Spúšťa sa časovačom každých 15 minút. Raz denne po 8:00 pošle každému
- * ranný prehľad úloh na dnes a zvlášť upozornenie na úlohy po termíne.
+ * Spúšťa sa časovačom každých 15 minút. Spracuje prepojenia Telegramu a raz
+ * denne po 8:00 pošle ranný prehľad úloh na dnes a zvlášť úlohy po termíne.
  */
 function notificationTick() {
+  try {
+    processTelegramUpdates_();
+  } catch (e) {
+    console.warn('Telegram: ' + e);
+  }
+
   const tz = Session.getScriptTimeZone();
   const now = new Date();
   const hour = Number(Utilities.formatDate(now, tz, 'H'));
@@ -423,12 +489,11 @@ function sendMorningDigest_(today) {
   const households = new Map(readTable_('households').map((h) => [h.id, h]));
   const priestory = new Map(readTable_('priestory').map((p) => [p.id, p]));
   const memberKeys = new Set(readTable_('members').map((m) => m.householdId + '|' + m.email));
-  const topics = new Map(readTable_('users').filter((u) => u.ntfyTopic).map((u) => [u.email, u.ntfyTopic]));
+  const users = new Map(readTable_('users').map((u) => [u.email, u]));
 
   const byUser = new Map();
   readTable_('cinnosti').forEach((c) => {
-    if (!c.assignedTo || !topics.has(c.assignedTo) || !DATE_RE.test(c.dueDate)) return;
-    if (c.dueDate > today) return;
+    if (!c.assignedTo || !DATE_RE.test(c.dueDate) || c.dueDate > today) return;
     if (!households.has(c.householdId) || !memberKeys.has(c.householdId + '|' + c.assignedTo)) return;
     if (!byUser.has(c.assignedTo)) byUser.set(c.assignedTo, { today: [], overdue: [] });
     byUser.get(c.assignedTo)[c.dueDate === today ? 'today' : 'overdue'].push(c);
@@ -442,26 +507,25 @@ function sendMorningDigest_(today) {
 
   let sent = 0;
   byUser.forEach((tasks, email) => {
-    const topic = topics.get(email);
+    const user = users.get(email) || { email };
+    if (channelOf_(user) === 'none') return;
     if (tasks.today.length) {
-      const ok = sendNtfy_(topic, {
+      const res = notifyUser_(user, {
+        kind: 'today',
         title: 'Dnes ťa čaká ' + tasksLabel_(tasks.today.length),
-        message: tasks.today.sort(byName).map((c) => '• ' + c.name + ' (' + where(c) + ')').join('\n'),
-        tags: 'house',
+        lines: tasks.today.sort(byName).map((c) => '• ' + c.name + ' (' + where(c) + ')'),
       });
-      if (ok) sent++;
+      if (res.ok) sent++;
     }
     if (tasks.overdue.length) {
-      const ok = sendNtfy_(topic, {
+      const res = notifyUser_(user, {
+        kind: 'overdue',
         title: 'Po termíne: ' + tasksLabel_(tasks.overdue.length),
-        message: tasks.overdue
+        lines: tasks.overdue
           .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-          .map((c) => '• ' + c.name + ' – od ' + formatShortDate_(c.dueDate) + ' (' + where(c) + ')')
-          .join('\n'),
-        tags: 'warning',
-        priority: 4,
+          .map((c) => '• ' + c.name + ' – od ' + formatShortDate_(c.dueDate) + ' (' + where(c) + ')'),
       });
-      if (ok) sent++;
+      if (res.ok) sent++;
     }
   });
   return sent;
@@ -469,22 +533,22 @@ function sendMorningDigest_(today) {
 
 function notifyAssigned_(cinnost, priestor, fromEmail) {
   try {
-    const user = readTable_('users').find((u) => u.email === cinnost.assignedTo && u.ntfyTopic);
-    if (!user) return;
+    const user = userRow_(cinnost.assignedTo) || { email: cinnost.assignedTo };
+    if (channelOf_(user) === 'none') return;
     const household = readTable_('households').find((h) => h.id === cinnost.householdId);
-    const details = [priestor.name + (household ? ' · ' + household.name : '')];
+    const lines = [priestor.name + (household ? ' · ' + household.name : '')];
     let when = 'Termín: ' + formatShortDate_(cinnost.dueDate);
     if (cinnost.periodicity !== 'none') {
       const labels = { weekly: 'týždenne', monthly: 'mesačne', annually: 'ročne' };
       const n = Number(cinnost.repeatInterval) || 1;
       when += ' · opakuje sa ' + labels[cinnost.periodicity] + (n > 1 ? ' (každých ' + n + ')' : '');
     }
-    details.push(when);
-    if (cinnost.description) details.push(cinnost.description);
-    sendNtfy_(user.ntfyTopic, {
+    lines.push(when);
+    if (cinnost.description) lines.push(cinnost.description);
+    notifyUser_(user, {
+      kind: 'assigned',
       title: 'Nová úloha od ' + fromEmail.split('@')[0] + ': ' + cinnost.name,
-      message: details.join('\n'),
-      tags: 'memo',
+      lines,
     });
   } catch (e) {
     // Upozornenie nesmie pokaziť uloženie činnosti.
@@ -492,62 +556,200 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
   }
 }
 
-// Posledná chyba pri odosielaní do ntfy: { code, text } alebo { exception }.
-let lastNtfyError_ = null;
-
-/** Pošle správu do témy ntfy. Vráti true, ak ju server prijal. */
-function sendNtfy_(topic, msg) {
-  lastNtfyError_ = null;
-  const headers = {};
-  const token = PropertiesService.getScriptProperties().getProperty('NTFY_TOKEN');
-  if (token) headers.Authorization = 'Bearer ' + token;
-  const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL');
-
-  const payload = { topic, title: msg.title, message: msg.message, tags: [].concat(msg.tags || []) };
-  if (msg.priority) payload.priority = msg.priority;
-  if (appUrl) payload.click = appUrl;
-
-  try {
-    const res = UrlFetchApp.fetch(ntfyServer_(), {
-      method: 'post',
-      contentType: 'application/json',
-      headers,
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true,
-    });
-    const code = res.getResponseCode();
-    if (code >= 200 && code < 300) return true;
-    lastNtfyError_ = { code, text: String(res.getContentText() || '').slice(0, 300) };
-    console.warn('ntfy odpovedal ' + code + ': ' + lastNtfyError_.text);
-  } catch (e) {
-    lastNtfyError_ = { exception: String((e && e.message) || e) };
-    console.warn('ntfy nedostupný: ' + lastNtfyError_.exception);
-  }
-  return false;
+/** Kanál upozornení používateľa; predvolene e-mail, Telegram len ak je prepojený. */
+function channelOf_(user) {
+  const channel = user && user.notifyChannel;
+  if (channel === 'none') return 'none';
+  if (channel === 'telegram' && user.telegramChatId) return 'telegram';
+  if (!channel && user && user.telegramChatId) return 'telegram';
+  return 'email';
 }
 
-/** Zrozumiteľné vysvetlenie chyby z ntfy pre používateľa. */
-function explainNtfyError_(err) {
-  if (!err) return 'Skús to neskôr.';
-  if (err.exception) {
-    if (/UrlFetchApp|povolen|permission|authoriz|oprávnen/i.test(err.exception)) {
-      return (
-        'Chýba povolenie „Pripojenie k externej službe“. Obnov stránku a pri povolení prístupu ' +
-        'zaškrtni „Vybrať všetko“. (' + err.exception + ')'
-      );
+/**
+ * Pošle upozornenie zvoleným kanálom. msg = { kind, title, lines[] }.
+ * Vráti { ok, channel, error }.
+ */
+function notifyUser_(user, msg) {
+  const channel = channelOf_(user);
+  try {
+    if (channel === 'telegram') return { channel, ...sendTelegram_(user, msg) };
+    if (channel === 'email') {
+      sendEmail_(user.email, msg);
+      return { ok: true, channel };
     }
-    return 'Server ntfy je nedostupný: ' + err.exception;
+    return { ok: false, channel, error: 'Upozornenia sú vypnuté.' };
+  } catch (e) {
+    const text = String((e && e.message) || e);
+    console.warn('Upozornenie (' + channel + ') pre ' + user.email + ' zlyhalo: ' + text);
+    return { ok: false, channel, error: explainNotifyError_(channel, text) };
   }
-  if (err.code === 429) {
-    return (
-      'ntfy dočasne odmieta správy pre prekročený limit (zdieľané servery Google). Vlastník aplikácie ' +
-      'môže nastaviť vlastnosť skriptu NTFY_TOKEN z bezplatného účtu na ntfy.sh. (HTTP 429)'
-    );
+}
+
+const KIND_ICONS = { today: '🏠', overdue: '⚠️', assigned: '📝', test: '✅' };
+
+function sendEmail_(to, msg) {
+  const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL');
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html =
+    '<div style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a">' +
+    '<h2 style="font-size:18px;margin:0 0 12px">' + (KIND_ICONS[msg.kind] || '') + ' ' + esc(msg.title) + '</h2>' +
+    msg.lines.map((l) => '<div style="margin:4px 0">' + esc(l) + '</div>').join('') +
+    (appUrl
+      ? '<p style="margin-top:20px"><a href="' + esc(appUrl) + '" style="background:#16a34a;color:#fff;' +
+        'padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:bold">Otvoriť Gazdu</a></p>'
+      : '') +
+    '<p style="color:#64748b;font-size:12px;margin-top:24px">Upozornenia môžeš zmeniť alebo vypnúť v Gazdovi cez 🔔.</p></div>';
+  MailApp.sendEmail({
+    to,
+    subject: 'Gazda: ' + msg.title,
+    body: msg.title + '\n\n' + msg.lines.join('\n') + (appUrl ? '\n\nOtvoriť Gazdu: ' + appUrl : ''),
+    htmlBody: html,
+    name: 'Gazda',
+  });
+}
+
+function sendTelegram_(user, msg) {
+  const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL');
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const payload = {
+    chat_id: user.telegramChatId,
+    text: (KIND_ICONS[msg.kind] || '') + ' <b>' + esc(msg.title) + '</b>\n' + msg.lines.map(esc).join('\n'),
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  };
+  if (appUrl) payload.reply_markup = { inline_keyboard: [[{ text: 'Otvoriť Gazdu', url: appUrl }]] };
+
+  const res = telegramApi_('sendMessage', payload);
+  if (res.ok) return { ok: true };
+  // Používateľ bota zablokoval alebo zmazal chat – prepojenie zrušíme, ďalej pôjde e-mail.
+  if (res.error_code === 403 || /chat not found/i.test(res.description || '')) {
+    updateUser_(user.email, { telegramChatId: '', notifyChannel: 'email' });
   }
-  if (err.code === 401 || err.code === 403) {
-    return 'ntfy odmietol prístup – skontroluj vlastnosť skriptu NTFY_TOKEN. (HTTP ' + err.code + ': ' + err.text + ')';
+  return { ok: false, error: explainNotifyError_('telegram', 'HTTP ' + res.error_code + ': ' + res.description) };
+}
+
+function explainNotifyError_(channel, text) {
+  if (channel === 'email') {
+    if (/limit|quota|too many/i.test(text)) return 'Prekročený denný limit e-mailov Gmailu, skús to zajtra. (' + text + ')';
+    if (/povolen|permission|authoriz/i.test(text)) {
+      return 'Vlastník aplikácie musí v editore spustiť setup a povoliť posielanie e-mailov. (' + text + ')';
+    }
+    return 'E-mail sa nepodarilo odoslať: ' + text;
   }
-  return 'ntfy odpovedal HTTP ' + err.code + (err.text ? ': ' + err.text : '');
+  if (/HTTP 401/.test(text)) return 'Telegram odmietol token bota – skontroluj TELEGRAM_BOT_TOKEN. (' + text + ')';
+  if (/HTTP 403/.test(text)) return 'Bot je v Telegrame zablokovaný – prepojenie sa zrušilo, prepoj ho znova. (' + text + ')';
+  if (/povolen|permission|authoriz|UrlFetchApp/i.test(text)) {
+    return 'Vlastník aplikácie musí v editore spustiť setup a povoliť pripojenie k externým službám. (' + text + ')';
+  }
+  return 'Telegram: ' + text;
+}
+
+// ---- Telegram bot ----------------------------------------------------------
+
+function telegramToken_() {
+  return String(PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+}
+
+function telegramApi_(method, payload) {
+  const res = UrlFetchApp.fetch(TELEGRAM_API + telegramToken_() + '/' + method, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload || {}),
+    muteHttpExceptions: true,
+  });
+  try {
+    return JSON.parse(res.getContentText());
+  } catch (e) {
+    return { ok: false, error_code: res.getResponseCode(), description: 'neplatná odpoveď' };
+  }
+}
+
+/** Používateľské meno bota (z getMe), uložené vo vlastnostiach pre aktuálny token. */
+function telegramBotUsername_() {
+  const props = PropertiesService.getScriptProperties();
+  const botId = telegramToken_().split(':')[0];
+  const cached = String(props.getProperty('TELEGRAM_BOT_USERNAME') || '').split('|');
+  if (cached[0] === botId && cached[1]) return cached[1];
+  const res = telegramApi_('getMe');
+  if (!res.ok || !res.result || !res.result.username) return '';
+  props.setProperty('TELEGRAM_BOT_USERNAME', botId + '|' + res.result.username);
+  return res.result.username;
+}
+
+/**
+ * Prečíta nové správy pre bota (getUpdates) a spracuje:
+ *   /start <kód> – prepojí chat s používateľom, ktorému kód patrí,
+ *   /stop        – zruší prepojenie.
+ */
+function processTelegramUpdates_() {
+  if (!telegramToken_()) return 0;
+  return withLock_(() => {
+    const props = PropertiesService.getScriptProperties();
+    const offset = Number(props.getProperty('TELEGRAM_UPDATE_OFFSET') || 0);
+    const res = telegramApi_('getUpdates', { offset, timeout: 0, allowed_updates: ['message'] });
+    if (!res.ok) throw new Error('getUpdates HTTP ' + res.error_code + ': ' + res.description);
+
+    let next = offset;
+    let linked = 0;
+    (res.result || []).forEach((update) => {
+      next = Math.max(next, update.update_id + 1);
+      const message = update.message;
+      if (!message || !message.chat || typeof message.text !== 'string') return;
+      const chatId = String(message.chat.id);
+      const text = message.text.trim();
+      const start = text.match(/^\/start(?:@\w+)?\s+([0-9a-f]{32})$/i);
+
+      if (start) {
+        const user = readTable_('users').find((u) => u.telegramLinkCode && u.telegramLinkCode === start[1].toLowerCase());
+        if (!user) {
+          telegramApi_('sendMessage', { chat_id: chatId, text: 'Tento odkaz už neplatí. Otvor Gazdu, ťukni na 🔔 a prepoj Telegram znova.' });
+          return;
+        }
+        // Rovnaký chat nemôže byť prepojený s dvoma používateľmi.
+        readTable_('users')
+          .filter((u) => u.telegramChatId === chatId && u.email !== user.email)
+          .forEach((u) => updateRow_('users', u._row, { ...u, telegramChatId: '' }));
+        const fresh = readTable_('users').find((u) => u.email === user.email);
+        updateRow_('users', fresh._row, { ...fresh, telegramChatId: chatId, telegramLinkCode: '', notifyChannel: 'telegram' });
+        telegramApi_('sendMessage', {
+          chat_id: chatId,
+          text: '✅ Hotovo! Upozornenia z Gazdu ti budú chodiť sem (' + user.email + ').\nZrušiť ich môžeš v Gazdovi cez 🔔 alebo príkazom /stop.',
+        });
+        linked++;
+      } else if (/^\/stop(?:@\w+)?$/i.test(text)) {
+        readTable_('users')
+          .filter((u) => u.telegramChatId === chatId)
+          .forEach((u) => updateRow_('users', u._row, { ...u, telegramChatId: '', notifyChannel: 'email' }));
+        telegramApi_('sendMessage', { chat_id: chatId, text: 'Prepojenie zrušené. Upozornenia ti budú chodiť e-mailom.' });
+      } else if (/^\/start/i.test(text)) {
+        telegramApi_('sendMessage', {
+          chat_id: chatId,
+          text: 'Ahoj! Toto je bot aplikácie Gazda. Prepojíš ho v Gazdovi: ťukni na 🔔 → Prepojiť s Telegramom.',
+        });
+      }
+    });
+
+    if (next !== offset) props.setProperty('TELEGRAM_UPDATE_OFFSET', String(next));
+    return linked;
+  });
+}
+
+// ---- Používatelia -----------------------------------------------------------
+
+function userRow_(email) {
+  return readTable_('users').find((u) => u.email === email) || null;
+}
+
+/** Zmení údaje používateľa v liste users (riadok vytvorí, ak neexistuje). */
+function updateUser_(email, fields) {
+  withLock_(() => {
+    const row = readTable_('users').find((u) => u.email === email);
+    if (row) {
+      updateRow_('users', row._row, { ...row, ...fields });
+    } else {
+      appendRow_('users', { email, createdAt: nowIso_(), ...fields });
+    }
+  });
 }
 
 function rememberLastHousehold_(email, householdId) {
@@ -566,32 +768,6 @@ function rememberLastHousehold_(email, householdId) {
     // Zapamätanie je len pohodlnosť – nesmie zabrániť otvoreniu domácnosti.
     console.warn('Poslednú domácnosť sa nepodarilo uložiť: ' + e);
   }
-}
-
-function ensureTopic_(email) {
-  const existing = readTable_('users').find((u) => u.email === email);
-  if (existing && existing.ntfyTopic) return existing.ntfyTopic;
-
-  return withLock_(() => {
-    const users = readTable_('users');
-    const row = users.find((u) => u.email === email);
-    if (row && row.ntfyTopic) return row.ntfyTopic;
-
-    const name = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16) || 'user';
-    const random = Utilities.getUuid().replace(/-/g, '').slice(0, 16);
-    const topic = 'gazda-' + name + '-' + random;
-    if (row) {
-      updateRow_('users', row._row, { ...row, ntfyTopic: topic });
-    } else {
-      appendRow_('users', { email, ntfyTopic: topic, createdAt: nowIso_() });
-    }
-    return topic;
-  });
-}
-
-function ntfyServer_() {
-  const server = PropertiesService.getScriptProperties().getProperty('NTFY_SERVER') || NTFY_DEFAULT_SERVER;
-  return server.replace(/\/+$/, '');
 }
 
 /** Zapamätá si adresu web app (/exec), aby sa po ťuknutí na upozornenie otvorila aplikácia. */

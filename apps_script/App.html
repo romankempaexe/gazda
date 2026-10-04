@@ -116,9 +116,6 @@
     const message = (err && err.message ? err.message : String(err))
       .replace(/^Error:\s*/, '')
       .replace(/^NEPLATNY_ODKAZ:\s*/, '');
-    if (/povolenie|permission|authoriz/i.test(message)) {
-      return message + ' Obnov stránku a pri povolení prístupu zaškrtni „Vybrať všetko“.';
-    }
     return message;
   }
 
@@ -1028,69 +1025,121 @@
   }
 
   // -------------------------------------------------------------------------
-  // Upozornenia (ntfy)
+  // Upozornenia (e-mail / Telegram)
   // -------------------------------------------------------------------------
 
   async function showNotificationSettings() {
-    let settings;
     try {
-      settings = await api('getNotificationSettings');
+      renderNotificationSettings(await api('getNotificationSettings'));
     } catch (err) {
       showError(err);
-      return;
     }
-    const host = settings.server.replace(/^https?:\/\//, '');
-    const subscribeLink = 'ntfy://' + host + '/' + settings.topic;
-    const isDefaultServer = host === 'ntfy.sh';
+  }
+
+  function renderNotificationSettings(settings) {
+    const tg = settings.telegram;
+    const option = (value, icon, title, desc, disabled) =>
+      '<button type="button" class="choice' + (settings.channel === value ? ' selected' : '') + '" data-channel="' + value + '"' +
+      (disabled ? ' disabled' : '') + '><span class="ms">' + icon + '</span><span class="choice-text"><b>' + title +
+      '</b><span>' + desc + '</span></span>' +
+      (settings.channel === value ? '<span class="ms check">check_circle</span>' : '') + '</button>';
+
+    let telegramBox;
+    if (!tg.available) {
+      telegramBox = '<div class="hint">Telegram ešte nie je nastavený – vlastník aplikácie musí vytvoriť bota ' +
+        '(návod v README).</div>';
+    } else if (tg.linked) {
+      telegramBox = '<div class="row" style="align-items:center"><div class="hint" style="flex:3">✅ Telegram je prepojený' +
+        (tg.botUsername ? ' s @' + esc(tg.botUsername) : '') + '.</div>' +
+        '<button type="button" class="btn text small" id="tgUnlink" style="flex:0 0 auto">Zrušiť prepojenie</button></div>';
+    } else {
+      telegramBox =
+        '<div class="hint">1. Nainštaluj si <b>Telegram</b>. 2. Ťukni na <b>Prepojiť s Telegramom</b> a v Telegrame ' +
+        'ťukni <b>Štart</b>. 3. Vráť sa sem a ťukni <b>Overiť prepojenie</b>.</div>' +
+        '<div class="row" style="margin-top:10px">' +
+        '<button type="button" class="btn tonal small" id="tgLink"><span class="ms">send</span>Prepojiť s Telegramom</button>' +
+        '<button type="button" class="btn tonal small" id="tgCheck"><span class="ms">refresh</span>Overiť prepojenie</button>' +
+        '</div>';
+    }
 
     openModal(
       '<h2>Upozornenia</h2>' +
-        '<div class="subtitle">Push upozornenia na telefón cez bezplatnú aplikáciu ntfy.</div>' +
+        '<div class="subtitle">Ako ti má Gazda pripomínať úlohy?</div>' +
         '<div class="members">' +
         '<div><span class="ms">wb_sunny</span>Každé ráno o ' + settings.morningHour + ':00 – úlohy na dnes</div>' +
         '<div><span class="ms">assignment_add</span>Keď ti niekto pridelí novú úlohu</div>' +
         '<div><span class="ms">warning</span>Ráno aj úlohy po termíne</div>' +
         '</div>' +
-        '<div class="field"><label>1. Nainštaluj si aplikáciu ntfy</label>' +
-        '<div class="row">' +
-        '<a class="btn tonal small" target="_blank" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy">' +
-        '<span class="ms">android</span>Android</a>' +
-        '<a class="btn tonal small" target="_blank" href="https://apps.apple.com/app/ntfy/id1625396347">' +
-        '<span class="ms">phone_iphone</span>iPhone</a>' +
-        '</div></div>' +
-        '<div class="field"><label>2. Prihlás sa na odber svojej témy</label>' +
-        '<div class="row" style="align-items:center">' +
-        '<input id="topic" readonly value="' + esc(settings.topic) + '" style="flex:3">' +
-        '<button type="button" class="btn tonal small" id="copyTopic" style="flex:0 0 auto"><span class="ms">content_copy</span></button>' +
+        '<div class="choices">' +
+        option('telegram', 'send', 'Telegram', 'Okamžité notifikácie v Telegrame', !tg.linked) +
+        option('email', 'mail', 'E-mail', esc(settings.email), false) +
+        option('none', 'notifications_off', 'Vypnuté', 'Žiadne upozornenia', false) +
         '</div>' +
-        '<div class="hint">V ntfy ťukni na <b>+</b>, vlož tento názov témy' +
-        (isDefaultServer ? '' : ' a server <b>' + esc(settings.server) + '</b>') +
-        ' a ťukni <b>Prihlásiť odber</b>. Názov témy nikomu neposielaj – kto ho pozná, vidí tvoje upozornenia.</div>' +
-        '<a class="btn tonal small" target="_top" href="' + esc(subscribeLink) + '" style="margin-top:10px">' +
-        '<span class="ms">open_in_new</span>Otvoriť v ntfy</a>' +
-        '</div>' +
-        '<div class="field"><label>3. Vyskúšaj to</label>' +
-        '<button type="button" class="btn small" id="testNotif"><span class="ms">send</span>Poslať skúšobné upozornenie</button></div>' +
-        '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button></div>',
+        '<div class="field"><label>Telegram</label>' + telegramBox + '</div>' +
+        '<div class="actions">' +
+        '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+        '<button type="button" class="btn" id="testNotif"' + (settings.channel === 'none' ? ' disabled' : '') + '>' +
+        '<span class="ms">notifications_active</span>Vyskúšať</button>' +
+        '</div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
-        root.querySelector('#copyTopic').onclick = async () => {
-          const input = root.querySelector('#topic');
-          input.select();
-          try {
-            await navigator.clipboard.writeText(input.value);
-            toast('Názov témy skopírovaný');
-          } catch (e) {
-            const copied = document.execCommand && document.execCommand('copy');
-            toast(copied ? 'Názov témy skopírovaný' : 'Názov je označený – podrž prst a skopíruj ho');
-          }
-        };
+        root.querySelectorAll('[data-channel]').forEach((b) => {
+          b.onclick = async () => {
+            if (b.dataset.channel === settings.channel) return;
+            try {
+              renderNotificationSettings(await api('setNotificationChannel', b.dataset.channel));
+            } catch (err) {
+              showError(err);
+            }
+          };
+        });
+        const link = root.querySelector('#tgLink');
+        if (link) {
+          link.onclick = async () => {
+            // Okno otvoríme hneď (v rámci ťuknutia), inak by ho prehliadač zablokoval.
+            const win = window.open('', '_blank');
+            try {
+              const res = await api('startTelegramLink');
+              if (win) win.location.href = res.url;
+              else window.open(res.url, '_blank');
+              toast('V Telegrame ťukni Štart a potom sa vráť sem.');
+            } catch (err) {
+              if (win) win.close();
+              showError(err);
+            }
+          };
+        }
+        const check = root.querySelector('#tgCheck');
+        if (check) {
+          check.onclick = async () => {
+            check.disabled = true;
+            try {
+              const res = await api('checkTelegramLink');
+              renderNotificationSettings(res);
+              toast(res.telegram.linked ? 'Telegram je prepojený' : 'Zatiaľ nič – ťukol si v Telegrame na Štart?', !res.telegram.linked);
+            } catch (err) {
+              check.disabled = false;
+              showError(err);
+            }
+          };
+        }
+        const unlink = root.querySelector('#tgUnlink');
+        if (unlink) {
+          unlink.onclick = async () => {
+            try {
+              renderNotificationSettings(await api('unlinkTelegram'));
+              toast('Prepojenie s Telegramom zrušené');
+            } catch (err) {
+              showError(err);
+            }
+          };
+        }
         root.querySelector('#testNotif').onclick = async (e) => {
           const button = e.currentTarget;
           button.disabled = true;
           try {
-            await api('sendTestNotification');
-            toast('Upozornenie odoslané – pozri sa do ntfy');
+            const res = await api('sendTestNotification');
+            toast(res.channel === 'telegram' ? 'Odoslané – pozri sa do Telegramu' : 'Odoslané – pozri sa do e-mailu');
           } catch (err) {
             showError(err);
           } finally {
@@ -1099,8 +1148,6 @@
         };
       }
     );
-    // Na mobile nech sa klávesnica pri otvorení neukáže.
-    $('topic').blur();
   }
 
   // -------------------------------------------------------------------------

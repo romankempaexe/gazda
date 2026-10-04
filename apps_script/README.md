@@ -46,13 +46,14 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **users** – používatelia
 
-| email | ntfyTopic | createdAt | lastHouseholdId | tokenHash |
-|---|---|---|---|---|
+| email | ntfyTopic | createdAt | lastHouseholdId | tokenHash | notifyChannel | telegramChatId | telegramLinkCode |
+|---|---|---|---|---|---|---|---|
 
-- `ntfyTopic` – náhodný názov témy v ntfy, na ktorú chodia upozornenia (vytvorí sa
-  pri prvom otvorení okna *Upozornenia*)
 - `lastHouseholdId` – naposledy otvorená domácnosť; pri ďalšom spustení sa otvorí rovno ona
 - `tokenHash` – SHA-256 odtlačok kľúča z osobného odkazu (samotný kľúč sa neukladá)
+- `notifyChannel` – `telegram`, `email` alebo `none` (prázdne = e-mail, resp. Telegram ak je prepojený)
+- `telegramChatId` – chat s Telegram botom; `telegramLinkCode` – jednorazový kód na prepojenie
+- `ntfyTopic` – už sa nepoužíva (zostáva, aby sa neposunuli stĺpce)
 
 ## Funkcie
 
@@ -65,54 +66,54 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - **Plánovanie** – všetky činnosti domácnosti na vybraný deň, filter podľa člena,
   pridanie a vymazanie činnosti
 - Priestory, ikony, farby a opakovanie ako vo Flutter verzii
-- **Upozornenia na telefón** cez ntfy: ranný prehľad o 8:00, nová pridelená úloha,
+- **Upozornenia** e-mailom alebo cez Telegram: ranný prehľad o 8:00, nová pridelená úloha,
   úlohy po termíne (pozri nižšie)
 
-## Upozornenia (ntfy)
-
-Upozornenia chodia ako push notifikácie cez bezplatnú aplikáciu
-[ntfy](https://ntfy.sh) (Android aj iPhone):
+## Upozornenia (e-mail / Telegram)
 
 | Upozornenie | Kedy |
 |---|---|
-| **Dnes ťa čaká X úloh** | každé ráno medzi 8:00 a 8:15 – úlohy s termínom dnes |
-| **Po termíne: X úloh** | ráno spolu s prehľadom – úlohy, ktorých termín už prešiel |
-| **Nová úloha od …** | hneď, keď ti niekto iný pridelí činnosť |
+| 🏠 **Dnes ťa čaká X úloh** | každé ráno medzi 8:00 a 8:15 – úlohy s termínom dnes |
+| ⚠️ **Po termíne: X úloh** | ráno spolu s prehľadom – úlohy, ktorých termín už prešiel |
+| 📝 **Nová úloha od …** | hneď, keď ti niekto iný pridelí činnosť |
 
-Upozornenie sa posiela len tým, kto má priradenú úlohu a otvoril si v aplikácii
-okno *Upozornenia* (zvonček vpravo hore).
+Každý si v Gazdovi cez 🔔 vyberie, ako mu majú chodiť:
+
+- **E-mail** (predvolené) – z Gmailu vlastníka skriptu na e-mail člena. Nič netreba
+  nastavovať; s aplikáciou Gmail príde aj push notifikácia. Limit Gmailu je 100 e-mailov denne.
+- **Telegram** – okamžité push notifikácie od bota s tlačidlom *Otvoriť Gazdu*.
+- **Vypnuté**.
+
+Ak člen bota v Telegrame zablokuje alebo pošle `/stop`, prepojenie sa zruší a upozornenia
+mu ďalej chodia e-mailom.
 
 ### Zapnutie (raz, robí vlastník skriptu)
 
-1. Nahraj nový kód a v editore spusti funkciu **`setup`** – Google si vypýta nové
-   oprávnenie *Pripojenie k externej službe*. Zaškrtni **Vybrať všetko**.
+1. Nahraj nový kód a v editore spusti funkciu **`setup`** – povoľ oprávnenia
+   (posielanie e-mailov a pripojenie k externým službám, zaškrtni **Vybrať všetko**).
 2. V editore klikni vľavo na ⏰ **Spúšťače → + Pridať spúšťač** a nastav:
-   - Funkcia: **`notificationTick`**
-   - Nasadenie: **Head**
-   - Zdroj udalosti: **Časovo riadený**
-   - Typ: **Časovač minút**, interval **Každých 15 minút**
-3. Ulož. Ranný prehľad sa dá vyskúšať hneď funkciou **`testRannyPrehlad`**.
-4. Vytvor novú verziu nasadenia (alebo pushni do `main`, ak používaš GitHub Actions).
+   - Funkcia: **`notificationTick`**, Nasadenie: **Head**
+   - Zdroj udalosti: **Časovo riadený**, Typ: **Časovač minút**, **Každých 15 minút**
+3. Ranný prehľad sa dá vyskúšať hneď funkciou **`testRannyPrehlad`**.
 
-Oprávnenia povoľuje len vlastník skriptu (aplikácia beží pod jeho účtom).
+### Telegram bot (voliteľné, raz)
 
-### Prihlásenie na odber (každý člen)
+1. V Telegrame otvor **@BotFather**, pošli `/newbot`, zadaj meno (napr. *Gazda*) a
+   používateľské meno končiace na `bot` (napr. *GazdaNovakovciBot*).
+2. BotFather pošle **token** (`123456789:AA…`). V editore otvor ⚙️ **Nastavenia projektu →
+   Vlastnosti skriptu** a pridaj vlastnosť **`TELEGRAM_BOT_TOKEN`** s týmto tokenom.
 
-1. Nainštaluj si aplikáciu **ntfy**.
-2. V Gazdovi ťukni na 🔔 vpravo hore, skopíruj názov svojej témy a v ntfy ťukni
-   na **+**, vlož ho a ťukni **Prihlásiť odber** (alebo ťukni na **Otvoriť v ntfy**).
-3. Ťukni na **Poslať skúšobné upozornenie**.
+Token bota je tajný – patrí len do Vlastností skriptu.
 
-### Voliteľné nastavenia (Nastavenia projektu → Vlastnosti skriptu)
+### Prepojenie Telegramu (každý člen)
 
-| Vlastnosť | Význam |
-|---|---|
-| `NTFY_TOKEN` | prístupový token z bezplatného účtu na ntfy.sh – limity sa potom počítajú na tvoj účet, nie na zdieľané IP adresy Google |
-| `NTFY_SERVER` | vlastný ntfy server (predvolene `https://ntfy.sh`) |
-| `APP_URL` | adresa web app, ktorá sa otvorí po ťuknutí na upozornenie (nastaví sa sama pri otvorení `/exec`) |
+1. Nainštaluj si Telegram.
+2. V Gazdovi ťukni na 🔔 → **Prepojiť s Telegramom** → v Telegrame ťukni **Štart**.
+3. Vráť sa do Gazdu a ťukni **Overiť prepojenie** (inak sa prepojenie dokončí samo do 15 minút).
+4. Ťukni **Vyskúšať**.
 
-> Názov témy funguje ako heslo – kto ho pozná, vidí upozornenia. V upozorneniach sú
-> len názvy úloh, priestorov a domácností.
+Bot správy číta cez `getUpdates` (pri overení a pri každom spustení `notificationTick`),
+webhook netreba nastavovať.
 
 ## Nasadenie (ručne, cez prehliadač)
 

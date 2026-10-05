@@ -752,6 +752,23 @@
       animation: sheet 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
     }
 
+    /* Počas písania: okno pri hornom okraji, aby ho klávesnica neprekryla. */
+    .modal.typing {
+      align-items: flex-start;
+    }
+
+    .modal.typing .modal-card {
+      border-radius: 0 0 28px 28px;
+      max-height: 100%;
+      /* rezerva, aby sa aj posledné pole dalo posunúť hore nad klávesnicu */
+      padding-bottom: 60vh;
+      animation: none;
+    }
+
+    .modal.typing .modal-card::before {
+      display: none;
+    }
+
     .modal-card::before {
       content: '';
       display: block;

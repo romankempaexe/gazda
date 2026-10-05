@@ -54,6 +54,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
+// interactive-widget: pri otvorení klávesnice sa stránka zmenší, takže okná
+// a polia sa posunú nad klávesnicu (inak ich klávesnica prekryje).
+const VIEWPORT = 'width=device-width, initial-scale=1, interactive-widget=resizes-content';
 const INVALID_LINK = 'NEPLATNY_ODKAZ';
 
 // Upozornenia chodia e-mailom (Gmail vlastníka) alebo cez Telegram bota.
@@ -85,7 +88,7 @@ function doGet(e) {
   return template
     .evaluate()
     .setTitle('Gazda')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', VIEWPORT);
 }
 
 function include(name) {
@@ -108,7 +111,7 @@ function authorizationPage_(url) {
     '<p>Potom túto stránku obnov.</p></div></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle('Gazda – povolenie')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', VIEWPORT);
 }
 
 /** Spusti raz z editora: vytvorí tabuľku (ak treba) a listy s hlavičkami. */

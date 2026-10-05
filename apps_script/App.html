@@ -436,12 +436,43 @@
   }
 
   function closeModal() {
+    $('modal').classList.remove('typing');
     $('modal').classList.add('hidden');
     $('modalContent').innerHTML = '';
   }
 
   $('modal').addEventListener('click', (e) => {
     if (e.target === $('modal')) closeModal();
+  });
+
+  // Na mobile pri písaní: okno presuň k hornému okraju a pole posuň tak, aby
+  // bolo nad klávesnicou (spolu s popiskom nad ním).
+  const TEXT_INPUT = 'textarea, input:not([type]), input[type=text], input[type=email], input[type=number], input[type=search], input[type=tel], input[type=url], input[type=password]';
+  const isPhone = () => window.matchMedia('(max-width: 600px)').matches;
+
+  function keepFieldVisible(field) {
+    const card = $('modalContent');
+    const label = field.closest('.field');
+    const target = label || field;
+    const offset = target.getBoundingClientRect().top - card.getBoundingClientRect().top - 12;
+    card.scrollTop += offset;
+  }
+
+  $('modalContent').addEventListener('focusin', (e) => {
+    if (!isPhone() || !e.target.matches(TEXT_INPUT) || e.target.readOnly) return;
+    $('modal').classList.add('typing');
+    // Klávesnica sa vysúva postupne – pozíciu doladíme aj po jej otvorení.
+    requestAnimationFrame(() => keepFieldVisible(e.target));
+    setTimeout(() => document.activeElement === e.target && keepFieldVisible(e.target), 350);
+  });
+
+  $('modalContent').addEventListener('focusout', () => {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || !$('modalContent').contains(active) || !active.matches(TEXT_INPUT)) {
+        $('modal').classList.remove('typing');
+      }
+    }, 150);
   });
 
   document.addEventListener('keydown', (e) => {

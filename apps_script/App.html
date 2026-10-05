@@ -80,10 +80,68 @@
   }
 
   function forgetToken() {
-    token = '';
     try {
       localStorage.removeItem(TOKEN_KEY);
+      if (token) localStorage.removeItem(snapshotKey());
     } catch (e) {}
+    token = '';
+  }
+
+  // -------------------------------------------------------------------------
+  // Posledné načítané údaje v prehliadači – aplikácia ich ukáže hneď pri
+  // otvorení a čerstvé údaje zo servera dotiahne na pozadí.
+  // -------------------------------------------------------------------------
+
+  const SNAPSHOT_DETAILS = 5;
+
+  function snapshotKey() {
+    return 'gazda.snap.' + token.slice(0, 8);
+  }
+
+  function readSnapshot() {
+    try {
+      const snap = JSON.parse(localStorage.getItem(snapshotKey()) || 'null');
+      return snap && snap.email && Array.isArray(snap.households) ? snap : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveSnapshot() {
+    if (!token || !state.email) return;
+    try {
+      const snap = readSnapshot() || { details: {} };
+      snap.email = state.email;
+      snap.households = state.households;
+      snap.details = snap.details || {};
+      if (state.detail) {
+        const id = state.detail.household.id;
+        delete snap.details[id];
+        snap.details[id] = state.detail;
+        snap.lastId = id;
+        // Drž len niekoľko naposledy otvorených domácností.
+        Object.keys(snap.details)
+          .slice(0, -SNAPSHOT_DETAILS)
+          .forEach((k) => delete snap.details[k]);
+      }
+      // Domácnosti, ku ktorým už nemám prístup, zabudni.
+      Object.keys(snap.details).forEach((k) => {
+        if (!state.households.some((h) => h.id === k)) delete snap.details[k];
+      });
+      localStorage.setItem(snapshotKey(), JSON.stringify(snap));
+    } catch (e) {
+      // Plné alebo nedostupné úložisko – aplikácia funguje aj bez neho.
+    }
+  }
+
+  function cachedDetail(householdId) {
+    const snap = readSnapshot();
+    return (snap && snap.details && snap.details[householdId]) || null;
+  }
+
+  /** Smie sa obrazovka prekresliť čerstvými údajmi? (nie keď je otvorené okno) */
+  function canRefreshView() {
+    return $('modal').classList.contains('hidden');
   }
 
   function api(fn, ...args) {
@@ -390,28 +448,82 @@
   // -------------------------------------------------------------------------
 
   /** initial = true pri štarte aplikácie: rovno otvorí naposledy použitú domácnosť. */
+  function showIdentity(email) {
+    state.email = email;
+    $('avatar').textContent = email.charAt(0);
+    $('avatar').title = email;
+    $('avatar').classList.remove('hidden');
+    $('bellBtn').classList.remove('hidden');
+  }
+
   async function loadHouseholds(initial = false) {
     if (!token) {
       showLinkRequired(false);
       return;
     }
+
+    // Okamžite ukáž posledné známe údaje (ak sú), čerstvé prídu o chvíľu.
+    let shownSnapshot = false;
+    if (initial) {
+      const snap = readSnapshot();
+      if (snap) {
+        showIdentity(snap.email);
+        state.households = snap.households;
+        const detail = snap.lastId && snap.details && snap.details[snap.lastId];
+        if (detail) showDetail(detail);
+        else renderHouseholds();
+        shownSnapshot = true;
+      }
+    } else if (state.households.length) {
+      renderHouseholds();
+      shownSnapshot = true;
+    }
+
     try {
       const res = await api(initial ? 'getStartData' : 'getHouseholds');
-      state.email = res.email;
+      showIdentity(res.email);
       state.households = res.households;
-      $('avatar').textContent = res.email.charAt(0);
-      $('avatar').title = res.email;
-      $('avatar').classList.remove('hidden');
-      $('bellBtn').classList.remove('hidden');
-      if (res.lastDetail) {
-        showDetail(res.lastDetail);
+      if (!shownSnapshot) {
+        if (res.lastDetail) showDetail(res.lastDetail);
+        else renderHouseholds();
+        return;
+      }
+      if (!canRefreshView()) {
+        saveSnapshot();
+        return;
+      }
+      if (state.detail) {
+        const id = state.detail.household.id;
+        if (res.lastDetail && res.lastDetail.household.id === id) {
+          state.detail = res.lastDetail;
+          renderDetail();
+        } else if (!res.households.some((h) => h.id === id)) {
+          renderHouseholds(); // domácnosť medzičasom zmizla
+        } else {
+          refreshDetail(id);
+        }
       } else {
         renderHouseholds();
       }
     } catch (err) {
-      if (!isInvalidLink(err)) {
+      if (!isInvalidLink(err) && !shownSnapshot) {
         $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
+      } else if (!isInvalidLink(err)) {
+        toast('Nepodarilo sa načítať čerstvé údaje: ' + errorMessage(err), true);
       }
+    }
+  }
+
+  /** Na pozadí dotiahne čerstvý detail a prekreslí ho, ak je stále na obrazovke. */
+  async function refreshDetail(householdId) {
+    try {
+      const fresh = await api('getHouseholdData', householdId);
+      if (state.detail && state.detail.household.id === householdId && canRefreshView()) {
+        state.detail = fresh;
+        renderDetail();
+      }
+    } catch (err) {
+      if (!isInvalidLink(err)) toast('Nepodarilo sa načítať čerstvé údaje: ' + errorMessage(err), true);
     }
   }
 
@@ -423,6 +535,7 @@
     $('tabs').classList.add('hidden');
     document.body.classList.remove('with-tabs');
 
+    saveSnapshot();
     const list = state.households
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
@@ -614,6 +727,12 @@
   // -------------------------------------------------------------------------
 
   async function openHousehold(householdId) {
+    const cached = cachedDetail(householdId);
+    if (cached) {
+      showDetail(cached);
+      refreshDetail(householdId);
+      return;
+    }
     $('view').innerHTML = '<div class="center muted">Načítavam…</div>';
     try {
       showDetail(await api('getHouseholdData', householdId));
@@ -658,6 +777,7 @@
 
   function renderDetail() {
     const d = state.detail;
+    saveSnapshot();
     $('title').textContent = d.household.name;
     $('backBtn').classList.remove('hidden');
     $('brand').classList.add('hidden');

@@ -230,6 +230,18 @@ Vytvorením nového odkazu prestane starý fungovať.
 > Posielaj ho len tomu, komu patrí. Funkcie pre editor (`setup`, `mojOdkaz`,
 > `testRannyPrehlad`) sa z webu spustiť nedajú.
 
+## Výkon
+
+- **Server:** každý list tabuľky sa v rámci jedného volania číta najviac raz (jedným
+  `getDataRange().getValues()`) a obsah sa na 5 minút drží v `CacheService`. Každý zápis
+  z aplikácie pamäť okamžite zneplatní. **Ručné úpravy priamo v tabuľke** sa v aplikácii
+  prejavia najneskôr do 5 minút.
+- **Prehliadač:** posledné načítané údaje sú uložené v telefóne, takže sa aplikácia
+  zobrazí hneď a čerstvé údaje dotiahne na pozadí (ak je otvorené okno, neprekreslí sa).
+- **Ikony:** z Google Fonts sa sťahujú len ikony, ktoré aplikácia používa (parameter
+  `icon_names` v `Index.html`, ~32 kB namiesto ~5 MB). **Pri pridaní novej ikony** ju treba
+  doplniť do tohto zoznamu (abecedne), inak sa zobrazí ako text.
+
 ## Rozdiely oproti Flutter verzii
 
 - Používatelia sa identifikujú e-mailom cez osobný odkaz (nie Firebase UID / Google prihlásenie).

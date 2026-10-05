@@ -936,13 +936,16 @@ function requireMember_(householdId) {
 // Práca s tabuľkou
 // ---------------------------------------------------------------------------
 
+// Objekty tabuľky sa v rámci jedného spustenia otvárajú len raz.
+let spreadsheet_ = null;
+const sheets_ = {};
+
 function getSpreadsheet_(required = true) {
+  if (spreadsheet_) return spreadsheet_;
   const id = PropertiesService.getScriptProperties().getProperty(SPREADSHEET_ID_KEY);
-  if (id) return SpreadsheetApp.openById(id);
-  const active = SpreadsheetApp.getActiveSpreadsheet();
-  if (active) return active;
-  if (required) throw new Error('Aplikácia nie je nastavená – spusti v editore funkciu setup().');
-  return null;
+  spreadsheet_ = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!spreadsheet_ && required) throw new Error('Aplikácia nie je nastavená – spusti v editore funkciu setup().');
+  return spreadsheet_;
 }
 
 function ensureSheet_(ss, name) {
@@ -952,40 +955,101 @@ function ensureSheet_(ss, name) {
   sheet.setFrozenRows(1);
   // Všetko ukladáme ako text, aby tabuľka neprevádzala dátumy a čísla.
   sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
+  sheets_[name] = sheet;
+  invalidate_(name);
   return sheet;
 }
 
-const checkedSheets_ = {};
-
 function getSheet_(name) {
+  if (sheets_[name]) return sheets_[name];
   const ss = getSpreadsheet_();
-  // Chýbajúci list alebo stĺpec (po aktualizácii aplikácie) sa doplní automaticky.
-  const sheet = ss.getSheetByName(name);
-  if (!sheet) return ensureSheet_(ss, name);
-  if (!checkedSheets_[name]) {
-    const headers = SHEETS[name];
-    const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
-    if (headers.some((h, i) => current[i] !== h)) ensureSheet_(ss, name);
-    checkedSheets_[name] = true;
+  // Chýbajúci list (napr. po aktualizácii aplikácie) sa vytvorí automaticky.
+  sheets_[name] = ss.getSheetByName(name) || ensureSheet_(ss, name);
+  return sheets_[name];
+}
+
+// ---------------------------------------------------------------------------
+// Čítanie tabuliek s vyrovnávacou pamäťou
+//
+// Každý list sa v rámci spustenia číta najviac raz (tables_). Medzi spusteniami
+// sa obsah drží v CacheService pod kľúčom s verziou listu; každý zápis verziu
+// zmení, takže sa staré údaje už nepoužijú. Ručné úpravy v tabuľke sa prejavia
+// najneskôr po CACHE_TTL sekundách.
+// ---------------------------------------------------------------------------
+
+const CACHE_TTL = 300;
+const CACHE_MAX_CHARS = 90000; // CacheService dovolí najviac 100 kB na kľúč
+const tables_ = {};
+const dirtyTables_ = new Set();
+
+function cache_() {
+  try {
+    return CacheService.getScriptCache();
+  } catch (e) {
+    return null;
   }
-  return sheet;
 }
 
 function readTable_(name) {
-  const sheet = getSheet_(name);
-  const headers = SHEETS[name];
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
+  if (!tables_[name]) tables_[name] = loadTable_(name);
+  return tables_[name].slice();
+}
 
-  return sheet
-    .getRange(2, 1, lastRow - 1, headers.length)
-    .getValues()
-    .map((values, i) => {
+function loadTable_(name) {
+  const cache = cache_();
+  let version = null;
+  if (cache) {
+    version = cache.get('ver:' + name);
+    if (version) {
+      const cached = cache.get('tbl:' + name + ':' + version);
+      if (cached) return JSON.parse(cached);
+    } else {
+      version = newVersion_();
+      cache.put('ver:' + name, version, 21600);
+    }
+  }
+
+  const rows = readSheet_(name);
+  if (cache) {
+    const json = JSON.stringify(rows);
+    if (json.length <= CACHE_MAX_CHARS) cache.put('tbl:' + name + ':' + version, json, CACHE_TTL);
+  }
+  return rows;
+}
+
+/** Prečíta celý list jedným volaním; ak nesedí hlavička (nové stĺpce), opraví ju. */
+function readSheet_(name) {
+  const headers = SHEETS[name];
+  let values = getSheet_(name).getDataRange().getValues();
+  const current = values[0] || [];
+  if (headers.some((h, i) => current[i] !== h)) {
+    ensureSheet_(getSpreadsheet_(), name);
+    values = getSheet_(name).getDataRange().getValues();
+  }
+  return values
+    .slice(1)
+    .map((cells, i) => {
       const row = { _row: i + 2 };
-      headers.forEach((h, j) => (row[h] = cellToString_(values[j])));
+      headers.forEach((h, j) => (row[h] = j < cells.length ? cellToString_(cells[j]) : ''));
       return row;
     })
     .filter((row) => headers.some((h) => row[h] !== ''));
+}
+
+function newVersion_() {
+  return Utilities.getUuid().slice(0, 8);
+}
+
+/** Po zápise do listu zahodí jeho uložený obsah (v tomto spustení aj v CacheService). */
+function invalidate_(name) {
+  delete tables_[name];
+  dirtyTables_.add(name);
+  bumpVersion_(name);
+}
+
+function bumpVersion_(name) {
+  const cache = cache_();
+  if (cache) cache.put('ver:' + name, newVersion_(), 21600);
 }
 
 function cellToString_(value) {
@@ -1002,6 +1066,7 @@ function appendRow_(name, obj) {
     .getRange(sheet.getLastRow() + 1, 1, 1, headers.length)
     .setNumberFormat('@')
     .setValues([headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])))]);
+  invalidate_(name);
 }
 
 function updateRow_(name, rowIndex, obj) {
@@ -1009,15 +1074,17 @@ function updateRow_(name, rowIndex, obj) {
   getSheet_(name)
     .getRange(rowIndex, 1, 1, headers.length)
     .setValues([headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])))]);
+  invalidate_(name);
 }
 
 function deleteRowsWhere_(name, predicate) {
   const sheet = getSheet_(name);
-  readTable_(name)
+  const rows = readTable_(name)
     .filter(predicate)
     .map((r) => r._row)
-    .sort((a, b) => b - a)
-    .forEach((row) => sheet.deleteRow(row));
+    .sort((a, b) => b - a);
+  rows.forEach((row) => sheet.deleteRow(row));
+  if (rows.length) invalidate_(name);
 }
 
 function withLock_(fn) {
@@ -1027,6 +1094,10 @@ function withLock_(fn) {
     return fn();
   } finally {
     SpreadsheetApp.flush();
+    // Verziu zmeň aj po uložení – iné spustenie mohlo medzitým uložiť do
+    // vyrovnávacej pamäte ešte neuložený stav.
+    dirtyTables_.forEach(bumpVersion_);
+    dirtyTables_.clear();
     lock.releaseLock();
   }
 }

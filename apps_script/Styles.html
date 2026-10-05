@@ -573,6 +573,57 @@
     visibility: hidden;
   }
 
+  .section-title.danger {
+    color: var(--error);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .section-title.danger .ms {
+    font-size: 16px;
+  }
+
+  .section-gap {
+    height: 14px;
+  }
+
+  .card.overdue {
+    border-color: var(--error-soft);
+    box-shadow: inset 3px 0 0 var(--error), var(--shadow-sm);
+  }
+
+  .tag.tag-danger {
+    background: var(--error-soft);
+    color: var(--error);
+  }
+
+  .btn.danger-text {
+    color: var(--error);
+  }
+
+  .btn.danger-text:hover {
+    background: var(--error-soft);
+    color: var(--error);
+  }
+
+  .tab {
+    position: relative;
+  }
+
+  .badge {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--error);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+  }
+
   .section-title {
     font-size: 12px;
     font-weight: 700;
@@ -699,6 +750,23 @@
       max-height: 92vh;
       padding: 12px 20px calc(20px + env(safe-area-inset-bottom));
       animation: sheet 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    }
+
+    /* Počas písania: okno pri hornom okraji, aby ho klávesnica neprekryla. */
+    .modal.typing {
+      align-items: flex-start;
+    }
+
+    .modal.typing .modal-card {
+      border-radius: 0 0 28px 28px;
+      max-height: 100%;
+      /* rezerva, aby sa aj posledné pole dalo posunúť hore nad klávesnicu */
+      padding-bottom: 60vh;
+      animation: none;
+    }
+
+    .modal.typing .modal-card::before {
+      display: none;
     }
 
     .modal-card::before {

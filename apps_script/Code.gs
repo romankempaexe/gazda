@@ -54,6 +54,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
+// interactive-widget: pri otvorení klávesnice sa stránka zmenší, takže okná
+// a polia sa posunú nad klávesnicu (inak ich klávesnica prekryje).
+const VIEWPORT = 'width=device-width, initial-scale=1, interactive-widget=resizes-content';
 const INVALID_LINK = 'NEPLATNY_ODKAZ';
 
 // Upozornenia chodia e-mailom (Gmail vlastníka) alebo cez Telegram bota.
@@ -85,7 +88,7 @@ function doGet(e) {
   return template
     .evaluate()
     .setTitle('Gazda')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', VIEWPORT);
 }
 
 function include(name) {
@@ -108,7 +111,7 @@ function authorizationPage_(url) {
     '<p>Potom túto stránku obnov.</p></div></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle('Gazda – povolenie')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', VIEWPORT);
 }
 
 /** Spusti raz z editora: vytvorí tabuľku (ak treba) a listy s hlavičkami. */
@@ -302,8 +305,38 @@ function addPriestor(token, householdId, name) {
 function addCinnost(token, householdId, data) {
   authenticate_(token);
   const member = requireMember_(householdId);
-  data = data || {};
+  const { priestor, fields } = validateCinnost_(householdId, data);
+  const cinnost = { id: Utilities.getUuid(), householdId, ...fields, createdAt: nowIso_() };
 
+  withLock_(() => appendRow_('cinnosti', cinnost));
+  if (cinnost.assignedTo && cinnost.assignedTo !== member.email) {
+    notifyAssigned_(cinnost, priestor, member.email);
+  }
+  return toCinnost_(cinnost);
+}
+
+/** Uloží zmeny činnosti (názov, popis, priestor, pridelenie, termín, opakovanie, ikona, farba). */
+function updateCinnost(token, cinnostId, data) {
+  const email = authenticate_(token);
+  const result = withLock_(() => {
+    const cinnost = findCinnost_(cinnostId);
+    const { priestor, fields } = validateCinnost_(cinnost.householdId, data);
+    const updated = { ...cinnost, ...fields };
+    updateRow_('cinnosti', cinnost._row, updated);
+    return { previous: cinnost, updated, priestor };
+  });
+
+  // Upozorni len nového riešiteľa (nie seba ani toho, kto ju už mal).
+  const assignee = result.updated.assignedTo;
+  if (assignee && assignee !== email && assignee !== result.previous.assignedTo) {
+    notifyAssigned_(result.updated, result.priestor, email);
+  }
+  return toCinnost_(result.updated);
+}
+
+/** Overí údaje činnosti z formulára a vráti hodnoty na uloženie. */
+function validateCinnost_(householdId, data) {
+  data = data || {};
   const priestor = readTable_('priestory').find(
     (p) => p.id === data.priestorId && p.householdId === householdId
   );
@@ -327,26 +360,20 @@ function addCinnost(token, householdId, data) {
     if (!(repeatInterval >= 1)) throw new Error('Interval opakovania musí byť aspoň 1.');
   }
 
-  const cinnost = {
-    id: Utilities.getUuid(),
-    householdId,
-    priestorId: priestor.id,
-    name: requireText_(data.name, 'Zadaj názov činnosti.'),
-    description: String(data.description || '').trim(),
-    assignedTo,
-    icon: String(data.icon || 'home'),
-    color: COLOR_RE.test(data.color) ? data.color : '#4CAF50',
-    dueDate,
-    periodicity,
-    repeatInterval,
-    createdAt: nowIso_(),
+  return {
+    priestor,
+    fields: {
+      priestorId: priestor.id,
+      name: requireText_(data.name, 'Zadaj názov činnosti.'),
+      description: String(data.description || '').trim(),
+      assignedTo,
+      icon: String(data.icon || 'home'),
+      color: COLOR_RE.test(data.color) ? data.color : '#4CAF50',
+      dueDate,
+      periodicity,
+      repeatInterval,
+    },
   };
-
-  withLock_(() => appendRow_('cinnosti', cinnost));
-  if (assignedTo && assignedTo !== member.email) {
-    notifyAssigned_(cinnost, priestor, member.email);
-  }
-  return toCinnost_(cinnost);
 }
 
 function deleteCinnost(token, cinnostId) {
@@ -359,8 +386,9 @@ function deleteCinnost(token, cinnostId) {
 }
 
 /**
- * Označí činnosť za hotovú. Jednorazová činnosť sa vymaže,
- * opakovaná sa posunie na ďalší termín.
+ * Označí činnosť za hotovú. Jednorazová činnosť sa vymaže, opakovaná sa posunie
+ * na ďalší termín – pri úlohe po termíne na najbližší termín po dnešku, aby
+ * hneď znova nebola po termíne.
  */
 function completeCinnost(token, cinnostId) {
   authenticate_(token);
@@ -372,11 +400,12 @@ function completeCinnost(token, cinnostId) {
       return { deleted: true };
     }
 
-    const nextDueDate = nextDueDate_(
-      cinnost.dueDate,
-      cinnost.periodicity,
-      parseInt(cinnost.repeatInterval, 10) || 1
-    );
+    const interval = parseInt(cinnost.repeatInterval, 10) || 1;
+    const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    let nextDueDate = nextDueDate_(cinnost.dueDate, cinnost.periodicity, interval);
+    for (let i = 0; nextDueDate <= today && i < 1000; i++) {
+      nextDueDate = nextDueDate_(nextDueDate, cinnost.periodicity, interval);
+    }
     updateRow_('cinnosti', cinnost._row, { ...cinnost, dueDate: nextDueDate });
     return { deleted: false, cinnost: toCinnost_({ ...cinnost, dueDate: nextDueDate }) };
   });

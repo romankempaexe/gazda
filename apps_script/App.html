@@ -359,6 +359,11 @@
     return p.d + '. ' + p.m + '. ' + p.y;
   }
 
+  function formatDateShort(s) {
+    const p = parseYmd(s);
+    return WEEKDAYS_SHORT[weekday(s)].toLowerCase() + ' ' + p.d + '. ' + p.m + '.';
+  }
+
   function formatDateLong(s) {
     return WEEKDAYS[weekday(s)] + ', ' + formatDate(s);
   }
@@ -431,12 +436,43 @@
   }
 
   function closeModal() {
+    $('modal').classList.remove('typing');
     $('modal').classList.add('hidden');
     $('modalContent').innerHTML = '';
   }
 
   $('modal').addEventListener('click', (e) => {
     if (e.target === $('modal')) closeModal();
+  });
+
+  // Na mobile pri písaní: okno presuň k hornému okraju a pole posuň tak, aby
+  // bolo nad klávesnicou (spolu s popiskom nad ním).
+  const TEXT_INPUT = 'textarea, input:not([type]), input[type=text], input[type=email], input[type=number], input[type=search], input[type=tel], input[type=url], input[type=password]';
+  const isPhone = () => window.matchMedia('(max-width: 600px)').matches;
+
+  function keepFieldVisible(field) {
+    const card = $('modalContent');
+    const label = field.closest('.field');
+    const target = label || field;
+    const offset = target.getBoundingClientRect().top - card.getBoundingClientRect().top - 12;
+    card.scrollTop += offset;
+  }
+
+  $('modalContent').addEventListener('focusin', (e) => {
+    if (!isPhone() || !e.target.matches(TEXT_INPUT) || e.target.readOnly) return;
+    $('modal').classList.add('typing');
+    // Klávesnica sa vysúva postupne – pozíciu doladíme aj po jej otvorení.
+    requestAnimationFrame(() => keepFieldVisible(e.target));
+    setTimeout(() => document.activeElement === e.target && keepFieldVisible(e.target), 350);
+  });
+
+  $('modalContent').addEventListener('focusout', () => {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || !$('modalContent').contains(active) || !active.matches(TEXT_INPUT)) {
+        $('modal').classList.remove('typing');
+      }
+    }, 150);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -786,6 +822,10 @@
     document.querySelectorAll('#tabs .tab').forEach((t) => {
       t.classList.toggle('active', t.dataset.tab === state.tab);
     });
+    const overdueCount = myOverdueTasks().length;
+    const badge = $('overdueBadge');
+    badge.textContent = overdueCount;
+    badge.classList.toggle('hidden', !overdueCount);
 
     const onlyMine = state.tab === 'rozpis';
     let html = renderCalendar(onlyMine);
@@ -822,21 +862,25 @@
     );
   }
 
+  /** mode: 'mine' (Môj rozpis), 'overdue' (po termíne) alebo 'plan' (Plánovanie). */
   function taskCard(c, mode) {
-    const tag = (icon, text) => '<span class="tag"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
-    const info = [tag('location_on', priestorName(c.priestorId))];
+    const tag = (icon, text, cls) =>
+      '<span class="tag' + (cls ? ' ' + cls : '') + '"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
+    const info = [];
+    if (mode === 'overdue') info.push(tag('warning', 'od ' + formatDateShort(c.dueDate), 'tag-danger'));
+    info.push(tag('location_on', priestorName(c.priestorId)));
     if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
     if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
 
     const action =
-      mode === 'mine'
-        ? '<button class="btn tonal small" data-complete="' + esc(c.id) + '">' +
-          '<span class="ms">check</span>Hotové</button>'
-        : '<button class="icon-btn danger" title="Vymazať" data-delete-task="' + esc(c.id) + '">' +
-          '<span class="ms">delete</span></button>';
+      mode === 'plan'
+        ? '<button class="icon-btn" title="Upraviť" data-edit-task="' + esc(c.id) + '">' +
+          '<span class="ms">edit</span></button>'
+        : '<button class="btn tonal small" data-complete="' + esc(c.id) + '">' +
+          '<span class="ms">check</span>Hotové</button>';
 
     return (
-      '<div class="card">' +
+      '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + '" data-edit-task="' + esc(c.id) + '">' +
       '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
       '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
       (c.description ? '<div class="card-sub">' + esc(c.description) + '</div>' : '') +
@@ -853,6 +897,15 @@
     );
   }
 
+  /** Moje úlohy, ktorých termín už prešiel (najstaršie prvé). */
+  function myOverdueTasks() {
+    if (!state.detail) return [];
+    const today = todayYmd();
+    return state.detail.cinnosti
+      .filter((c) => c.assignedTo === state.email && c.dueDate < today)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name, 'sk'));
+  }
+
   function renderRozpis() {
     const myTasks = state.detail.cinnosti.filter((c) => c.assignedTo === state.email);
     if (!myTasks.length) {
@@ -861,8 +914,21 @@
         '<div>Nemáš žiadne priradené činnosti</div></div>'
       );
     }
-    const tasks = tasksForDate(state.selectedDate, true);
-    let html = '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
+
+    let html = '';
+    const overdue = myOverdueTasks();
+    if (overdue.length) {
+      html +=
+        '<div class="section-title danger"><span class="ms">warning</span>Po termíne (' + overdue.length + ')</div>' +
+        overdue.map((c) => taskCard(c, 'overdue')).join('') +
+        '<div class="section-gap"></div>';
+    }
+
+    // Úlohy po termíne už sú hore – v dnešnom (a skoršom) dni ich neopakujeme.
+    const overdueIds = new Set(overdue.map((c) => c.id));
+    const hideOverdue = state.selectedDate <= todayYmd();
+    const tasks = tasksForDate(state.selectedDate, true).filter((c) => !(hideOverdue && overdueIds.has(c.id)));
+    html += '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
     if (!tasks.length) {
       html += emptyDay();
     } else {
@@ -929,10 +995,16 @@
       };
     });
     view.querySelectorAll('[data-complete]').forEach((el) => {
-      el.onclick = () => completeTask(el.dataset.complete, el);
+      el.onclick = (e) => {
+        e.stopPropagation();
+        completeTask(el.dataset.complete, el);
+      };
     });
-    view.querySelectorAll('[data-delete-task]').forEach((el) => {
-      el.onclick = () => deleteTask(el.dataset.deleteTask);
+    view.querySelectorAll('[data-edit-task]').forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        showEditCinnost(el.dataset.editTask);
+      };
     });
     if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
   }
@@ -1045,53 +1117,84 @@
     );
   }
 
-  function showCinnostForm(priestorId) {
+  function showEditCinnost(id) {
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    if (c) showCinnostForm(c.priestorId, c);
+  }
+
+  /** Formulár novej činnosti, alebo úpravy existujúcej (existing). */
+  function showCinnostForm(priestorId, existing) {
+    const edit = Boolean(existing);
+    const v = existing || {
+      name: '',
+      description: '',
+      assignedTo: state.email,
+      dueDate: state.selectedDate,
+      periodicity: 'none',
+      repeatInterval: 1,
+      icon: 'home',
+      color: COLORS['Zelená'],
+    };
     const members = state.detail.members.map((m) => m.email).sort();
+    // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
+    if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
     const memberOptions =
       '<option value="">Nepriradené</option>' +
       members
         .map(
           (e) =>
-            '<option value="' + esc(e) + '"' + (e === state.email ? ' selected' : '') + '>' +
+            '<option value="' + esc(e) + '"' + (e === v.assignedTo ? ' selected' : '') + '>' +
             esc(e === state.email ? shortName(e) + ' (ja)' : shortName(e)) + '</option>'
         )
         .join('');
     const periodOptions = Object.keys(PERIODICITY)
-      .map((k) => '<option value="' + k + '">' + PERIODICITY[k].label + '</option>')
+      .map((k) => '<option value="' + k + '"' + (k === v.periodicity ? ' selected' : '') + '>' + PERIODICITY[k].label + '</option>')
       .join('');
+    const priestorOptions = state.detail.priestory
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'sk'))
+      .map((p) => '<option value="' + esc(p.id) + '"' + (p.id === priestorId ? ' selected' : '') + '>' + esc(p.name) + '</option>')
+      .join('');
+    const currentIcon = ICONS[v.icon] ? v.icon : 'home';
+    const currentColor = Object.values(COLORS).includes(v.color) ? v.color : COLORS['Zelená'];
     const iconButtons = Object.keys(ICONS)
       .map(
         (k) =>
-          '<button type="button" data-icon="' + k + '" class="' + (k === 'home' ? 'selected' : '') +
+          '<button type="button" data-icon="' + k + '" class="' + (k === currentIcon ? 'selected' : '') +
           '" title="' + k + '"><span class="ms">' + ICONS[k] + '</span></button>'
       )
       .join('');
     const colorButtons = Object.keys(COLORS)
       .map(
-        (name, i) =>
+        (name) =>
           '<button type="button" data-color="' + COLORS[name] + '" title="' + name + '" class="' +
-          (i === 0 ? 'selected' : '') + '" style="background:' + COLORS[name] + '"></button>'
+          (COLORS[name] === currentColor ? 'selected' : '') + '" style="background:' + COLORS[name] + '"></button>'
       )
       .join('');
 
     openModal(
-      '<h2>Nová činnosť</h2><div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>' +
+      '<h2>' + (edit ? 'Upraviť činnosť' : 'Nová činnosť') + '</h2>' +
+        (edit ? '' : '<div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>') +
         '<form id="f">' +
-        '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?"></div>' +
-        '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…"></textarea></div>' +
+        '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div>' +
+        '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
+        (edit ? '<div class="field"><label>Priestor</label><select name="priestorId">' + priestorOptions + '</select></div>' : '') +
         '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
-        '<div class="field"><label>Termín</label><input type="date" name="dueDate" required value="' + state.selectedDate + '"></div></div>' +
+        '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div></div>' +
         '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
         '<div class="field hidden" id="intervalField"><label id="intervalLabel">Každých X</label>' +
-        '<input type="number" name="repeatInterval" min="1" max="99" value="1"><div class="hint" id="intervalHint"></div></div></div>' +
+        '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '"><div class="hint" id="intervalHint"></div></div></div>' +
         '<div class="field"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
         '<div class="field"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
-        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
-        '<button class="btn">Vytvoriť činnosť</button></div></form>',
+        '<div class="actions">' +
+        (edit ? '<button type="button" class="btn text danger-text" id="delete" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' : '') +
+        '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn">' + (edit ? 'Uložiť' : 'Vytvoriť činnosť') + '</button></div></form>',
       (root) => {
         const form = root.querySelector('#f');
-        let icon = 'home';
-        let color = COLORS['Zelená'];
+        let icon = currentIcon;
+        let color = currentColor;
+        if (edit) root.querySelector('#delete').onclick = () => deleteTask(existing.id);
 
         form.periodicity.onchange = () => {
           const p = PERIODICITY[form.periodicity.value];
@@ -1113,24 +1216,43 @@
             color = b.dataset.color;
           };
         });
+        form.periodicity.onchange();
         root.querySelector('#cancel').onclick = closeModal;
+        // Pri úprave: posuň mriežku na vybranú ikonu a neotváraj hneď klávesnicu.
+        const grid = root.querySelector('.icon-grid');
+        const selectedIcon = grid.querySelector('.selected');
+        if (selectedIcon) {
+          grid.scrollTop += selectedIcon.getBoundingClientRect().top - grid.getBoundingClientRect().top - 4;
+        }
+        if (edit) setTimeout(() => document.activeElement && document.activeElement.blur(), 0);
 
         form.onsubmit = async (e) => {
           e.preventDefault();
           const submit = form.querySelector('button:not([type])');
           submit.disabled = true;
+          const data = {
+            priestorId: edit ? form.priestorId.value : priestorId,
+            name: form.name.value,
+            description: form.description.value,
+            assignedTo: form.assignedTo.value,
+            dueDate: form.dueDate.value,
+            periodicity: form.periodicity.value,
+            repeatInterval: form.repeatInterval.value,
+            icon,
+            color,
+          };
           try {
-            const c = await api('addCinnost', state.detail.household.id, {
-              priestorId,
-              name: form.name.value,
-              description: form.description.value,
-              assignedTo: form.assignedTo.value,
-              dueDate: form.dueDate.value,
-              periodicity: form.periodicity.value,
-              repeatInterval: form.repeatInterval.value,
-              icon,
-              color,
-            });
+            if (edit) {
+              const c = await api('updateCinnost', existing.id, data);
+              const list = state.detail.cinnosti;
+              const index = list.findIndex((x) => x.id === c.id);
+              if (index !== -1) list[index] = c;
+              closeModal();
+              renderDetail();
+              toast('Zmeny uložené');
+              return;
+            }
+            const c = await api('addCinnost', state.detail.household.id, data);
             state.detail.cinnosti.push(c);
             closeModal();
             renderDetail();

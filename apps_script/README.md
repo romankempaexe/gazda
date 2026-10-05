@@ -62,7 +62,13 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - Aplikácia si pamätá naposledy otvorenú domácnosť a pri spustení ju rovno otvorí
   (na každom zariadení; šípka späť vráti na zoznam domácností)
 - **Môj rozpis** – moje činnosti na vybraný deň, tlačidlo *Hotové*
-  (jednorazová činnosť sa vymaže, opakovaná sa posunie na ďalší termín)
+  (jednorazová činnosť sa vymaže, opakovaná sa posunie na ďalší termín; ak bola
+  po termíne, na najbližší termín po dnešku)
+- **Po termíne** – v *Môj rozpis* hore blok úloh, ktorých termín prešiel, a červené
+  číslo na záložke
+- **Úprava činnosti** – ťuknutím na úlohu (alebo ✏️ v Plánovaní) sa dá zmeniť názov,
+  popis, priestor, pridelenie, termín, opakovanie, ikona aj farba; úlohu možno
+  vo formulári aj vymazať
 - **Plánovanie** – všetky činnosti domácnosti na vybraný deň, filter podľa člena,
   pridanie a vymazanie činnosti
 - Priestory, ikony, farby a opakovanie ako vo Flutter verzii

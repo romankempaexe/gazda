@@ -16,10 +16,6 @@ on:
       - '.github/workflows/deploy-apps-script.yml'
   workflow_dispatch:
 
-concurrency:
-  group: apps-script-deploy
-  cancel-in-progress: false
-
 env:
   CLASP: npx --yes @google/clasp@3.4.1
 
@@ -42,6 +38,10 @@ jobs:
     needs: check
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Nasadenia idú jedno po druhom; kontroly pull requestov ich neblokujú.
+    concurrency:
+      group: apps-script-deploy
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: apps_script

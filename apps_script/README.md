@@ -86,8 +86,9 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
   po termíne, na najbližší termín po dnešku)
 - **Po termíne** – v *Môj rozpis* hore blok úloh, ktorých termín prešiel, a červené
   číslo na záložke
-- **Checklist pri každej činnosti** – ťuknutím na úlohu sa otvorí detail s položkami
-  na odškrtávanie (aj s pridaním novej položky); na karte je stav, napr. `2/5`
+- **Checklist pri každej činnosti** – položky s počtom sú priamo na karte úlohy a dajú
+  sa odškrtávať rovno tam (na karte je aj stav, napr. `2/5`); ťuknutím na kartu sa otvorí
+  detail, kde sa dajú pridávať ďalšie položky
 - **Nákup** – prepínač *Nákup* vo formulári: obchod (zapamätá sa pre ďalšie použitie
   a našepkáva sa) a zoznam produktov s našepkávaním z vstavaného zoznamu ~340 potravín
   a vecí do domácnosti plus produktov, ktoré domácnosť už kupovala.

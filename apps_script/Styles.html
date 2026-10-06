@@ -336,6 +336,36 @@
     animation: rise 0.25s ease both;
   }
 
+  .card.has-list {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .card-checklist {
+    flex: 0 0 100%;
+    padding-left: 50px;
+  }
+
+  @media (hover: none) {
+    .check-item.compact:hover {
+      background: transparent;
+    }
+  }
+
+  .check-item.compact {
+    padding: 6px 8px;
+    font-size: 14.5px;
+    gap: 8px;
+  }
+
+  .check-item.compact .ms {
+    font-size: 21px;
+  }
+
+  .card-more {
+    padding: 4px 8px 0;
+  }
+
   .card.clickable {
     cursor: pointer;
     transition: transform 0.15s, box-shadow 0.15s;

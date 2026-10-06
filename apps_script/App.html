@@ -1201,6 +1201,64 @@
   // Detail činnosti s checklistom
   // -------------------------------------------------------------------------
 
+  // Kópia splitQty_ z Code.gs, aby sa počet oddelil hneď vo formulári.
+  const splitQty = (() => {
+    function cleanItemText_(text) {
+      return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    }
+
+    // Jednotky počtu; „x“, „krát“ a samotné číslo znamenajú kusy.
+    const QTY_UNITS = {
+      x: 'ks', '×': 'ks', 'krát': 'ks', ks: 'ks', kus: 'ks', kusy: 'ks', kusov: 'ks',
+      kg: 'kg', dkg: 'dkg', g: 'g', l: 'l', dl: 'dl', ml: 'ml',
+      bal: 'bal.', 'bal.': 'bal.', balenie: 'bal.', balenia: 'bal.', balení: 'bal.',
+    };
+    const QTY_NUM = '(\\d+(?:[.,]\\d+)?)';
+    const QTY_UNIT = '(x|×|krát|ks|kusy|kusov|kus|kg|dkg|g|l|dl|ml|bal\\.?|balenie|balenia|balení)';
+    const QTY_PREFIX = new RegExp('^' + QTY_NUM + '\\s*' + QTY_UNIT + '?\\s+(.+)$', 'i');
+    const QTY_SUFFIX = new RegExp('^(.+?)\\s+' + QTY_NUM + '\\s*' + QTY_UNIT + '?$', 'i');
+    const QTY_TIMES = new RegExp('^(.+?)\\s+[x×]\\s*(\\d+)$', 'i');
+
+    function formatQty_(num, unit) {
+      return num.replace('.', ',') + ' ' + QTY_UNITS[String(unit || 'ks').toLowerCase()];
+    }
+
+    /**
+     * Oddelí počet od názvu položky: „2x mlieko“, „mlieko 2 ks“, „1,5 kg zemiaky“,
+     * „mlieko x2“ → { text: 'Mlieko', qty: '2 ks' }. Ak je počet zadaný zvlášť, má prednosť.
+     */
+    function splitQty_(text, qty) {
+      text = cleanItemText_(text);
+      qty = String(qty || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+      if (/^\d+(?:[.,]\d+)?$/.test(qty)) qty = formatQty_(qty, 'ks');
+      else if (qty) {
+        const m = qty.match(new RegExp('^' + QTY_NUM + '\\s*' + QTY_UNIT + '$', 'i'));
+        if (m) qty = formatQty_(m[1], m[2]);
+      }
+      if (!qty) {
+        let m = text.match(QTY_PREFIX);
+        if (m) {
+          qty = formatQty_(m[1], m[2]);
+          text = m[3];
+        } else if ((m = text.match(QTY_TIMES))) {
+          qty = formatQty_(m[2], 'ks');
+          text = m[1];
+        } else if ((m = text.match(QTY_SUFFIX))) {
+          qty = formatQty_(m[2], m[3]);
+          text = m[1];
+        }
+        if (qty) text = text.charAt(0).toUpperCase() + text.slice(1);
+      }
+      return { text, qty };
+    }
+
+    return splitQty_;
+  })();
+
+  function qtyHtml(i) {
+    return i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '';
+  }
+
   function itemProgress(c) {
     const items = c.items || [];
     return { done: items.filter((i) => i.done).length, total: items.length };
@@ -1222,7 +1280,8 @@
         '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
         (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
         '<div class="field"><label id="checkLabel"></label><div class="checklist" id="checklist"></div>' +
-        '<div class="item-add"><input id="itemInput" maxlength="100" placeholder="' +
+        '<div class="item-add"><input id="qtyInput" class="qty-input" maxlength="20" placeholder="Počet" autocomplete="off">' +
+        '<input id="itemInput" maxlength="100" placeholder="' +
         (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
         '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
         '<div class="suggest hidden" id="itemSuggest"></div></div>' +
@@ -1246,7 +1305,7 @@
                   (i) =>
                     '<button type="button" class="check-item' + (i.done ? ' done' : '') + '" data-item="' + esc(i.id) + '">' +
                     '<span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' +
-                    '<span class="check-text">' + esc(i.text) + '</span></button>'
+                    '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
                 )
                 .join('')
             : '<div class="hint">Zatiaľ žiadne položky.</div>';
@@ -1273,16 +1332,19 @@
           }
         };
 
+        const qtyInput = root.querySelector('#qtyInput');
         const add = async (text) => {
           text = String(text || '').trim();
           if (!text) return;
+          const qty = qtyInput.value;
           input.value = '';
+          qtyInput.value = '';
           suggest.clear();
           try {
-            const item = await api('addItem', c.id, text);
+            const item = await api('addItem', c.id, text, qty);
             c.items = (c.items || []).concat([item]);
-            if (!state.detail.products.some((x) => normalizeText(x) === normalizeText(text))) {
-              state.detail.products.unshift(text);
+            if (!state.detail.products.some((x) => normalizeText(x) === normalizeText(item.text))) {
+              state.detail.products.unshift(item.text);
             }
             renderList();
           } catch (err) {
@@ -1345,7 +1407,7 @@
       items: [],
     };
     // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
-    let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, done: i.done }));
+    let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done }));
     const members = state.detail.members.map((m) => m.email).sort();
     // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
     if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
@@ -1394,7 +1456,8 @@
         '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
         '<div class="suggest hidden" id="storeSuggest"></div></div>' +
         '<div class="field"><label id="itemsLabel">Checklist</label><div class="checklist" id="itemList"></div>' +
-        '<div class="item-add"><input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
+        '<div class="item-add"><input id="qtyInput" class="qty-input" maxlength="20" autocomplete="off" placeholder="Počet">' +
+        '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
         '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
         '<div class="suggest hidden" id="itemSuggest"></div></div>' +
         '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
@@ -1441,10 +1504,14 @@
               (i, idx) =>
                 '<div class="check-item edit' + (i.done ? ' done' : '') + '"><span class="ms">' +
                 (i.done ? 'check_box' : 'check_box_outline_blank') + '</span><span class="check-text">' + esc(i.text) +
-                '</span><button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
+                '</span><input class="qty-input small" data-qty="' + idx + '" maxlength="20" placeholder="Počet" autocomplete="off" value="' +
+                esc(i.qty || '') + '"><button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
                 '<span class="ms">close</span></button></div>'
             )
             .join('');
+          root.querySelectorAll('[data-qty]').forEach((el) => {
+            el.oninput = () => (items[Number(el.dataset.qty)].qty = el.value);
+          });
           root.querySelectorAll('[data-remove]').forEach((b) => {
             b.onclick = () => {
               items.splice(Number(b.dataset.remove), 1);
@@ -1452,11 +1519,15 @@
             };
           });
         };
-        const addItemText = (text) => {
-          text = String(text || '').replace(/\s+/g, ' ').trim();
+        const qtyInput = root.querySelector('#qtyInput');
+        const addItemText = (raw) => {
+          const { text, qty } = splitQty(raw, qtyInput.value);
           if (!text) return;
-          if (!items.some((i) => normalizeText(i.text) === normalizeText(text))) items.push({ text, done: false });
+          const same = items.find((i) => normalizeText(i.text) === normalizeText(text));
+          if (same) same.qty = qty || same.qty;
+          else items.push({ text, qty, done: false });
           itemInput.value = '';
+          qtyInput.value = '';
           itemSuggest.clear();
           renderItems();
           itemInput.focus();
@@ -1521,8 +1592,8 @@
             store: form.isShopping.checked ? form.store.value : '',
             // Text v poli, ktorý ešte nebol pridaný Enterom, tiež pridaj.
             items: items
-              .map((i) => ({ id: i.id, text: i.text }))
-              .concat(itemInput.value.trim() ? [{ text: itemInput.value.trim() }] : []),
+              .map((i) => ({ id: i.id, text: i.text, qty: i.qty }))
+              .concat(itemInput.value.trim() ? [{ text: itemInput.value.trim(), qty: qtyInput.value }] : []),
           };
           try {
             if (edit) {

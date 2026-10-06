@@ -703,6 +703,32 @@
     min-width: 0;
   }
 
+  .item-add .qty-input {
+    flex: 0 0 76px;
+  }
+
+  .qty-input.small {
+    width: 72px;
+    flex: 0 0 72px;
+    padding: 6px 8px;
+    font-size: 14px;
+    text-align: center;
+  }
+
+  .check-qty {
+    flex: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary-strong);
+    background: var(--surface-2);
+    border-radius: 999px;
+    padding: 3px 9px;
+  }
+
+  .check-item.done .check-qty {
+    color: var(--muted);
+  }
+
   .suggest {
     display: flex;
     flex-wrap: wrap;

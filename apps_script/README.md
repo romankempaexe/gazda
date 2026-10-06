@@ -48,8 +48,10 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **polozky** – položky checklistu činnosti (`done` = `1` ak je odškrtnutá)
 
-| id | cinnostId | householdId | text | done | position | createdAt | createdBy |
-|---|---|---|---|---|---|---|---|
+| id | cinnostId | householdId | text | done | position | createdAt | createdBy | qty |
+|---|---|---|---|---|---|---|---|---|
+
+- `qty` – počet, napr. `2 ks`, `1,5 kg`, `1 bal.` (prázdne = bez počtu)
 
 **obchody** – obchody, ktoré domácnosť už zadala (našepkávajú sa)
 
@@ -88,6 +90,8 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - **Nákup** – prepínač *Nákup* vo formulári: obchod (zapamätá sa pre ďalšie použitie
   a našepkáva sa) a zoznam produktov s našepkávaním z vstavaného zoznamu ~340 potravín
   a vecí do domácnosti plus produktov, ktoré domácnosť už kupovala.
+  Pri položke sa dá zadať **počet** (pole *Počet* alebo priamo v texte: `2x mlieko`,
+  `mlieko 2 ks`, `1,5 kg zemiaky`); do našepkávania sa ukladá len názov.
   Pri opakovanom nákupe sa po *Hotové* odškrtnuté položky odstránia a neodškrtnuté zostanú
 - **Úprava činnosti** – tlačidlom *Upraviť* v detaile (alebo ✏️ v Plánovaní) sa dá zmeniť názov,
   popis, priestor, pridelenie, termín, opakovanie, ikona, farba aj checklist; úlohu možno

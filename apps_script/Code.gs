@@ -40,7 +40,7 @@ const SHEETS = {
     'kind', // '' = bežná činnosť, 'nakup' = nákup
     'store', // obchod pri nákupe
   ],
-  polozky: ['id', 'cinnostId', 'householdId', 'text', 'done', 'position', 'createdAt', 'createdBy'],
+  polozky: ['id', 'cinnostId', 'householdId', 'text', 'done', 'position', 'createdAt', 'createdBy', 'qty'],
   obchody: ['householdId', 'name', 'createdAt'],
   produkty: ['householdId', 'name', 'uses', 'lastUsed'],
   // ntfyTopic sa už nepoužíva; stĺpec ostáva, aby sa neposunuli dáta v existujúcich tabuľkách.
@@ -368,9 +368,9 @@ function updateCinnost(token, cinnostId, data) {
 }
 
 /** Pridá položku do checklistu činnosti (môže ktokoľvek z domácnosti). */
-function addItem(token, cinnostId, text) {
+function addItem(token, cinnostId, text, qty) {
   const email = authenticate_(token);
-  text = cleanItemText_(text);
+  ({ text, qty } = splitQty_(text, qty));
   if (!text) throw new Error('Zadaj položku.');
   return withLock_(() => {
     const cinnost = findCinnost_(cinnostId);
@@ -386,6 +386,7 @@ function addItem(token, cinnostId, text) {
       position,
       createdAt: nowIso_(),
       createdBy: email,
+      qty,
     };
     appendRow_('polozky', item);
     rememberShopping_(cinnost.householdId, '', [text]);
@@ -436,7 +437,10 @@ function validateCinnost_(householdId, data) {
   const store = kind ? String(data.store || '').trim().slice(0, 60) : '';
 
   const items = (Array.isArray(data.items) ? data.items : [])
-    .map((i) => ({ id: typeof i === 'object' && i && i.id ? String(i.id) : '', text: cleanItemText_(typeof i === 'object' && i ? i.text : i) }))
+    .map((i) => {
+      const obj = typeof i === 'object' && i ? i : { text: i };
+      return { id: obj.id ? String(obj.id) : '', ...splitQty_(obj.text, obj.qty) };
+    })
     .filter((i) => i.text);
   if (items.length > MAX_ITEMS) throw new Error('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
 
@@ -683,7 +687,7 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
     if (items.length) {
       lines.push('');
       lines.push((cinnost.kind === 'nakup' ? 'Nakúpiť' : 'Checklist') + ' (' + items.length + '):');
-      items.slice(0, 40).forEach((i) => lines.push((i.done ? '☑ ' : '☐ ') + i.text));
+      items.slice(0, 40).forEach((i) => lines.push((i.done ? '☑ ' : '☐ ') + i.text + (i.qty ? ' – ' + i.qty : '')));
       if (items.length > 40) lines.push('… a ďalších ' + (items.length - 40));
     }
     notifyUser_(user, {
@@ -989,11 +993,56 @@ function withItems_(householdId, cinnosti) {
 }
 
 function toItem_(row) {
-  return { id: row.id, text: row.text, done: row.done === '1' };
+  return { id: row.id, text: row.text, qty: row.qty || '', done: row.done === '1' };
 }
 
 function cleanItemText_(text) {
   return String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_ITEM_LENGTH);
+}
+
+// Jednotky počtu; „x“, „krát“ a samotné číslo znamenajú kusy.
+const QTY_UNITS = {
+  x: 'ks', '×': 'ks', 'krát': 'ks', ks: 'ks', kus: 'ks', kusy: 'ks', kusov: 'ks',
+  kg: 'kg', dkg: 'dkg', g: 'g', l: 'l', dl: 'dl', ml: 'ml',
+  bal: 'bal.', 'bal.': 'bal.', balenie: 'bal.', balenia: 'bal.', balení: 'bal.',
+};
+const QTY_NUM = '(\\d+(?:[.,]\\d+)?)';
+const QTY_UNIT = '(x|×|krát|ks|kusy|kusov|kus|kg|dkg|g|l|dl|ml|bal\\.?|balenie|balenia|balení)';
+const QTY_PREFIX = new RegExp('^' + QTY_NUM + '\\s*' + QTY_UNIT + '?\\s+(.+)$', 'i');
+const QTY_SUFFIX = new RegExp('^(.+?)\\s+' + QTY_NUM + '\\s*' + QTY_UNIT + '?$', 'i');
+const QTY_TIMES = new RegExp('^(.+?)\\s+[x×]\\s*(\\d+)$', 'i');
+
+function formatQty_(num, unit) {
+  return num.replace('.', ',') + ' ' + QTY_UNITS[String(unit || 'ks').toLowerCase()];
+}
+
+/**
+ * Oddelí počet od názvu položky: „2x mlieko“, „mlieko 2 ks“, „1,5 kg zemiaky“,
+ * „mlieko x2“ → { text: 'Mlieko', qty: '2 ks' }. Ak je počet zadaný zvlášť, má prednosť.
+ */
+function splitQty_(text, qty) {
+  text = cleanItemText_(text);
+  qty = String(qty || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+  if (/^\d+(?:[.,]\d+)?$/.test(qty)) qty = formatQty_(qty, 'ks');
+  else if (qty) {
+    const m = qty.match(new RegExp('^' + QTY_NUM + '\\s*' + QTY_UNIT + '$', 'i'));
+    if (m) qty = formatQty_(m[1], m[2]);
+  }
+  if (!qty) {
+    let m = text.match(QTY_PREFIX);
+    if (m) {
+      qty = formatQty_(m[1], m[2]);
+      text = m[3];
+    } else if ((m = text.match(QTY_TIMES))) {
+      qty = formatQty_(m[2], 'ks');
+      text = m[1];
+    } else if ((m = text.match(QTY_SUFFIX))) {
+      qty = formatQty_(m[2], m[3]);
+      text = m[1];
+    }
+    if (qty) text = text.charAt(0).toUpperCase() + text.slice(1);
+  }
+  return { text, qty };
 }
 
 /**
@@ -1011,8 +1060,8 @@ function syncItems_(cinnost, items, email) {
     const current = item.id && byId.get(item.id);
     if (current) {
       keep.add(current.id);
-      if (current.text !== item.text || Number(current.position) !== position) {
-        updateRow_('polozky', current._row, { ...current, text: item.text, position });
+      if (current.text !== item.text || (current.qty || '') !== item.qty || Number(current.position) !== position) {
+        updateRow_('polozky', current._row, { ...current, text: item.text, qty: item.qty, position });
       }
     } else {
       const id = Utilities.getUuid();
@@ -1026,6 +1075,7 @@ function syncItems_(cinnost, items, email) {
         position,
         createdAt: nowIso_(),
         createdBy: email,
+        qty: item.qty,
       });
     }
   });

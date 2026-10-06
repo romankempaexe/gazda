@@ -438,7 +438,8 @@
     $('modal').classList.remove('hidden');
     if (onMount) onMount($('modalContent'));
     if (opts.focus !== false) {
-      const first = $('modalContent').querySelector('input, textarea, select');
+      const sel = typeof opts.focus === 'string' ? opts.focus : 'input, textarea, select';
+      const first = $('modalContent').querySelector(sel);
       if (first) first.focus();
     }
   }
@@ -1151,7 +1152,9 @@
         root.querySelector('#cancel').onclick = closeModal;
         root.querySelector('#newP').onclick = showNewPriestor;
         renderList();
-      }
+      },
+      // Bez automatického fokusu – klávesnica by zakryla voľbu Nákup.
+      { focus: false }
     );
   }
 
@@ -1672,7 +1675,9 @@
             showError(err);
           }
         };
-      }
+      },
+      // Pri nákupe rovno do poľa Obchod (názov je predvyplnený).
+      { focus: shopOnly ? '[name=store]' : true }
     );
   }
 

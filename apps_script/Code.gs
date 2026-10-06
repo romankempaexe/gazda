@@ -410,10 +410,12 @@ function toggleItem(token, itemId, done) {
 /** Overí údaje činnosti z formulára a vráti hodnoty na uloženie. */
 function validateCinnost_(householdId, data) {
   data = data || {};
-  const priestor = readTable_('priestory').find(
-    (p) => p.id === data.priestorId && p.householdId === householdId
-  );
-  if (!priestor) throw new Error('Vyber priestor.');
+  const kind = data.kind === 'nakup' ? 'nakup' : '';
+  // Nákup nemusí mať priestor, ostatné činnosti áno.
+  const priestor = data.priestorId
+    ? readTable_('priestory').find((p) => p.id === data.priestorId && p.householdId === householdId)
+    : null;
+  if (!priestor && (data.priestorId || !kind)) throw new Error('Vyber priestor.');
 
   const assignedTo = String(data.assignedTo || '').trim().toLowerCase();
   if (assignedTo) {
@@ -433,7 +435,6 @@ function validateCinnost_(householdId, data) {
     if (!(repeatInterval >= 1)) throw new Error('Interval opakovania musí byť aspoň 1.');
   }
 
-  const kind = data.kind === 'nakup' ? 'nakup' : '';
   const store = kind ? String(data.store || '').trim().slice(0, 60) : '';
 
   const items = (Array.isArray(data.items) ? data.items : [])
@@ -450,7 +451,7 @@ function validateCinnost_(householdId, data) {
     fields: {
       kind,
       store,
-      priestorId: priestor.id,
+      priestorId: priestor ? priestor.id : '',
       name: requireText_(data.name, 'Zadaj názov činnosti.'),
       description: String(data.description || '').trim(),
       assignedTo,
@@ -674,7 +675,7 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
     const household = readTable_('households').find((h) => h.id === cinnost.householdId);
     const lines = [];
     if (cinnost.kind === 'nakup') lines.push('🛒 Nákup' + (cinnost.store ? ': ' + cinnost.store : ''));
-    lines.push(priestor.name + (household ? ' · ' + household.name : ''));
+    lines.push([priestor && priestor.name, household && household.name].filter(Boolean).join(' · '));
     let when = 'Termín: ' + formatShortDate_(cinnost.dueDate);
     if (cinnost.periodicity !== 'none') {
       const labels = { weekly: 'týždenne', monthly: 'mesačne', annually: 'ročne' };

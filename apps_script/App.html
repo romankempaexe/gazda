@@ -420,6 +420,7 @@
 
   function priestorName(id) {
     const p = state.detail.priestory.find((p) => p.id === id);
+    if (!id) return '';
     return p ? p.name : 'Neznámy priestor';
   }
 
@@ -454,6 +455,44 @@
   $('modal').addEventListener('click', (e) => {
     if (e.target === $('modal')) closeModal();
   });
+
+  // Tlačidlá − / + pri počte (fungujú v každom okne s .stepper).
+  $('modalContent').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.stepper .step')) e.preventDefault(); // nech pole s textom nestratí fokus
+  });
+  $('modalContent').addEventListener('click', (e) => {
+    const btn = e.target.closest('.stepper .step');
+    if (!btn) return;
+    const input = btn.parentNode.querySelector('input');
+    const next = stepQty(input.value, Number(btn.dataset.step));
+    if (next === null) return;
+    input.value = next;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  // Krok podľa jednotky: kusy po 1, kg a l po 0,5, g a ml po 100, dkg po 10.
+  const QTY_STEPS = { kg: 0.5, l: 0.5, g: 100, ml: 100, dkg: 10 };
+
+  /** Zvýši / zníži počet („2 ks“, „1,5 kg“); prázdny počet je 1 ks. null = nedá sa. */
+  function stepQty(qty, dir) {
+    qty = String(qty || '').trim();
+    const m = qty ? qty.match(/^(\d+(?:[.,]\d+)?)\s*([^\d\s].*)?$/) : ['', '1', 'ks'];
+    if (!m) return null;
+    const unit = (m[2] || 'ks').trim();
+    const step = QTY_STEPS[unit.toLowerCase()] || 1;
+    const n = Math.round((parseFloat(m[1].replace(',', '.')) + dir * step) * 100) / 100;
+    if (n < step || (unit === 'ks' && n < 1)) return null;
+    if (unit === 'ks' && n === 1) return '';
+    return String(n).replace('.', ',') + ' ' + unit;
+  }
+
+  function stepperHtml(attrs, value) {
+    return (
+      '<div class="stepper"><button type="button" class="step" data-step="-1" title="Menej"><span class="ms">remove</span></button>' +
+      '<input class="qty-input" ' + attrs + ' maxlength="20" placeholder="1" autocomplete="off" value="' + esc(value || '') + '">' +
+      '<button type="button" class="step" data-step="1" title="Viac"><span class="ms">add</span></button></div>'
+    );
+  }
 
   // Na mobile pri písaní: okno presuň k hornému okraju a pole posuň tak, aby
   // bolo nad klávesnicou (spolu s popiskom nad ním).
@@ -883,7 +922,7 @@
     if (progress.total) {
       info.push(tag('checklist', progress.done + '/' + progress.total, progress.done === progress.total ? 'tag-ok' : ''));
     }
-    info.push(tag('location_on', priestorName(c.priestorId)));
+    if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
     if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
     if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
 
@@ -1078,6 +1117,9 @@
   function showPriestorSelector() {
     openModal(
       '<h2>Vyber priestor</h2><div class="subtitle">Kde sa má činnosť robiť?</div>' +
+        '<div class="card clickable shop-entry" id="shopEntry"><span class="ms">shopping_cart</span>' +
+        '<div class="card-body"><div class="card-title">Nákup</div><div class="hint">bez priestoru – stačí obchod a zoznam</div></div>' +
+        '<span class="ms muted">chevron_right</span></div>' +
         '<div class="field"><input id="search" placeholder="Hľadaj priestor…"></div>' +
         '<div class="list-select" id="plist"></div>' +
         '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
@@ -1105,6 +1147,7 @@
           });
         };
         root.querySelector('#search').oninput = renderList;
+        root.querySelector('#shopEntry').onclick = () => showCinnostForm('', null, { shopping: true });
         root.querySelector('#cancel').onclick = closeModal;
         root.querySelector('#newP').onclick = showNewPriestor;
         renderList();
@@ -1270,7 +1313,7 @@
     const shopping = c.kind === 'nakup';
     const meta = [];
     if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
-    meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
+    if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
     meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate)) + '</span>');
     if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
     meta.push('<span class="tag"><span class="ms">person</span>' + esc(shortName(c.assignedTo)) + '</span>');
@@ -1280,7 +1323,7 @@
         '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
         (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
         '<div class="field"><label id="checkLabel"></label><div class="checklist" id="checklist"></div>' +
-        '<div class="item-add"><input id="qtyInput" class="qty-input" maxlength="20" placeholder="Počet" autocomplete="off">' +
+        '<div class="item-add">' + stepperHtml('id="qtyInput"') +
         '<input id="itemInput" maxlength="100" placeholder="' +
         (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
         '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
@@ -1391,8 +1434,9 @@
   }
 
   /** Formulár novej činnosti, alebo úpravy existujúcej (existing). */
-  function showCinnostForm(priestorId, existing) {
+  function showCinnostForm(priestorId, existing, opts) {
     const edit = Boolean(existing);
+    const shopOnly = !edit && Boolean(opts && opts.shopping);
     const v = existing || {
       name: '',
       description: '',
@@ -1402,7 +1446,7 @@
       repeatInterval: 1,
       icon: 'home',
       color: COLORS['Zelená'],
-      kind: '',
+      kind: shopOnly ? 'nakup' : '',
       store: '',
       items: [],
     };
@@ -1428,6 +1472,11 @@
       .sort((a, b) => a.name.localeCompare(b.name, 'sk'))
       .map((p) => '<option value="' + esc(p.id) + '"' + (p.id === priestorId ? ' selected' : '') + '>' + esc(p.name) + '</option>')
       .join('');
+    // Priestor sa vyberá vo formulári pri úprave a pri nákupe (môže byť aj bez priestoru).
+    const choosePriestor = edit || shopOnly;
+    const priestorSelect =
+      '<div class="field' + (choosePriestor ? '' : ' hidden') + '" id="priestorField"><label>Priestor</label><select name="priestorId">' +
+      '<option value=""' + (priestorId ? '' : ' selected') + '>Bez priestoru (len nákup)</option>' + priestorOptions + '</select></div>';
     const currentIcon = ICONS[v.icon] ? v.icon : 'home';
     const currentColor = Object.values(COLORS).includes(v.color) ? v.color : COLORS['Zelená'];
     const iconButtons = Object.keys(ICONS)
@@ -1447,7 +1496,7 @@
 
     openModal(
       '<h2>' + (edit ? 'Upraviť činnosť' : 'Nová činnosť') + '</h2>' +
-        (edit ? '' : '<div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>') +
+        (choosePriestor ? '' : '<div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>') +
         '<form id="f">' +
         '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div>' +
         '<label class="switch"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
@@ -1456,12 +1505,12 @@
         '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
         '<div class="suggest hidden" id="storeSuggest"></div></div>' +
         '<div class="field"><label id="itemsLabel">Checklist</label><div class="checklist" id="itemList"></div>' +
-        '<div class="item-add"><input id="qtyInput" class="qty-input" maxlength="20" autocomplete="off" placeholder="Počet">' +
+        '<div class="item-add">' + stepperHtml('id="qtyInput"') +
         '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
         '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
         '<div class="suggest hidden" id="itemSuggest"></div></div>' +
         '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
-        (edit ? '<div class="field"><label>Priestor</label><select name="priestorId">' + priestorOptions + '</select></div>' : '') +
+        priestorSelect +
         '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
         '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div></div>' +
         '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
@@ -1504,8 +1553,8 @@
               (i, idx) =>
                 '<div class="check-item edit' + (i.done ? ' done' : '') + '"><span class="ms">' +
                 (i.done ? 'check_box' : 'check_box_outline_blank') + '</span><span class="check-text">' + esc(i.text) +
-                '</span><input class="qty-input small" data-qty="' + idx + '" maxlength="20" placeholder="Počet" autocomplete="off" value="' +
-                esc(i.qty || '') + '"><button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
+                '</span>' + stepperHtml('data-qty="' + idx + '"', i.qty) +
+                '<button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
                 '<span class="ms">close</span></button></div>'
             )
             .join('');
@@ -1576,10 +1625,15 @@
 
         form.onsubmit = async (e) => {
           e.preventDefault();
+          if (!form.isShopping.checked && !form.priestorId.value) {
+            toast('Vyber priestor (bez priestoru môže byť len nákup)');
+            form.priestorId.focus();
+            return;
+          }
           const submit = form.querySelector('button:not([type])');
           submit.disabled = true;
           const data = {
-            priestorId: edit ? form.priestorId.value : priestorId,
+            priestorId: form.priestorId.value,
             name: form.name.value,
             description: form.description.value,
             assignedTo: form.assignedTo.value,

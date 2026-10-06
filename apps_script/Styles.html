@@ -703,16 +703,74 @@
     min-width: 0;
   }
 
-  .item-add .qty-input {
-    flex: 0 0 76px;
+  .stepper {
+    display: flex;
+    align-items: center;
+    flex: none;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    overflow: hidden;
   }
 
-  .qty-input.small {
-    width: 72px;
-    flex: 0 0 72px;
-    padding: 6px 8px;
-    font-size: 14px;
+  .stepper .step {
+    width: 34px;
+    height: 40px;
+    border: none;
+    background: var(--surface-2);
+    color: var(--primary-strong);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .stepper .step .ms {
+    font-size: 20px;
+  }
+
+  .stepper .step:active {
+    background: var(--border);
+  }
+
+  .item-add .stepper input,
+  .stepper input {
+    flex: none;
+    width: 58px;
+    min-width: 0;
+    border: none;
+    border-radius: 0;
+    padding: 0 4px;
+    height: 40px;
     text-align: center;
+    font-size: 14px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .check-item.edit .stepper .step {
+    width: 30px;
+    height: 34px;
+  }
+
+  .check-item.edit .stepper input,
+  .item-add .stepper input {
+    width: 62px;
+    height: 34px;
+    padding: 0 2px;
+    font-size: 13.5px;
+  }
+
+  .item-add .stepper input {
+    height: 40px;
+  }
+
+  .shop-entry {
+    margin-bottom: 12px;
+  }
+
+  .shop-entry > .ms:first-child {
+    color: var(--primary-strong);
   }
 
   .check-qty {

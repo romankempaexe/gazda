@@ -427,15 +427,25 @@
   // Modálne okno
   // -------------------------------------------------------------------------
 
-  function openModal(html, onMount) {
+  let modalOnClose = null;
+
+  /** opts.focus = false: neotvárať klávesnicu; opts.onClose: zavolá sa po zatvorení okna. */
+  function openModal(html, onMount, opts) {
+    opts = opts || {};
+    modalOnClose = opts.onClose || null;
     $('modalContent').innerHTML = html;
     $('modal').classList.remove('hidden');
     if (onMount) onMount($('modalContent'));
-    const first = $('modalContent').querySelector('input, textarea, select');
-    if (first) first.focus();
+    if (opts.focus !== false) {
+      const first = $('modalContent').querySelector('input, textarea, select');
+      if (first) first.focus();
+    }
   }
 
   function closeModal() {
+    const onClose = modalOnClose;
+    modalOnClose = null;
+    if (onClose) setTimeout(onClose, 0);
     $('modal').classList.remove('typing');
     $('modal').classList.add('hidden');
     $('modalContent').innerHTML = '';
@@ -868,6 +878,11 @@
       '<span class="tag' + (cls ? ' ' + cls : '') + '"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
     const info = [];
     if (mode === 'overdue') info.push(tag('warning', 'od ' + formatDateShort(c.dueDate), 'tag-danger'));
+    if (c.kind === 'nakup') info.push(tag('shopping_cart', c.store || 'Nákup'));
+    const progress = itemProgress(c);
+    if (progress.total) {
+      info.push(tag('checklist', progress.done + '/' + progress.total, progress.done === progress.total ? 'tag-ok' : ''));
+    }
     info.push(tag('location_on', priestorName(c.priestorId)));
     if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
     if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
@@ -880,7 +895,7 @@
           '<span class="ms">check</span>Hotové</button>';
 
     return (
-      '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + '" data-edit-task="' + esc(c.id) + '">' +
+      '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + '" data-open-task="' + esc(c.id) + '">' +
       '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
       '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
       (c.description ? '<div class="card-sub">' + esc(c.description) + '</div>' : '') +
@@ -1006,6 +1021,9 @@
         showEditCinnost(el.dataset.editTask);
       };
     });
+    view.querySelectorAll('[data-open-task]').forEach((el) => {
+      el.onclick = () => showTaskDetail(el.dataset.openTask);
+    });
     if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
   }
 
@@ -1117,6 +1135,194 @@
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Našepkávanie (položky checklistu, obchody)
+  // -------------------------------------------------------------------------
+
+  const DEFAULT_STORES = ['Lidl', 'Kaufland', 'Tesco', 'Billa', 'Coop Jednota', 'Penny', 'Terno',
+    'Fresh', 'Biedronka', 'dm drogerie', 'Teta drogérie', 'Rossmann', 'Hornbach', 'OBI', 'IKEA',
+    'Decathlon', 'Lekáreň', 'Pekáreň', 'Mäsiarstvo', 'Trh'];
+
+  function normalizeText(s) {
+    return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  }
+
+  /** Návrhy pre zadaný text: najprv to, čo začína zadaným textom, potom slová a nakoniec obsahuje. */
+  function suggestFor(query, sources, exclude, limit) {
+    const q = normalizeText(query);
+    if (!q) return [];
+    const seen = new Set((exclude || []).map(normalizeText));
+    const buckets = [[], [], []];
+    sources.forEach((list) =>
+      list.forEach((name) => {
+        const n = normalizeText(name);
+        if (!n || seen.has(n)) return;
+        let rank = -1;
+        if (n.startsWith(q)) rank = 0;
+        else if (n.includes(' ' + q)) rank = 1;
+        else if (q.length >= 3 && n.includes(q)) rank = 2;
+        if (rank === -1) return;
+        seen.add(n);
+        buckets[rank].push(name);
+      })
+    );
+    return buckets.flat().slice(0, limit || 6);
+  }
+
+  /** Pripojí k poľu input zoznam návrhov v boxe; onPick dostane vybraný text. */
+  function attachSuggest(input, box, getSources, getExclude, onPick) {
+    const render = () => {
+      const list = suggestFor(input.value, getSources(), getExclude ? getExclude() : []);
+      box.innerHTML = list
+        .map((name) => '<button type="button" class="suggest-chip">' + esc(name) + '</button>')
+        .join('');
+      box.classList.toggle('hidden', !list.length);
+      box.querySelectorAll('.suggest-chip').forEach((b, i) => {
+        // pointerdown, aby sa návrh vybral skôr, než pole stratí fokus
+        b.onpointerdown = (e) => {
+          e.preventDefault();
+          onPick(list[i]);
+        };
+      });
+    };
+    input.addEventListener('input', render);
+    return { refresh: render, clear: () => box.classList.add('hidden') };
+  }
+
+  function productSources() {
+    return [(state.detail && state.detail.products) || [], typeof PRODUKTY !== 'undefined' ? PRODUKTY : []];
+  }
+
+  function storeSources() {
+    return [(state.detail && state.detail.stores) || [], DEFAULT_STORES];
+  }
+
+  // -------------------------------------------------------------------------
+  // Detail činnosti s checklistom
+  // -------------------------------------------------------------------------
+
+  function itemProgress(c) {
+    const items = c.items || [];
+    return { done: items.filter((i) => i.done).length, total: items.length };
+  }
+
+  function showTaskDetail(id) {
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    if (!c) return;
+    const shopping = c.kind === 'nakup';
+    const meta = [];
+    if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
+    meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
+    meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate)) + '</span>');
+    if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
+    meta.push('<span class="tag"><span class="ms">person</span>' + esc(shortName(c.assignedTo)) + '</span>');
+
+    openModal(
+      '<h2>' + esc(c.name) + '</h2>' +
+        '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
+        (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
+        '<div class="field"><label id="checkLabel"></label><div class="checklist" id="checklist"></div>' +
+        '<div class="item-add"><input id="itemInput" maxlength="100" placeholder="' +
+        (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
+        '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
+        '<div class="suggest hidden" id="itemSuggest"></div></div>' +
+        '<div class="actions">' +
+        '<button type="button" class="btn text" id="edit" style="margin-right:auto"><span class="ms">edit</span>Upraviť</button>' +
+        '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+        '<button type="button" class="btn" id="done"><span class="ms">check</span>Hotové</button></div>',
+      (root) => {
+        const listEl = root.querySelector('#checklist');
+        const input = root.querySelector('#itemInput');
+
+        const renderList = () => {
+          const items = c.items || [];
+          const p = itemProgress(c);
+          root.querySelector('#checkLabel').textContent =
+            (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '');
+          const sorted = items.filter((i) => !i.done).concat(items.filter((i) => i.done));
+          listEl.innerHTML = sorted.length
+            ? sorted
+                .map(
+                  (i) =>
+                    '<button type="button" class="check-item' + (i.done ? ' done' : '') + '" data-item="' + esc(i.id) + '">' +
+                    '<span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' +
+                    '<span class="check-text">' + esc(i.text) + '</span></button>'
+                )
+                .join('')
+            : '<div class="hint">Zatiaľ žiadne položky.</div>';
+          root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
+          listEl.querySelectorAll('[data-item]').forEach((b) => {
+            b.onclick = () => toggle(b.dataset.item);
+          });
+        };
+
+        const toggle = async (itemId) => {
+          const item = c.items.find((i) => i.id === itemId);
+          if (!item) return;
+          item.done = !item.done; // hneď na obrazovke, server na pozadí
+          renderList();
+          const p = itemProgress(c);
+          if (p.total && p.done === p.total) toast('Všetko odškrtnuté – ťukni Hotové');
+          try {
+            const saved = await api('toggleItem', itemId, item.done);
+            item.done = saved.done;
+          } catch (err) {
+            item.done = !item.done;
+            renderList();
+            showError(err);
+          }
+        };
+
+        const add = async (text) => {
+          text = String(text || '').trim();
+          if (!text) return;
+          input.value = '';
+          suggest.clear();
+          try {
+            const item = await api('addItem', c.id, text);
+            c.items = (c.items || []).concat([item]);
+            if (!state.detail.products.some((x) => normalizeText(x) === normalizeText(text))) {
+              state.detail.products.unshift(text);
+            }
+            renderList();
+          } catch (err) {
+            showError(err);
+          }
+          input.focus();
+        };
+
+        const suggest = attachSuggest(input, root.querySelector('#itemSuggest'), productSources,
+          () => (c.items || []).map((i) => i.text), add);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add(input.value);
+          }
+        });
+        root.querySelector('#itemAdd').onclick = () => add(input.value);
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#edit').onclick = () => showCinnostForm(c.priestorId, c);
+        root.querySelector('#done').onclick = (e) => {
+          closeModal();
+          completeTask(c.id, e.currentTarget);
+        };
+        renderList();
+      },
+      { focus: false, onClose: () => state.detail && renderDetail() }
+    );
+  }
+
+  /** Obchod a položky novej/upravenej činnosti hneď ponúkaj v našepkávaní. */
+  function rememberLocally(c) {
+    const d = state.detail;
+    d.stores = d.stores || [];
+    d.products = d.products || [];
+    if (c.store && !d.stores.some((x) => normalizeText(x) === normalizeText(c.store))) d.stores.push(c.store);
+    (c.items || []).forEach((i) => {
+      if (!d.products.some((x) => normalizeText(x) === normalizeText(i.text))) d.products.unshift(i.text);
+    });
+  }
+
   function showEditCinnost(id) {
     const c = state.detail.cinnosti.find((x) => x.id === id);
     if (c) showCinnostForm(c.priestorId, c);
@@ -1134,7 +1340,12 @@
       repeatInterval: 1,
       icon: 'home',
       color: COLORS['Zelená'],
+      kind: '',
+      store: '',
+      items: [],
     };
+    // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
+    let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, done: i.done }));
     const members = state.detail.members.map((m) => m.email).sort();
     // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
     if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
@@ -1177,6 +1388,15 @@
         (edit ? '' : '<div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>') +
         '<form id="f">' +
         '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div>' +
+        '<label class="switch"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
+        '<span class="switch-track"></span><span class="ms">shopping_cart</span>Nákup</label>' +
+        '<div class="field hidden" id="storeField"><label>Obchod</label>' +
+        '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
+        '<div class="suggest hidden" id="storeSuggest"></div></div>' +
+        '<div class="field"><label id="itemsLabel">Checklist</label><div class="checklist" id="itemList"></div>' +
+        '<div class="item-add"><input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
+        '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
+        '<div class="suggest hidden" id="itemSuggest"></div></div>' +
         '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
         (edit ? '<div class="field"><label>Priestor</label><select name="priestorId">' + priestorOptions + '</select></div>' : '') +
         '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
@@ -1196,19 +1416,76 @@
         let color = currentColor;
         if (edit) root.querySelector('#delete').onclick = () => deleteTask(existing.id);
 
+        // Nákup: obchod s našepkávaním, ikona košíka, texty pre produkty.
+        const shopping = form.isShopping;
+        const storeInput = form.store;
+        const itemInput = root.querySelector('#itemInput');
+        const applyKind = () => {
+          root.querySelector('#storeField').classList.toggle('hidden', !shopping.checked);
+          root.querySelector('#itemsLabel').textContent = shopping.checked ? 'Nakúpiť' : 'Checklist';
+          itemInput.placeholder = shopping.checked ? 'Pridať produkt…' : 'Pridať položku…';
+          if (shopping.checked && icon === 'home') selectIcon('shopping');
+          if (shopping.checked && !form.name.value.trim()) form.name.value = 'Nakúpiť';
+        };
+        shopping.onchange = applyKind;
+        const storeSuggest = attachSuggest(storeInput, root.querySelector('#storeSuggest'), storeSources, null, (name) => {
+          storeInput.value = name;
+          storeSuggest.clear();
+          if (/^nakúpiť$/i.test(form.name.value.trim())) form.name.value = 'Nakúpiť – ' + name;
+        });
+
+        // Checklist
+        const renderItems = () => {
+          root.querySelector('#itemList').innerHTML = items
+            .map(
+              (i, idx) =>
+                '<div class="check-item edit' + (i.done ? ' done' : '') + '"><span class="ms">' +
+                (i.done ? 'check_box' : 'check_box_outline_blank') + '</span><span class="check-text">' + esc(i.text) +
+                '</span><button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
+                '<span class="ms">close</span></button></div>'
+            )
+            .join('');
+          root.querySelectorAll('[data-remove]').forEach((b) => {
+            b.onclick = () => {
+              items.splice(Number(b.dataset.remove), 1);
+              renderItems();
+            };
+          });
+        };
+        const addItemText = (text) => {
+          text = String(text || '').replace(/\s+/g, ' ').trim();
+          if (!text) return;
+          if (!items.some((i) => normalizeText(i.text) === normalizeText(text))) items.push({ text, done: false });
+          itemInput.value = '';
+          itemSuggest.clear();
+          renderItems();
+          itemInput.focus();
+        };
+        const itemSuggest = attachSuggest(itemInput, root.querySelector('#itemSuggest'), productSources,
+          () => items.map((i) => i.text), addItemText);
+        itemInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            addItemText(itemInput.value);
+          }
+        });
+        root.querySelector('#itemAdd').onclick = () => addItemText(itemInput.value);
+        renderItems();
+
         form.periodicity.onchange = () => {
           const p = PERIODICITY[form.periodicity.value];
           root.querySelector('#intervalField').classList.toggle('hidden', form.periodicity.value === 'none');
           root.querySelector('#intervalLabel').textContent = p.unit ? 'Každých X ' + p.unit : '';
           root.querySelector('#intervalHint').textContent = p.hint || '';
         };
+        function selectIcon(name) {
+          root.querySelectorAll('[data-icon]').forEach((x) => x.classList.toggle('selected', x.dataset.icon === name));
+          icon = name;
+        }
         root.querySelectorAll('[data-icon]').forEach((b) => {
-          b.onclick = () => {
-            root.querySelectorAll('[data-icon]').forEach((x) => x.classList.remove('selected'));
-            b.classList.add('selected');
-            icon = b.dataset.icon;
-          };
+          b.onclick = () => selectIcon(b.dataset.icon);
         });
+        applyKind();
         root.querySelectorAll('[data-color]').forEach((b) => {
           b.onclick = () => {
             root.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('selected'));
@@ -1240,6 +1517,12 @@
             repeatInterval: form.repeatInterval.value,
             icon,
             color,
+            kind: form.isShopping.checked ? 'nakup' : '',
+            store: form.isShopping.checked ? form.store.value : '',
+            // Text v poli, ktorý ešte nebol pridaný Enterom, tiež pridaj.
+            items: items
+              .map((i) => ({ id: i.id, text: i.text }))
+              .concat(itemInput.value.trim() ? [{ text: itemInput.value.trim() }] : []),
           };
           try {
             if (edit) {
@@ -1247,6 +1530,7 @@
               const list = state.detail.cinnosti;
               const index = list.findIndex((x) => x.id === c.id);
               if (index !== -1) list[index] = c;
+              rememberLocally(c);
               closeModal();
               renderDetail();
               toast('Zmeny uložené');
@@ -1254,6 +1538,7 @@
             }
             const c = await api('addCinnost', state.detail.household.id, data);
             state.detail.cinnosti.push(c);
+            rememberLocally(c);
             closeModal();
             renderDetail();
             toast('Činnosť „' + c.name + '“ bola vytvorená');

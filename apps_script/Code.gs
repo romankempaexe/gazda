@@ -7,6 +7,9 @@
  *   priestory  – priestory domácnosti (kuchyňa, kúpeľňa, ...)
  *   cinnosti   – činnosti (úlohy) priradené k priestoru
  *   users      – používatelia (odtlačok osobného kľúča, kanál upozornení, Telegram, posledná domácnosť)
+ *   polozky    – checklist (položky) jednotlivých činností
+ *   obchody    – obchody zadané pri nákupoch (našepkávanie)
+ *   produkty   – položky, ktoré domácnosť už pridávala (našepkávanie, podľa počtu použití)
  *
  * Web app beží pod účtom vlastníka („Spustiť ako: Ja“, prístup „Ktokoľvek“).
  * Používateľa identifikuje osobný tajný odkaz …/exec?k=<kľúč>; v tabuľke je len
@@ -34,7 +37,12 @@ const SHEETS = {
     'periodicity',
     'repeatInterval',
     'createdAt',
+    'kind', // '' = bežná činnosť, 'nakup' = nákup
+    'store', // obchod pri nákupe
   ],
+  polozky: ['id', 'cinnostId', 'householdId', 'text', 'done', 'position', 'createdAt', 'createdBy'],
+  obchody: ['householdId', 'name', 'createdAt'],
+  produkty: ['householdId', 'name', 'uses', 'lastUsed'],
   // ntfyTopic sa už nepoužíva; stĺpec ostáva, aby sa neposunuli dáta v existujúcich tabuľkách.
   users: [
     'email',
@@ -53,6 +61,8 @@ const SPREADSHEET_ID_KEY = 'SPREADSHEET_ID';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
+const MAX_ITEMS = 100;
+const MAX_ITEM_LENGTH = 100;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
 // interactive-widget: pri otvorení klávesnice sa stránka zmenší, takže okná
 // a polia sa posunú nad klávesnicu (inak ich klávesnica prekryje).
@@ -249,6 +259,9 @@ function deleteHousehold(token, householdId) {
   if (member.role !== 'owner') throw new Error('Domácnosť môže vymazať len jej zakladateľ.');
 
   withLock_(() => {
+    deleteRowsWhere_('polozky', (r) => r.householdId === householdId);
+    deleteRowsWhere_('obchody', (r) => r.householdId === householdId);
+    deleteRowsWhere_('produkty', (r) => r.householdId === householdId);
     deleteRowsWhere_('cinnosti', (r) => r.householdId === householdId);
     deleteRowsWhere_('priestory', (r) => r.householdId === householdId);
     deleteRowsWhere_('members', (r) => r.householdId === householdId);
@@ -287,9 +300,21 @@ function getHouseholdData(token, householdId) {
     priestory: readTable_('priestory')
       .filter((p) => p.householdId === householdId)
       .map(strip_),
-    cinnosti: readTable_('cinnosti')
-      .filter((c) => c.householdId === householdId)
-      .map(toCinnost_),
+    cinnosti: withItems_(
+      householdId,
+      readTable_('cinnosti')
+        .filter((c) => c.householdId === householdId)
+        .map(toCinnost_)
+    ),
+    stores: readTable_('obchody')
+      .filter((o) => o.householdId === householdId)
+      .map((o) => o.name)
+      .sort((a, b) => a.localeCompare(b)),
+    products: readTable_('produkty')
+      .filter((p) => p.householdId === householdId)
+      .sort((a, b) => Number(b.uses) - Number(a.uses) || b.lastUsed.localeCompare(a.lastUsed))
+      .slice(0, 500)
+      .map((p) => p.name),
   };
 }
 
@@ -305,14 +330,19 @@ function addPriestor(token, householdId, name) {
 function addCinnost(token, householdId, data) {
   authenticate_(token);
   const member = requireMember_(householdId);
-  const { priestor, fields } = validateCinnost_(householdId, data);
+  const { priestor, fields, items } = validateCinnost_(householdId, data);
   const cinnost = { id: Utilities.getUuid(), householdId, ...fields, createdAt: nowIso_() };
 
-  withLock_(() => appendRow_('cinnosti', cinnost));
+  withLock_(() => {
+    appendRow_('cinnosti', cinnost);
+    syncItems_(cinnost, items, member.email);
+    rememberShopping_(householdId, cinnost.store, items.map((i) => i.text));
+  });
+  const saved = withItems_(householdId, [toCinnost_(cinnost)])[0];
   if (cinnost.assignedTo && cinnost.assignedTo !== member.email) {
-    notifyAssigned_(cinnost, priestor, member.email);
+    notifyAssigned_(saved, priestor, member.email);
   }
-  return toCinnost_(cinnost);
+  return saved;
 }
 
 /** Uloží zmeny činnosti (názov, popis, priestor, pridelenie, termín, opakovanie, ikona, farba). */
@@ -320,18 +350,60 @@ function updateCinnost(token, cinnostId, data) {
   const email = authenticate_(token);
   const result = withLock_(() => {
     const cinnost = findCinnost_(cinnostId);
-    const { priestor, fields } = validateCinnost_(cinnost.householdId, data);
+    const { priestor, fields, items } = validateCinnost_(cinnost.householdId, data);
     const updated = { ...cinnost, ...fields };
     updateRow_('cinnosti', cinnost._row, updated);
+    syncItems_(updated, items, email);
+    rememberShopping_(cinnost.householdId, updated.store, items.filter((i) => !i.id).map((i) => i.text));
     return { previous: cinnost, updated, priestor };
   });
 
+  const saved = withItems_(result.updated.householdId, [toCinnost_(result.updated)])[0];
   // Upozorni len nového riešiteľa (nie seba ani toho, kto ju už mal).
-  const assignee = result.updated.assignedTo;
+  const assignee = saved.assignedTo;
   if (assignee && assignee !== email && assignee !== result.previous.assignedTo) {
-    notifyAssigned_(result.updated, result.priestor, email);
+    notifyAssigned_(saved, result.priestor, email);
   }
-  return toCinnost_(result.updated);
+  return saved;
+}
+
+/** Pridá položku do checklistu činnosti (môže ktokoľvek z domácnosti). */
+function addItem(token, cinnostId, text) {
+  const email = authenticate_(token);
+  text = cleanItemText_(text);
+  if (!text) throw new Error('Zadaj položku.');
+  return withLock_(() => {
+    const cinnost = findCinnost_(cinnostId);
+    const existing = readTable_('polozky').filter((i) => i.cinnostId === cinnost.id);
+    if (existing.length >= MAX_ITEMS) throw new Error('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
+    const position = existing.reduce((max, i) => Math.max(max, Number(i.position) || 0), 0) + 1;
+    const item = {
+      id: Utilities.getUuid(),
+      cinnostId: cinnost.id,
+      householdId: cinnost.householdId,
+      text,
+      done: '',
+      position,
+      createdAt: nowIso_(),
+      createdBy: email,
+    };
+    appendRow_('polozky', item);
+    rememberShopping_(cinnost.householdId, '', [text]);
+    return toItem_(item);
+  });
+}
+
+/** Odškrtne / zruší odškrtnutie položky. */
+function toggleItem(token, itemId, done) {
+  authenticate_(token);
+  return withLock_(() => {
+    const item = readTable_('polozky').find((i) => i.id === itemId);
+    if (!item) throw new Error('Položka neexistuje (možno ju medzičasom niekto vymazal).');
+    requireMember_(item.householdId);
+    const updated = { ...item, done: done ? '1' : '' };
+    updateRow_('polozky', item._row, updated);
+    return toItem_(updated);
+  });
 }
 
 /** Overí údaje činnosti z formulára a vráti hodnoty na uloženie. */
@@ -360,9 +432,20 @@ function validateCinnost_(householdId, data) {
     if (!(repeatInterval >= 1)) throw new Error('Interval opakovania musí byť aspoň 1.');
   }
 
+  const kind = data.kind === 'nakup' ? 'nakup' : '';
+  const store = kind ? String(data.store || '').trim().slice(0, 60) : '';
+
+  const items = (Array.isArray(data.items) ? data.items : [])
+    .map((i) => ({ id: typeof i === 'object' && i && i.id ? String(i.id) : '', text: cleanItemText_(typeof i === 'object' && i ? i.text : i) }))
+    .filter((i) => i.text);
+  if (items.length > MAX_ITEMS) throw new Error('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
+
   return {
     priestor,
+    items,
     fields: {
+      kind,
+      store,
       priestorId: priestor.id,
       name: requireText_(data.name, 'Zadaj názov činnosti.'),
       description: String(data.description || '').trim(),
@@ -380,6 +463,7 @@ function deleteCinnost(token, cinnostId) {
   authenticate_(token);
   withLock_(() => {
     const cinnost = findCinnost_(cinnostId);
+    deleteRowsWhere_('polozky', (r) => r.cinnostId === cinnost.id);
     deleteRowsWhere_('cinnosti', (r) => r.id === cinnost.id);
   });
   return { deleted: true };
@@ -396,9 +480,13 @@ function completeCinnost(token, cinnostId) {
     const cinnost = findCinnost_(cinnostId);
 
     if (cinnost.periodicity === 'none' || !PERIODICITIES.includes(cinnost.periodicity)) {
+      deleteRowsWhere_('polozky', (r) => r.cinnostId === cinnost.id);
       deleteRowsWhere_('cinnosti', (r) => r.id === cinnost.id);
       return { deleted: true };
     }
+
+    // Opakovaná činnosť: odškrtnuté položky zmiznú, neodškrtnuté prejdú na ďalší termín.
+    deleteRowsWhere_('polozky', (r) => r.cinnostId === cinnost.id && r.done === '1');
 
     const interval = parseInt(cinnost.repeatInterval, 10) || 1;
     const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
@@ -407,7 +495,10 @@ function completeCinnost(token, cinnostId) {
       nextDueDate = nextDueDate_(nextDueDate, cinnost.periodicity, interval);
     }
     updateRow_('cinnosti', cinnost._row, { ...cinnost, dueDate: nextDueDate });
-    return { deleted: false, cinnost: toCinnost_({ ...cinnost, dueDate: nextDueDate }) };
+    return {
+      deleted: false,
+      cinnost: withItems_(cinnost.householdId, [toCinnost_({ ...cinnost, dueDate: nextDueDate })])[0],
+    };
   });
 }
 
@@ -528,9 +619,21 @@ function sendMorningDigest_(today) {
     byUser.get(c.assignedTo)[c.dueDate === today ? 'today' : 'overdue'].push(c);
   });
 
+  const itemCounts = new Map();
+  readTable_('polozky').forEach((i) => {
+    const n = itemCounts.get(i.cinnostId) || { total: 0, done: 0 };
+    n.total++;
+    if (i.done === '1') n.done++;
+    itemCounts.set(i.cinnostId, n);
+  });
   const where = (c) => {
     const p = priestory.get(c.priestorId);
-    return (p ? p.name + ' · ' : '') + households.get(c.householdId).name;
+    const parts = [];
+    if (c.kind === 'nakup' && c.store) parts.push('🛒 ' + c.store);
+    const n = itemCounts.get(c.id);
+    if (n) parts.push(n.done + '/' + n.total);
+    parts.push((p ? p.name + ' · ' : '') + households.get(c.householdId).name);
+    return parts.join(' · ');
   };
   const byName = (a, b) => a.name.localeCompare(b.name);
 
@@ -565,7 +668,9 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
     const user = userRow_(cinnost.assignedTo) || { email: cinnost.assignedTo };
     if (channelOf_(user) === 'none') return;
     const household = readTable_('households').find((h) => h.id === cinnost.householdId);
-    const lines = [priestor.name + (household ? ' · ' + household.name : '')];
+    const lines = [];
+    if (cinnost.kind === 'nakup') lines.push('🛒 Nákup' + (cinnost.store ? ': ' + cinnost.store : ''));
+    lines.push(priestor.name + (household ? ' · ' + household.name : ''));
     let when = 'Termín: ' + formatShortDate_(cinnost.dueDate);
     if (cinnost.periodicity !== 'none') {
       const labels = { weekly: 'týždenne', monthly: 'mesačne', annually: 'ročne' };
@@ -574,6 +679,13 @@ function notifyAssigned_(cinnost, priestor, fromEmail) {
     }
     lines.push(when);
     if (cinnost.description) lines.push(cinnost.description);
+    const items = cinnost.items || [];
+    if (items.length) {
+      lines.push('');
+      lines.push((cinnost.kind === 'nakup' ? 'Nakúpiť' : 'Checklist') + ' (' + items.length + '):');
+      items.slice(0, 40).forEach((i) => lines.push((i.done ? '☑ ' : '☐ ') + i.text));
+      if (items.length > 40) lines.push('… a ďalších ' + (items.length - 40));
+    }
     notifyUser_(user, {
       kind: 'assigned',
       title: 'Nová úloha od ' + fromEmail.split('@')[0] + ': ' + cinnost.name,
@@ -857,6 +969,92 @@ function findCinnost_(cinnostId) {
   if (!cinnost) throw new Error('Činnosť neexistuje (možno ju medzičasom niekto vymazal).');
   requireMember_(cinnost.householdId);
   return cinnost;
+}
+
+/** Pripojí k činnostiam ich checklist (zoradený podľa poradia). */
+function withItems_(householdId, cinnosti) {
+  const byTask = new Map();
+  readTable_('polozky')
+    .filter((i) => i.householdId === householdId)
+    .forEach((i) => {
+      if (!byTask.has(i.cinnostId)) byTask.set(i.cinnostId, []);
+      byTask.get(i.cinnostId).push(i);
+    });
+  return cinnosti.map((c) => ({
+    ...c,
+    items: (byTask.get(c.id) || [])
+      .sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))
+      .map(toItem_),
+  }));
+}
+
+function toItem_(row) {
+  return { id: row.id, text: row.text, done: row.done === '1' };
+}
+
+function cleanItemText_(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_ITEM_LENGTH);
+}
+
+/**
+ * Zosúladí checklist činnosti so zoznamom z formulára: nové položky pridá,
+ * chýbajúce vymaže, zmení text a poradie. Stav odškrtnutia ostáva z tabuľky
+ * (formulár ho nemení, aby neprepísal odškrtnutie od iného člena).
+ * Volá sa vnútri withLock_.
+ */
+function syncItems_(cinnost, items, email) {
+  const existing = readTable_('polozky').filter((i) => i.cinnostId === cinnost.id);
+  const byId = new Map(existing.map((i) => [i.id, i]));
+  const keep = new Set();
+  items.forEach((item, index) => {
+    const position = index + 1;
+    const current = item.id && byId.get(item.id);
+    if (current) {
+      keep.add(current.id);
+      if (current.text !== item.text || Number(current.position) !== position) {
+        updateRow_('polozky', current._row, { ...current, text: item.text, position });
+      }
+    } else {
+      const id = Utilities.getUuid();
+      keep.add(id);
+      appendRow_('polozky', {
+        id,
+        cinnostId: cinnost.id,
+        householdId: cinnost.householdId,
+        text: item.text,
+        done: '',
+        position,
+        createdAt: nowIso_(),
+        createdBy: email,
+      });
+    }
+  });
+  if (existing.some((i) => !keep.has(i.id))) {
+    deleteRowsWhere_('polozky', (r) => r.cinnostId === cinnost.id && !keep.has(r.id));
+  }
+}
+
+/** Zapamätá obchod a položky domácnosti pre našepkávanie. Volá sa vnútri withLock_. */
+function rememberShopping_(householdId, store, texts) {
+  if (store) {
+    const known = readTable_('obchody').some(
+      (o) => o.householdId === householdId && o.name.toLowerCase() === store.toLowerCase()
+    );
+    if (!known) appendRow_('obchody', { householdId, name: store, createdAt: nowIso_() });
+  }
+  const now = nowIso_();
+  const seen = new Set();
+  texts.forEach((text) => {
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) return;
+    seen.add(key);
+    const row = readTable_('produkty').find((p) => p.householdId === householdId && p.name.toLowerCase() === key);
+    if (row) {
+      updateRow_('produkty', row._row, { ...row, uses: (Number(row.uses) || 0) + 1, lastUsed: now });
+    } else {
+      appendRow_('produkty', { householdId, name: text, uses: 1, lastUsed: now });
+    }
+  });
 }
 
 function toCinnost_(row) {

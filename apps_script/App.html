@@ -117,7 +117,8 @@
       if (state.detail) {
         const id = state.detail.household.id;
         delete snap.details[id];
-        snap.details[id] = state.detail;
+        // Neuložené (práve ukladané) úlohy do pamäte telefónu nedávaj.
+        snap.details[id] = { ...state.detail, cinnosti: state.detail.cinnosti.filter((c) => !c.pending) };
         snap.lastId = id;
         // Drž len niekoľko naposledy otvorených domácností.
         Object.keys(snap.details)
@@ -861,7 +862,7 @@
     renderDetail();
   }
 
-  function renderDetail() {
+  function renderDetail(opts) {
     const d = state.detail;
     saveSnapshot();
     $('title').textContent = d.household.name;
@@ -881,6 +882,8 @@
     let html = renderCalendar(onlyMine);
     html += onlyMine ? renderRozpis() : renderPlanovanie();
     $('view').innerHTML = html;
+    // Tiché prekreslenie (po uložení) bez animácie kariet, aby nepreblikli.
+    $('view').classList.toggle('no-anim', Boolean(opts && opts.quiet));
     bindDetailEvents();
 
     const selected = $('view').querySelector('.cal-day.selected');
@@ -917,6 +920,7 @@
     const tag = (icon, text, cls) =>
       '<span class="tag' + (cls ? ' ' + cls : '') + '"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
     const info = [];
+    if (c.pending) info.push(tag('schedule', 'Ukladá sa…'));
     if (mode === 'overdue') info.push(tag('warning', 'od ' + formatDateShort(c.dueDate), 'tag-danger'));
     if (c.kind === 'nakup') info.push(tag('shopping_cart', c.store || 'Nákup'));
     const progress = itemProgress(c);
@@ -940,6 +944,7 @@
 
     return (
       '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + (progress.total ? ' has-list' : '') +
+      (c.pending ? ' pending' : '') +
       '" data-open-task="' + esc(c.id) + '">' +
       '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
       '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
@@ -1489,6 +1494,32 @@
     });
   }
 
+  let tempIds = 0;
+
+  /** Lokálna podoba činnosti zo zadaných údajov, kým ju server neuloží. */
+  function optimisticTask(data, previous) {
+    const done = new Map(((previous && previous.items) || []).map((i) => [i.id, i.done]));
+    const kind = data.kind === 'nakup' ? 'nakup' : '';
+    return {
+      ...(previous || { id: 'tmp-' + ++tempIds, householdId: state.detail.household.id }),
+      priestorId: data.priestorId,
+      name: String(data.name).trim(),
+      description: String(data.description || '').trim(),
+      assignedTo: data.assignedTo,
+      dueDate: data.dueDate,
+      periodicity: data.periodicity,
+      repeatInterval: data.periodicity === 'none' ? null : Number(data.repeatInterval) || 1,
+      icon: data.icon,
+      color: data.color,
+      kind,
+      store: kind ? String(data.store || '').trim() : '',
+      items: data.items
+        .map((i) => ({ id: i.id || 'tmp-' + ++tempIds, ...splitQty(i.text, i.qty), done: Boolean(i.id && done.get(i.id)) }))
+        .filter((i) => i.text),
+      pending: true,
+    };
+  }
+
   function showEditCinnost(id) {
     const c = state.detail.cinnosti.find((x) => x.id === id);
     if (c) showCinnostForm(c.priestorId, c);
@@ -1498,7 +1529,8 @@
   function showCinnostForm(priestorId, existing, opts) {
     const edit = Boolean(existing);
     const shopOnly = !edit && Boolean(opts && opts.shopping);
-    const v = existing || {
+    const draft = opts && opts.draft;
+    let v = existing || {
       name: '',
       description: '',
       assignedTo: state.email,
@@ -1511,6 +1543,11 @@
       store: '',
       items: [],
     };
+    if (draft) {
+      // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
+      const done = new Map((v.items || []).map((i) => [i.id, i.done]));
+      v = { ...v, ...draft, items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)) })) };
+    }
     // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
     let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done }));
     const members = state.detail.members.map((m) => m.email).sort();
@@ -1710,27 +1747,34 @@
               .map((i) => ({ id: i.id, text: i.text, qty: i.qty }))
               .concat(itemInput.value.trim() ? [{ text: itemInput.value.trim(), qty: qtyInput.value }] : []),
           };
+          // Okno sa zavrie hneď a úloha sa ukáže ako „Ukladá sa…“; server beží na pozadí.
+          const list = state.detail.cinnosti;
+          const previous = edit ? list.find((x) => x.id === existing.id) : null;
+          const optimistic = optimisticTask(data, previous);
+          if (previous) list[list.indexOf(previous)] = optimistic;
+          else list.push(optimistic);
+          rememberLocally(optimistic);
+          closeModal();
+          renderDetail();
           try {
-            if (edit) {
-              const c = await api('updateCinnost', existing.id, data);
-              const list = state.detail.cinnosti;
-              const index = list.findIndex((x) => x.id === c.id);
-              if (index !== -1) list[index] = c;
-              rememberLocally(c);
-              closeModal();
-              renderDetail();
-              toast('Zmeny uložené');
-              return;
-            }
-            const c = await api('addCinnost', state.detail.household.id, data);
-            state.detail.cinnosti.push(c);
+            const c = edit
+              ? await api('updateCinnost', existing.id, data)
+              : await api('addCinnost', state.detail.household.id, data);
+            const index = state.detail.cinnosti.indexOf(optimistic);
+            if (index !== -1) state.detail.cinnosti[index] = c;
             rememberLocally(c);
-            closeModal();
-            renderDetail();
-            toast('Činnosť „' + c.name + '“ bola vytvorená');
+            renderDetail({ quiet: true });
+            toast(edit ? 'Zmeny uložené' : 'Činnosť „' + c.name + '“ bola vytvorená');
           } catch (err) {
-            submit.disabled = false;
+            const index = state.detail.cinnosti.indexOf(optimistic);
+            if (index !== -1) {
+              if (previous) state.detail.cinnosti[index] = previous;
+              else state.detail.cinnosti.splice(index, 1);
+            }
+            renderDetail({ quiet: true });
             showError(err);
+            // Formulár znova otvor s tým, čo bolo vyplnené, nech sa nič nestratí.
+            showCinnostForm(data.priestorId, previous, { draft: data, shopping: !previous && data.kind === 'nakup' });
           }
         };
       },

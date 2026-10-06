@@ -1056,6 +1056,7 @@ function syncItems_(cinnost, items, email) {
   const existing = readTable_('polozky').filter((i) => i.cinnostId === cinnost.id);
   const byId = new Map(existing.map((i) => [i.id, i]));
   const keep = new Set();
+  const added = [];
   items.forEach((item, index) => {
     const position = index + 1;
     const current = item.id && byId.get(item.id);
@@ -1067,7 +1068,7 @@ function syncItems_(cinnost, items, email) {
     } else {
       const id = Utilities.getUuid();
       keep.add(id);
-      appendRow_('polozky', {
+      added.push({
         id,
         cinnostId: cinnost.id,
         householdId: cinnost.householdId,
@@ -1083,6 +1084,7 @@ function syncItems_(cinnost, items, email) {
   if (existing.some((i) => !keep.has(i.id))) {
     deleteRowsWhere_('polozky', (r) => r.cinnostId === cinnost.id && !keep.has(r.id));
   }
+  appendRows_('polozky', added); // nové položky jedným zápisom
 }
 
 /** Zapamätá obchod a položky domácnosti pre našepkávanie. Volá sa vnútri withLock_. */
@@ -1094,18 +1096,26 @@ function rememberShopping_(householdId, store, texts) {
     if (!known) appendRow_('obchody', { householdId, name: store, createdAt: nowIso_() });
   }
   const now = nowIso_();
+  // List sa prečíta raz; nové produkty sa pridajú jedným zápisom.
+  const known = new Map(
+    readTable_('produkty')
+      .filter((p) => p.householdId === householdId)
+      .map((p) => [p.name.toLowerCase(), p])
+  );
   const seen = new Set();
+  const added = [];
   texts.forEach((text) => {
     const key = text.toLowerCase();
     if (!text || seen.has(key)) return;
     seen.add(key);
-    const row = readTable_('produkty').find((p) => p.householdId === householdId && p.name.toLowerCase() === key);
+    const row = known.get(key);
     if (row) {
       updateRow_('produkty', row._row, { ...row, uses: (Number(row.uses) || 0) + 1, lastUsed: now });
     } else {
-      appendRow_('produkty', { householdId, name: text, uses: 1, lastUsed: now });
+      added.push({ householdId, name: text, uses: 1, lastUsed: now });
     }
   });
+  appendRows_('produkty', added);
 }
 
 function toCinnost_(row) {
@@ -1321,8 +1331,9 @@ function newVersion_() {
 /** Po zápise do listu zahodí jeho uložený obsah (v tomto spustení aj v CacheService). */
 function invalidate_(name) {
   delete tables_[name];
+  // Verzia sa zmení pri prvom zápise do listu a znova po uložení (withLock_).
+  if (!dirtyTables_.has(name)) bumpVersion_(name);
   dirtyTables_.add(name);
-  bumpVersion_(name);
 }
 
 function bumpVersion_(name) {
@@ -1338,12 +1349,18 @@ function cellToString_(value) {
 }
 
 function appendRow_(name, obj) {
+  appendRows_(name, [obj]);
+}
+
+/** Pridá viac riadkov naraz (jedno volanie namiesto jedného na riadok). */
+function appendRows_(name, objs) {
+  if (!objs.length) return;
   const sheet = getSheet_(name);
   const headers = SHEETS[name];
   sheet
-    .getRange(sheet.getLastRow() + 1, 1, 1, headers.length)
+    .getRange(sheet.getLastRow() + 1, 1, objs.length, headers.length)
     .setNumberFormat('@')
-    .setValues([headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])))]);
+    .setValues(objs.map((obj) => headers.map((h) => (obj[h] === undefined || obj[h] === null ? '' : String(obj[h])))));
   invalidate_(name);
 }
 

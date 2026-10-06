@@ -45,6 +45,7 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - `repeatInterval` – každých X týždňov/mesiacov/rokov (pri `none` prázdne)
 - `icon` – názov ikony (`home`, `kitchen`, `trash`, …), `color` – hex farba (`#4CAF50`)
 - `kind` – `nakup` pri nákupe, inak prázdne; `store` – obchod (len pri nákupe)
+- `priestorId` – pri nákupe môže byť prázdne
 
 **polozky** – položky checklistu činnosti (`done` = `1` ak je odškrtnutá)
 
@@ -90,8 +91,11 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 - **Nákup** – prepínač *Nákup* vo formulári: obchod (zapamätá sa pre ďalšie použitie
   a našepkáva sa) a zoznam produktov s našepkávaním z vstavaného zoznamu ~340 potravín
   a vecí do domácnosti plus produktov, ktoré domácnosť už kupovala.
-  Pri položke sa dá zadať **počet** (pole *Počet* alebo priamo v texte: `2x mlieko`,
-  `mlieko 2 ks`, `1,5 kg zemiaky`); do našepkávania sa ukladá len názov.
+  Pri položke sa dá zadať **počet** – tlačidlami **− / +** (kusy po 1, kg a l po 0,5,
+  g a ml po 100), prepísaním políčka alebo priamo v texte: `2x mlieko`, `mlieko 2 ks`,
+  `1,5 kg zemiaky`; do našepkávania sa ukladá len názov.
+- **Nákup bez priestoru** – pri *Nová činnosť* je hore voľba *Nákup*, ktorá nepýta
+  priestor (v úprave je možnosť *Bez priestoru*); ostatné činnosti priestor potrebujú
   Pri opakovanom nákupe sa po *Hotové* odškrtnuté položky odstránia a neodškrtnuté zostanú
 - **Úprava činnosti** – tlačidlom *Upraviť* v detaile (alebo ✏️ v Plánovaní) sa dá zmeniť názov,
   popis, priestor, pridelenie, termín, opakovanie, ikona, farba aj checklist; úlohu možno

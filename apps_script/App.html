@@ -921,7 +921,10 @@
     if (c.kind === 'nakup') info.push(tag('shopping_cart', c.store || 'Nákup'));
     const progress = itemProgress(c);
     if (progress.total) {
-      info.push(tag('checklist', progress.done + '/' + progress.total, progress.done === progress.total ? 'tag-ok' : ''));
+      info.push(
+        '<span class="tag' + (progress.done === progress.total ? ' tag-ok' : '') + '" data-progress="' + esc(c.id) + '">' +
+          '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
+      );
     }
     if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
     if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
@@ -931,18 +934,81 @@
       mode === 'plan'
         ? '<button class="icon-btn" title="Upraviť" data-edit-task="' + esc(c.id) + '">' +
           '<span class="ms">edit</span></button>'
-        : '<button class="btn tonal small" data-complete="' + esc(c.id) + '">' +
+        : '<button class="btn tonal small' + (progress.total && progress.done === progress.total ? ' pulse' : '') +
+          '" data-complete="' + esc(c.id) + '">' +
           '<span class="ms">check</span>Hotové</button>';
 
     return (
-      '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + '" data-open-task="' + esc(c.id) + '">' +
+      '<div class="card clickable' + (mode === 'overdue' ? ' overdue' : '') + (progress.total ? ' has-list' : '') +
+      '" data-open-task="' + esc(c.id) + '">' +
       '<span class="ms task-icon" style="background:' + esc(c.color) + '">' + iconName(c.icon) + '</span>' +
       '<div class="card-body"><div class="card-title">' + esc(c.name) + '</div>' +
       (c.description ? '<div class="card-sub">' + esc(c.description) + '</div>' : '') +
       '<div class="meta">' + info.join('') + '</div></div>' +
       action +
+      cardChecklist(c) +
       '</div>'
     );
+  }
+
+  const CARD_ITEMS = 12;
+
+  /** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu. */
+  function cardChecklist(c) {
+    const items = c.items || [];
+    if (!items.length) return '';
+    const more = items.length - CARD_ITEMS;
+    return (
+      '<div class="card-checklist">' +
+      items
+        .slice(0, CARD_ITEMS)
+        .map(
+          (i) =>
+            '<button type="button" class="check-item compact' + (i.done ? ' done' : '') + '" data-card-item="' + esc(i.id) +
+            '" data-task="' + esc(c.id) + '"><span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') +
+            '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
+        )
+        .join('') +
+      (more > 0 ? '<div class="hint card-more">+ ďalšie ' + more + ' – ťukni na kartu</div>' : '') +
+      '</div>'
+    );
+  }
+
+  /** Po odškrtnutí z karty aktualizuje karty tej úlohy bez prekreslenia celého zoznamu. */
+  function refreshTaskCards(c) {
+    const p = itemProgress(c);
+    const all = p.total > 0 && p.done === p.total;
+    const view = $('view');
+    (c.items || []).forEach((i) => {
+      view.querySelectorAll('[data-card-item="' + i.id + '"]').forEach((el) => {
+        el.classList.toggle('done', i.done);
+        el.querySelector('.ms').textContent = i.done ? 'check_box' : 'check_box_outline_blank';
+      });
+    });
+    view.querySelectorAll('[data-progress="' + c.id + '"]').forEach((el) => {
+      el.classList.toggle('tag-ok', all);
+      el.lastChild.textContent = p.done + '/' + p.total;
+    });
+    view.querySelectorAll('[data-complete="' + c.id + '"]').forEach((el) => el.classList.toggle('pulse', all));
+  }
+
+  /** Odškrtne položku hneď na obrazovke a uloží na pozadí (pri chybe vráti späť). */
+  async function toggleChecklistItem(c, itemId, refresh) {
+    const item = (c.items || []).find((i) => i.id === itemId);
+    if (!item) return;
+    item.done = !item.done;
+    refresh();
+    const p = itemProgress(c);
+    if (p.total && p.done === p.total) toast('Všetko odškrtnuté – ťukni Hotové');
+    try {
+      const saved = await api('toggleItem', itemId, item.done);
+      item.done = saved.done;
+      saveSnapshot();
+    } catch (err) {
+      item.done = !item.done;
+      refresh();
+      showError(err);
+    }
   }
 
   function emptyDay() {
@@ -1059,6 +1125,13 @@
       el.onclick = (e) => {
         e.stopPropagation();
         showEditCinnost(el.dataset.editTask);
+      };
+    });
+    view.querySelectorAll('[data-card-item]').forEach((el) => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const c = state.detail.cinnosti.find((x) => x.id === el.dataset.task);
+        if (c) toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
       };
     });
     view.querySelectorAll('[data-open-task]').forEach((el) => {
@@ -1361,22 +1434,7 @@
           });
         };
 
-        const toggle = async (itemId) => {
-          const item = c.items.find((i) => i.id === itemId);
-          if (!item) return;
-          item.done = !item.done; // hneď na obrazovke, server na pozadí
-          renderList();
-          const p = itemProgress(c);
-          if (p.total && p.done === p.total) toast('Všetko odškrtnuté – ťukni Hotové');
-          try {
-            const saved = await api('toggleItem', itemId, item.done);
-            item.done = saved.done;
-          } catch (err) {
-            item.done = !item.done;
-            renderList();
-            showError(err);
-          }
-        };
+        const toggle = (itemId) => toggleChecklistItem(c, itemId, renderList);
 
         const qtyInput = root.querySelector('#qtyInput');
         const add = async (text) => {

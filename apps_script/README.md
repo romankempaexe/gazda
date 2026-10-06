@@ -12,11 +12,12 @@ Nepotrebuje Firebase ani Flutter.
 | `Index.html` | Kostra stránky |
 | `Styles.html` | CSS (farby rovnaké ako vo Flutter verzii) |
 | `App.html` | Klientsky JavaScript (zoznam domácností, kalendár, formuláre) |
+| `Produkty.html` | Vstavaný zoznam bežných potravín a drogérie pre našepkávanie |
 | `appsscript.json` | Manifest: časová zóna, oprávnenia, nastavenie web app |
 
 ## Dátová štruktúra (Google tabuľka)
 
-Funkcia `setup()` vytvorí päť listov (chýbajúci list sa vytvorí aj automaticky pri prvom použití). Prvý riadok je hlavička, všetky hodnoty
+Funkcia `setup()` vytvorí osem listov (chýbajúci list sa vytvorí aj automaticky pri prvom použití). Prvý riadok je hlavička, všetky hodnoty
 sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **households** – domácnosti
@@ -36,13 +37,31 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 
 **cinnosti** – činnosti (úlohy)
 
-| id | householdId | priestorId | name | description | assignedTo | icon | color | dueDate | periodicity | repeatInterval | createdAt |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+| id | householdId | priestorId | name | description | assignedTo | icon | color | dueDate | periodicity | repeatInterval | createdAt | kind | store |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 - `assignedTo` – e-mail člena domácnosti (prázdne = nepriradené)
 - `periodicity` – `none`, `weekly`, `monthly` alebo `annually`
 - `repeatInterval` – každých X týždňov/mesiacov/rokov (pri `none` prázdne)
 - `icon` – názov ikony (`home`, `kitchen`, `trash`, …), `color` – hex farba (`#4CAF50`)
+- `kind` – `nakup` pri nákupe, inak prázdne; `store` – obchod (len pri nákupe)
+
+**polozky** – položky checklistu činnosti (`done` = `1` ak je odškrtnutá)
+
+| id | cinnostId | householdId | text | done | position | createdAt | createdBy | qty |
+|---|---|---|---|---|---|---|---|---|
+
+- `qty` – počet, napr. `2 ks`, `1,5 kg`, `1 bal.` (prázdne = bez počtu)
+
+**obchody** – obchody, ktoré domácnosť už zadala (našepkávajú sa)
+
+| householdId | name | createdAt |
+|---|---|---|
+
+**produkty** – produkty, ktoré domácnosť už nakupovala (`uses` = koľkokrát; častejšie sa našepkávajú skôr)
+
+| householdId | name | uses | lastUsed |
+|---|---|---|---|
 
 **users** – používatelia
 
@@ -66,8 +85,16 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
   po termíne, na najbližší termín po dnešku)
 - **Po termíne** – v *Môj rozpis* hore blok úloh, ktorých termín prešiel, a červené
   číslo na záložke
-- **Úprava činnosti** – ťuknutím na úlohu (alebo ✏️ v Plánovaní) sa dá zmeniť názov,
-  popis, priestor, pridelenie, termín, opakovanie, ikona aj farba; úlohu možno
+- **Checklist pri každej činnosti** – ťuknutím na úlohu sa otvorí detail s položkami
+  na odškrtávanie (aj s pridaním novej položky); na karte je stav, napr. `2/5`
+- **Nákup** – prepínač *Nákup* vo formulári: obchod (zapamätá sa pre ďalšie použitie
+  a našepkáva sa) a zoznam produktov s našepkávaním z vstavaného zoznamu ~340 potravín
+  a vecí do domácnosti plus produktov, ktoré domácnosť už kupovala.
+  Pri položke sa dá zadať **počet** (pole *Počet* alebo priamo v texte: `2x mlieko`,
+  `mlieko 2 ks`, `1,5 kg zemiaky`); do našepkávania sa ukladá len názov.
+  Pri opakovanom nákupe sa po *Hotové* odškrtnuté položky odstránia a neodškrtnuté zostanú
+- **Úprava činnosti** – tlačidlom *Upraviť* v detaile (alebo ✏️ v Plánovaní) sa dá zmeniť názov,
+  popis, priestor, pridelenie, termín, opakovanie, ikona, farba aj checklist; úlohu možno
   vo formulári aj vymazať
 - **Plánovanie** – všetky činnosti domácnosti na vybraný deň, filter podľa člena,
   pridanie a vymazanie činnosti
@@ -81,7 +108,7 @@ sú uložené ako text a dátumy vo formáte `yyyy-MM-dd`.
 |---|---|
 | 🏠 **Dnes ťa čaká X úloh** | každé ráno medzi 8:00 a 8:15 – úlohy s termínom dnes |
 | ⚠️ **Po termíne: X úloh** | ráno spolu s prehľadom – úlohy, ktorých termín už prešiel |
-| 📝 **Nová úloha od …** | hneď, keď ti niekto iný pridelí činnosť |
+| 📝 **Nová úloha od …** | hneď, keď ti niekto iný pridelí činnosť – s obchodom, termínom, popisom a celým checklistom |
 
 Každý si v Gazdovi cez 🔔 vyberie, ako mu majú chodiť:
 

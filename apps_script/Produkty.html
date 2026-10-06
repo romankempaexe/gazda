@@ -1,0 +1,92 @@
+<script>
+  // Vstavaný zoznam bežných potravín a vecí do domácnosti pre našepkávanie položiek.
+  // Položky, ktoré domácnosť už pridávala, sa našepkávajú prednostne (zo servera).
+  const PRODUKTY = [
+    // Pečivo
+    'Chlieb', 'Toastový chlieb', 'Celozrnný chlieb', 'Rožky', 'Žemle', 'Bagety', 'Kaiserky',
+    'Croissanty', 'Vianočka', 'Tortilly', 'Strúhanka', 'Knäckebrot', 'Bábovka', 'Koláč',
+
+    // Mliečne výrobky a vajcia
+    'Mlieko', 'Mlieko polotučné', 'Mlieko plnotučné', 'Mlieko bez laktózy', 'Trvanlivé mlieko',
+    'Maslo', 'Rastlinné maslo', 'Smotana na šľahanie', 'Smotana na varenie', 'Kyslá smotana',
+    'Šľahačka v spreji', 'Jogurt biely', 'Jogurt ovocný', 'Grécky jogurt', 'Kefír', 'Acidko',
+    'Zakysanka', 'Tvaroh', 'Cottage cheese', 'Mascarpone', 'Ricotta', 'Bryndza', 'Syr eidam',
+    'Syr gouda', 'Syr ementál', 'Syr čedar', 'Parmezán', 'Mozzarella', 'Niva', 'Hermelín',
+    'Oštiepok', 'Korbáčiky', 'Tavený syr', 'Syr na pizzu', 'Strúhaný syr', 'Puding', 'Vajcia',
+
+    // Mäso a ryby
+    'Kuracie prsia', 'Kuracie stehná', 'Kuracie krídla', 'Celé kura', 'Morčacie prsia',
+    'Bravčové karé', 'Bravčová krkovička', 'Bravčové pliecko', 'Bravčový bôčik', 'Hovädzie mäso',
+    'Hovädzí rošteňák', 'Mleté mäso', 'Mleté hovädzie', 'Mleté bravčové', 'Rezne', 'Klobása',
+    'Párky', 'Šunka', 'Saláma', 'Slanina', 'Údené mäso', 'Pečeňová paštéta', 'Tlačenka',
+    'Losos', 'Pstruh', 'Treska', 'Tuniak v konzerve', 'Sardinky', 'Krevety', 'Rybie prsty',
+
+    // Ovocie
+    'Jablká', 'Hrušky', 'Banány', 'Pomaranče', 'Mandarínky', 'Citróny', 'Limetky', 'Grapefruit',
+    'Hrozno', 'Jahody', 'Maliny', 'Čučoriedky', 'Čerešne', 'Marhule', 'Broskyne', 'Nektárinky',
+    'Slivky', 'Kiwi', 'Ananás', 'Mango', 'Melón', 'Avokádo', 'Granátové jablko', 'Datle',
+    'Hrozienka', 'Sušené slivky',
+
+    // Zelenina
+    'Zemiaky', 'Cibuľa', 'Červená cibuľa', 'Jarná cibuľka', 'Cesnak', 'Mrkva', 'Petržlen',
+    'Zeler', 'Paradajky', 'Cherry paradajky', 'Uhorky', 'Šalátová uhorka', 'Paprika', 'Kapia',
+    'Feferónky', 'Cuketa', 'Baklažán', 'Brokolica', 'Karfiol', 'Kapusta', 'Červená kapusta',
+    'Kel', 'Kaleráb', 'Šalát ľadový', 'Šalát hlávkový', 'Rukola', 'Špenát', 'Pór', 'Reďkovky',
+    'Cvikla', 'Tekvica', 'Hokkaido', 'Kukurica', 'Hrášok', 'Fazuľka', 'Šampiňóny', 'Huby',
+    'Bylinky', 'Petržlenová vňať', 'Pažítka', 'Bazalka', 'Kôpor', 'Zázvor',
+
+    // Trvanlivé potraviny
+    'Múka hladká', 'Múka polohrubá', 'Múka hrubá', 'Cukor', 'Práškový cukor', 'Trstinový cukor',
+    'Vanilkový cukor', 'Soľ', 'Ryža', 'Ryža basmati', 'Cestoviny', 'Špagety', 'Penne', 'Fusilli',
+    'Lasagne', 'Rezance do polievky', 'Kuskus', 'Bulgur', 'Quinoa', 'Krupica', 'Ovsené vločky',
+    'Müsli', 'Cornflakes', 'Šošovica', 'Cícer', 'Fazuľa', 'Fazuľa v konzerve', 'Kukurica v konzerve',
+    'Hrášok v konzerve', 'Paradajkový pretlak', 'Pasírované paradajky', 'Kečup', 'Horčica',
+    'Majonéza', 'Tatárska omáčka', 'Sójová omáčka', 'Ocot', 'Olej', 'Olivový olej',
+    'Slnečnicový olej', 'Masť', 'Med', 'Džem', 'Lekvár', 'Nutella', 'Arašidové maslo',
+    'Prášok do pečiva', 'Droždie', 'Sóda bikarbóna', 'Želatína', 'Kakao', 'Čokoláda na varenie',
+    'Kokos', 'Orechy vlašské', 'Mandle', 'Lieskové orechy', 'Arašidy', 'Kešu', 'Slnečnicové semienka',
+    'Chia semienka', 'Bujón', 'Polievka vo vrecku', 'Instantné rezance', 'Knedle', 'Halušky',
+    'Pizza cesto', 'Lístkové cesto',
+
+    // Koreniny
+    'Korenie čierne', 'Paprika mletá sladká', 'Paprika štipľavá', 'Rasca', 'Majorán', 'Oregano',
+    'Bobkový list', 'Nové korenie', 'Škorica', 'Kari', 'Vegeta', 'Grilovacie korenie',
+
+    // Mrazené
+    'Mrazená zelenina', 'Mrazené hranolky', 'Mrazená pizza', 'Zmrzlina', 'Mrazené ovocie',
+    'Mrazený špenát', 'Mrazené pirohy',
+
+    // Nápoje
+    'Voda', 'Minerálka', 'Sóda', 'Džús', 'Pomarančový džús', 'Jablkový džús', 'Sirup', 'Kola',
+    'Limonáda', 'Ľadový čaj', 'Pivo', 'Nealko pivo', 'Víno biele', 'Víno červené', 'Prosecco',
+    'Káva', 'Káva zrnková', 'Káva mletá', 'Kapsule do kávovaru', 'Instantná káva', 'Čaj',
+    'Čaj zelený', 'Čaj ovocný', 'Bylinkový čaj',
+
+    // Sladkosti a snacky
+    'Čokoláda', 'Sušienky', 'Piškóty', 'Keksy', 'Oblátky', 'Tyčinky', 'Cukríky', 'Žuvačky',
+    'Chipsy', 'Slané tyčinky', 'Krekry', 'Popcorn', 'Ryžové chlebíky', 'Cereálne tyčinky',
+
+    // Deti
+    'Detská výživa', 'Detské príkrmy', 'Plienky', 'Vlhčené obrúsky', 'Detský šampón',
+
+    // Drogéria a hygiena
+    'Toaletný papier', 'Papierové utierky', 'Papierové vreckovky', 'Mydlo', 'Tekuté mydlo',
+    'Sprchový gél', 'Šampón', 'Kondicionér', 'Zubná pasta', 'Zubná kefka', 'Ústna voda',
+    'Dentálna niť', 'Dezodorant', 'Holiace žiletky', 'Pena na holenie', 'Krém na ruky',
+    'Telové mlieko', 'Opaľovací krém', 'Vatové tyčinky', 'Odličovacie tampóny', 'Hygienické vložky',
+    'Tampóny', 'Náplasti',
+
+    // Upratovanie a domácnosť
+    'Prací prášok', 'Prací gél', 'Kapsuly na pranie', 'Aviváž', 'Odstraňovač škvŕn',
+    'Prostriedok na riad', 'Tablety do umývačky', 'Soľ do umývačky', 'Leštidlo do umývačky',
+    'Čistič na kúpeľňu', 'Čistič na WC', 'WC blok', 'Čistič na okná', 'Čistič na podlahu',
+    'Odmasťovač', 'Odvápňovač', 'Savo', 'Hubky na riad', 'Handričky', 'Mikroutierky',
+    'Vrecia na odpad', 'Vrecká do koša', 'Alobal', 'Potravinová fólia', 'Papier na pečenie',
+    'Vrecká na zmrazovanie', 'Servítky', 'Sviečky', 'Zápalky', 'Batérie', 'Žiarovky',
+    'Osviežovač vzduchu',
+
+    // Zvieratá
+    'Krmivo pre psa', 'Granule pre psa', 'Krmivo pre mačku', 'Granule pre mačku',
+    'Podstielka pre mačku', 'Pamlsky pre psa',
+  ];
+</script>

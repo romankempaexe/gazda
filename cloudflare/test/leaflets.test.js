@@ -440,3 +440,27 @@ test('veľkosť obrázka z hlavičky (JPEG, PNG, WebP)', () => {
   assert.deepEqual(imageSize(vp8), { w: 707, h: 1200 });
   assert.equal(imageSize(new Uint8Array([1, 2, 3])), null);
 });
+
+test('ťuknutie na produkt: AI rozpozná produkt vo výreze', async () => {
+  const crop = 'data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0x90, 0x02, 0x80, 0, 0, 0, 0, 0]).toString('base64');
+  aiAnswer = 'Here: {"name":"Mascarpone 500 g","price":2.49,"box":[0.1,0.05,0.95,0.97]}';
+  const before = aiCalls.length;
+  assert.deepEqual(await roman.api.identifyLeafletProduct(crop), { name: 'Mascarpone 500 g', price: '2.49', box: [0.1, 0.05, 0.95, 0.97] });
+  assert.equal(aiCalls.length, before + 1);
+  assert.match(aiCalls.at(-1).input.messages[0].content[1].text, /closest to the center/);
+  assert.equal(aiCalls.at(-1).input.messages[0].content[0].image_url.url, crop);
+  // pixely výrezu (640 × 400)
+  aiAnswer = '{"name":"Syr","price":"1,50","box":[64,40,576,360]}';
+  assert.deepEqual(await roman.api.identifyLeafletProduct(crop), { name: 'Syr', price: '1.50', box: [0.1, 0.1, 0.9, 0.9] });
+  aiAnswer = '{"name":"Len názov","price":0.99}';
+  assert.deepEqual(await roman.api.identifyLeafletProduct(crop), { name: 'Len názov', price: '0.99', box: null });
+  aiAnswer = '{"name":""}';
+  assert.equal(await roman.api.identifyLeafletProduct(crop), null);
+  await assert.rejects(roman.api.identifyLeafletProduct('data:text/html;base64,PHA+'), /Neplatný obrázok/);
+  await assert.rejects(t.call('', 'identifyLeafletProduct', crop), (err) => err.status === 401);
+  // denný limit
+  await t.env.DB.prepare("INSERT INTO config (key, value) VALUES ('ai_neurons', json_object('day', ?, 'neurons', 9900)) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+    .bind(new Date().toISOString().slice(0, 10)).run();
+  await assert.rejects(roman.api.identifyLeafletProduct(crop), /limit/);
+  await t.env.DB.prepare("DELETE FROM config WHERE key = 'ai_neurons'").run();
+});

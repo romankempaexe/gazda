@@ -619,6 +619,7 @@ function openModal(html, onMount, opts) {
   modalPersistent = Boolean(opts.persistent);
   $('modalContent').innerHTML = html;
   $('modal').classList.remove('hidden');
+  modalOpenedAt = Date.now();
   if (onMount) onMount($('modalContent'));
   if (opts.focus !== false) {
     const sel = typeof opts.focus === 'string' ? opts.focus : 'input, textarea, select';
@@ -638,8 +639,11 @@ function closeModal(force) {
   $('modalContent').innerHTML = '';
 }
 
+// Okno otvorené dotykom (napr. ťuknutím na produkt v letáku): prehliadač po dotyku pošle
+// ešte „klik“ na to isté miesto – ten by trafil pozadie a okno hneď zavrel.
+let modalOpenedAt = 0;
 $('modal').addEventListener('click', (e) => {
-  if (e.target === $('modal')) closeModal();
+  if (e.target === $('modal') && Date.now() - modalOpenedAt > 500) closeModal();
 });
 
 // Tlačidlá − / + pri počte (fungujú v každom okne s .stepper).

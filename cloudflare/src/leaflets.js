@@ -391,7 +391,10 @@ function extractJson(text) {
   if (text && typeof text === 'object') return text;
   // Llama občas uzavrie súradnice značkou namiesto zátvorky: [0.1,0.2,0.3,0.4</BBOX>}
   text = String(text ?? '').replace(/<\/?\s*(?:bbox|box)\s*>\s*\]?/gi, ']');
-  for (const [open, close] of [['[', ']'], ['{', '}']]) {
+  // najprv tá zátvorka, ktorá je v texte skôr (objekt s poľom „box“ nie je pole)
+  const pairs = [['[', ']'], ['{', '}']];
+  if (text.indexOf('{') !== -1 && (text.indexOf('[') === -1 || text.indexOf('{') < text.indexOf('['))) pairs.reverse();
+  for (const [open, close] of pairs) {
     const a = text.indexOf(open);
     const b = text.lastIndexOf(close);
     if (a !== -1 && b > a) {
@@ -431,9 +434,9 @@ function extractJson(text) {
  * Odpoveď modelu → [{ name, price, box: [x1, y1, x2, y2] (0–1) }]. Modely občas
  * vrátia súradnice v tisícinách alebo v pixeloch, prehodené rohy či nezmysly.
  */
-export function parseProducts(raw, w, h) {
+export function parseProducts(raw, w, h, maxArea = 0.85) {
   let data = extractJson(raw);
-  if (data && !Array.isArray(data)) data = data.products || data.offers || data.items || null;
+  if (data && !Array.isArray(data)) data = data.products || data.offers || data.items || (data.name ? [data] : null);
   if (!Array.isArray(data)) return [];
   const boxOf = (p) => (Array.isArray(p.box) ? p.box : Array.isArray(p.bbox) ? p.bbox : Array.isArray(p.bounding_box) ? p.bounding_box : null);
   // Mierka súradníc pre celú odpoveď: zlomky (0–1), tisíciny, alebo pixely obrázka (w × h).
@@ -462,7 +465,7 @@ export function parseProducts(raw, w, h) {
     if (x1 > x2) [x1, x2] = [x2, x1];
     if (y1 > y2) [y1, y2] = [y2, y1];
     // príliš malé (bod, čiara) alebo skoro celá strana – zlé ohraničenie
-    if (x2 - x1 < 0.04 || y2 - y1 < 0.025 || (x2 - x1) * (y2 - y1) > 0.85) continue;
+    if (x2 - x1 < 0.04 || y2 - y1 < 0.025 || (x2 - x1) * (y2 - y1) > maxArea) continue;
     const priceNum = typeof p.price === 'number' ? p.price : parseFloat(String(p.price ?? '').replace(',', '.'));
     const price = Number.isFinite(priceNum) && priceNum > 0 && priceNum < 10000 ? priceNum.toFixed(2) : '';
     const round = (v) => Math.round(v * 1000) / 1000;
@@ -575,6 +578,60 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 
+// ---- Ťuknutie na produkt: AI rozpozná produkt vo výreze okolo prsta ---------------------
+
+const IDENTIFY_PROMPT =
+  'This is a cut-out from a page of a Slovak supermarket leaflet; the user tapped its center. ' +
+  'Identify the ONE product offer closest to the center of the image. Return its name exactly as printed ' +
+  '(Slovak, including the pack size if printed), the offer price in EUR as a number, and a bounding box ' +
+  'tightly covering that offer (photo, name and price tag) as [x1, y1, x2, y2] in fractions (0 to 1) of this image. ' +
+  'Answer with JSON only: {"name":"...","price":1.99,"box":[x1,y1,x2,y2]}. If there is no product, answer {"name":""}.';
+const DAILY_NEURONS = 9800; // Workers AI zadarmo: 10 000 denne – kúsok rezervy
+
+/**
+ * Produkt, na ktorý človek ťukol: prehliadač pošle výrez okolo prsta (data URL), AI vráti
+ * { name, price, box } (box v zlomkoch výrezu, alebo null), prípadne null, ak tam nič nie je.
+ */
+export async function identifyLeafletProduct(c, image) {
+  image = String(image ?? '');
+  if (image.length > 240_000 || !/^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+=*$/.test(image)) {
+    throw new AppError('Neplatný obrázok.');
+  }
+  if (!c.ai) throw new AppError('Rozpoznávanie produktov nie je dostupné.', 503);
+  if ((await neuronsToday(c)) >= DAILY_NEURONS) {
+    throw new AppError('Dnešný bezplatný limit rozpoznávania je vyčerpaný. Tovar zatiaľ zakrúžkuj prstom.', 429);
+  }
+  let answer;
+  try {
+    answer = await c.ai.run(PRODUCTS_MODEL, {
+      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: image } }, { type: 'text', text: IDENTIFY_PROMPT }] }],
+      max_tokens: 400,
+      temperature: 0,
+    });
+  } catch (err) {
+    console.error('Ťuknutie na produkt: ' + err);
+    if (/4006|neurons|daily|limit/i.test(String(err))) {
+      throw new AppError('Dnešný bezplatný limit rozpoznávania je vyčerpaný. Tovar zatiaľ zakrúžkuj prstom.', 429);
+    }
+    throw new AppError('Produkt sa teraz nepodarilo rozpoznať. Skús to znova alebo ho zakrúžkuj.', 502);
+  }
+  await addNeurons(c, Number(answer && answer.usage && answer.usage.neurons) || NEURONS_PER_PAGE / 2);
+  const response = answer && answer.response;
+  // veľkosť výrezu stačí prečítať zo začiatku súboru (hlavička)
+  const head = image.slice(image.indexOf(',') + 1).slice(0, 4096).replace(/=+$/, '');
+  const bytes = Uint8Array.from(atob(head.slice(0, head.length - (head.length % 4))), (ch) => ch.charCodeAt(0));
+  const size = imageSize(bytes) || { w: 0, h: 0 };
+  const [found] = parseProducts(response, size.w, size.h, 1);
+  if (found) return found;
+  // bez použiteľného ohraničenia – aspoň názov a cena
+  const data = extractJson(response);
+  const one = Array.isArray(data) ? data[0] : data && (data.products ? data.products[0] : data);
+  const name = one && typeof one === 'object' ? String(one.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 100) : '';
+  if (!name) return null;
+  const priceNum = typeof one.price === 'number' ? one.price : parseFloat(String(one.price ?? '').replace(',', '.'));
+  return { name, price: Number.isFinite(priceNum) && priceNum > 0 && priceNum < 10000 ? priceNum.toFixed(2) : '', box: null };
+}
+
 /** Koľko neurónov Workers AI sme dnes (UTC) minuli. */
 async function neuronsToday(c) {
   const b = await readConfig(c, BUDGET_KEY);
@@ -637,21 +694,4 @@ export async function preanalyzeLeaflets(c, max = 4) {
     if (count >= max) break;
   }
   return count;
-}
-
-/** DOČASNÁ diagnostika (preview): adresy obrázkov strán a rozpoznané ohraničenia na kontrolu. */
-export async function debugPages(c) {
-  const out = [];
-  for (const [store, index] of [['lidl', 1], ['lidl', 3], ['tesco', 1]]) {
-    try {
-      const list = await getLeaflets(c, store);
-      await getLeaflet(c, list[0].slug);
-      const page = (await readConfig(c, FLYER_KEY + list[0].slug)).pages[index];
-      const products = await analyzeLeafletPage(c, list[0].slug, index);
-      out.push({ store, page: page.n, image: absImage(page.thumb || page.image), products });
-    } catch (err) {
-      out.push({ store, error: String(err.message || err) });
-    }
-  }
-  return out;
 }

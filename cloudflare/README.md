@@ -41,7 +41,7 @@ Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
 `subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets(store)`, `getLeaflet`, `analyzeLeafletPage`,
-`setItemMissing`, `getHistory`.
+`identifyLeafletProduct`, `setItemMissing`, `getHistory`.
 `GET /api/health` overí databázu.
 
 `addItem(cinnostId, text, qty, image, price)` – voliteľná cena („2,49“) a miniatúra ako `data:image/jpeg;base64,…`
@@ -116,6 +116,11 @@ limit nič neúčtuje (len odmietne). Strana stojí ~80, celý leták so 100 str
 ~8 000 – a to len raz za jeho platnosť. Príprava vopred si berie najviac 7 000 denne
 (súčet v `config` pod `ai_neurons`), zvyšok ostáva na strany otvorené hneď; čo sa
 nestihne, dorobí sa ďalší deň. Po vyčerpaní limitu ostáva krúžkovanie.
+
+**Ťuknutie na produkt** (alebo na „+“): ohraničenia z rozpoznania celej strany sú len
+odhad modelu (bývajú posunuté), preto aplikácia vystrihne okolie prsta (≈ 45 % šírky
+strany) a pošle ho `identifyLeafletProduct` – AI povie, aký produkt je v strede výrezu,
+s cenou a presným ohraničením (≈ 40 neurónov, počíta sa do denného limitu).
 
 V režime výberu tovaru prst na celej strane krúžkuje (uzavretý ťah) alebo listuje
 (vodorovný ťah do strany); po priblížení sa prepína medzi posúvaním a krúžkovaním. Položky majú cenu

@@ -101,18 +101,5 @@ jobs:
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
-            if [ "$TARGET_ENV" = "preview" ]; then
-              sleep 15
-              curl -s -m 120 "$url/api/leaflets/debug" > "$RUNNER_TEMP/pages.json" || true
-              echo "--- letáky: ohraničenia (diagnostika) ---"
-              jq -c '.[] | {store, page, error, products: [.products[]? | [.name[0:25], .box]]}' "$RUNNER_TEMP/pages.json" || cat "$RUNNER_TEMP/pages.json"
-              i=0
-              for img in $(jq -r '.[].image // empty' "$RUNNER_TEMP/pages.json"); do
-                i=$((i+1))
-                curl -s -m 30 -H 'accept: image/jpeg' -o "$RUNNER_TEMP/p$i" "$img" || continue
-                echo "IMG$i $(file -b "$RUNNER_TEMP/p$i" | cut -c1-60) $(stat -c %s "$RUNNER_TEMP/p$i")"
-                base64 -w 0 "$RUNNER_TEMP/p$i" | fold -w 2000 | sed "s/^/B64-$i /"
-              done
-            fi
           fi
 

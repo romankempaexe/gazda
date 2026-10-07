@@ -398,10 +398,69 @@ function lfRenderProducts() {
     b.onpointerdown = (e) => e.stopPropagation(); // nezačne krúžok
     b.onclick = (e) => {
       e.stopPropagation();
-      lfPickProduct(list[Number(b.dataset.product)]);
+      const p = list[Number(b.dataset.product)];
+      lfIdentifyAt([(p.box[0] + p.box[2]) / 2, (p.box[1] + p.box[3]) / 2], p);
     };
   });
   lfHelpUpdate();
+}
+
+let lfIdentifying = false;
+
+/**
+ * Ťuknutie na produkt (alebo na „+“): výrez okolo prsta pošle AI, ktorá povie, aký produkt je
+ * v jeho strede – názov, cenu a presné ohraničenie. Ohraničenia z rozpoznania celej strany sú
+ * len odhad (bývajú posunuté), toto sedí na to, kam človek ťukol.
+ * hint = produkt pod „+“ (náhrada, keby AI zlyhala).
+ */
+async function lfIdentifyAt(at, hint) {
+  if (lfIdentifying) return;
+  const img = $('lfImg');
+  const key = lfMarkKey();
+  try {
+    await lfWhenLoaded(img);
+  } catch (e) {
+    return;
+  }
+  // Výrez: asi 45 % šírky a štvorec v pixeloch (produkt v letáku býva skoro štvorcový)
+  const rw = 0.45;
+  const rh = Math.min(0.6, (rw * img.naturalWidth) / img.naturalHeight);
+  const x = Math.min(1 - rw, Math.max(0, at[0] - rw / 2));
+  const y = Math.min(1 - rh, Math.max(0, at[1] - rh / 2));
+  const region = { x, y, x2: x + rw, y2: y + rh };
+  lfIdentifying = true;
+  const pulse = { pts: [], at, busy: true };
+  lf.pulse = pulse;
+  lfDrawMarks();
+  let found = null;
+  let failed = false;
+  try {
+    const crop = await lfCrop(img, region, 640, 0.85, 230000);
+    found = await api('identifyLeafletProduct', crop);
+  } catch (err) {
+    failed = true;
+    if (!isLoginRequired(err)) toast(errorMessage(err), true);
+  } finally {
+    lfIdentifying = false;
+    lf.pulse = null;
+    lfDrawMarks();
+  }
+  if (lf.mode !== 'page' || lfMarkKey() !== key) return; // medzičasom iná strana
+  if (found && hint) found.ref = hint; // po pridaní sa „+“ zmení na fajku
+  if (found && found.box) {
+    const [bx1, by1, bx2, by2] = found.box;
+    const W = region.x2 - region.x;
+    const H = region.y2 - region.y;
+    lfPickProduct(found, null, [region.x + bx1 * W, region.y + by1 * H, region.x + bx2 * W, region.y + by2 * H]);
+  } else if (found) {
+    lfPickProduct(found, at, hint ? hint.box : [at[0] - 0.15, at[1] - 0.1, at[0] + 0.15, at[1] + 0.1]);
+  } else if (failed || hint) {
+    // AI nevie – aspoň najbližší produkt z rozpoznania celej strany
+    if (hint) lfPickProduct(hint);
+    else lfTapProduct(at);
+  } else {
+    toast('Tu som produkt nenašiel – skús ťuknúť priamo na obrázok tovaru alebo ho zakrúžkuj.');
+  }
 }
 
 /** Ťuknutie na stranu: najbližší rozpoznaný produkt (v jeho ohraničení s rezervou, inak nič). */
@@ -422,10 +481,10 @@ function lfTapProduct(at) {
 }
 
 /** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
-async function lfPickProduct(product, at) {
-  let [x1, y1, x2, y2] = product.box;
+async function lfPickProduct(product, at, bounds) {
+  let [x1, y1, x2, y2] = bounds || product.box;
   // AI ohraničenie len odhaduje (býva posunuté) – pri ťuknutí na produkt ho vycentruj na prst.
-  if (at) {
+  if (at && !bounds) {
     const w = x2 - x1;
     const h = y2 - y1;
     x1 = Math.min(1 - w, Math.max(0, at[0] - w / 2));
@@ -433,7 +492,7 @@ async function lfPickProduct(product, at) {
     x2 = x1 + w;
     y2 = y1 + h;
   }
-  const pad = at ? 0.006 : 0.02; // pri „+“ radšej väčší výrez, nech produkt nechýba
+  const pad = at || bounds ? 0.006 : 0.02; // pri „+“ radšej väčší výrez, nech produkt nechýba
   const b = { x: Math.max(0, x1 - pad), y: Math.max(0, y1 - pad), x2: Math.min(1, x2 + pad), y2: Math.min(1, y2 + pad) };
   const mark = { pts: [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]], ok: false };
   const key = lfMarkKey();
@@ -520,6 +579,17 @@ function lfDrawMarks(current) {
     m.ok ? path(m.pts, 'rgba(22,163,74,0.9)', 'rgba(22,163,74,0.12)') : path(m.pts, 'rgba(249,115,22,0.9)')
   );
   if (current) path(current, 'rgba(249,115,22,0.95)');
+  // ťuknutie, ktoré práve rozpoznáva AI: krúžok na mieste prsta (pulzuje, kým čaká)
+  if (lf.pulse) {
+    const r = (18 + 6 * Math.sin(Date.now() / 150)) * (window.devicePixelRatio || 1);
+    ctx.beginPath();
+    ctx.arc(lf.pulse.at[0] * W, lf.pulse.at[1] * H, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(22,163,74,0.25)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(22,163,74,0.9)';
+    ctx.stroke();
+    requestAnimationFrame(() => lf.pulse && lfDrawMarks());
+  }
 }
 
 function lfBindDrawing() {
@@ -548,6 +618,8 @@ function lfBindDrawing() {
     lfFinishMark(done);
   };
   canvas.addEventListener('pointerup', finish);
+  // Po dotyku by prehliadač poslal ešte „klik“ – ten by trafil okno, ktoré sa práve otvorilo.
+  canvas.addEventListener('touchend', (e) => lf.draw && e.cancelable && e.preventDefault(), { passive: false });
   canvas.addEventListener('pointercancel', () => {
     pts = null;
     lfDrawMarks();
@@ -556,7 +628,7 @@ function lfBindDrawing() {
   $('lfWrap').addEventListener('click', (e) => {
     if (lf.draw || e.target.closest('.lf-plus')) return;
     const r = $('lfWrap').getBoundingClientRect();
-    lfTapProduct([(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]);
+    lfIdentifyAt([(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]);
   });
 }
 
@@ -605,7 +677,7 @@ async function lfFinishMark(pts) {
   // Ťuknutie alebo čiarka – nie krúžok. Ťuknutie na produkt ho vyberie (ako „+“).
   if ((b.x2 - b.x) * wrap.clientWidth < 24 || (b.y2 - b.y) * wrap.clientHeight < 24) {
     lfDrawMarks();
-    if ((b.x2 - b.x) * wrap.clientWidth < 16 && (b.y2 - b.y) * wrap.clientHeight < 16) lfTapProduct(pts[0]);
+    if ((b.x2 - b.x) * wrap.clientWidth < 16 && (b.y2 - b.y) * wrap.clientHeight < 16) lfIdentifyAt(pts[0]);
     return;
   }
   const mark = { pts, ok: false };
@@ -633,13 +705,16 @@ function lfWhenLoaded(img) {
 }
 
 /** Vystrihne miesto b (0–1) z obrázka strany ako malý JPEG (data URL). */
-async function lfCrop(img, b) {
+async function lfCrop(img, b, maxSide, firstQuality, maxBytes) {
   await lfWhenLoaded(img);
   const sx = b.x * img.naturalWidth;
   const sy = b.y * img.naturalHeight;
   const sw = (b.x2 - b.x) * img.naturalWidth;
   const sh = (b.y2 - b.y) * img.naturalHeight;
-  for (const [max, quality] of [[THUMB_MAX, 0.82], [THUMB_MAX, 0.65], [240, 0.6], [160, 0.55]]) {
+  const steps = maxSide
+    ? [[maxSide, firstQuality], [maxSide, 0.7], [Math.round(maxSide * 0.75), 0.65]]
+    : [[THUMB_MAX, 0.82], [THUMB_MAX, 0.65], [240, 0.6], [160, 0.55]];
+  for (const [max, quality] of steps) {
     const scale = Math.min(1, max / Math.max(sw, sh));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(sw * scale));
@@ -649,7 +724,7 @@ async function lfCrop(img, b) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     const data = canvas.toDataURL('image/jpeg', quality);
-    if (data.length <= MAX_THUMB_BYTES) return data;
+    if (data.length <= (maxBytes || MAX_THUMB_BYTES)) return data;
   }
   throw new Error('Miniatúra je príliš veľká.');
 }
@@ -741,6 +816,7 @@ function lfConfirm(thumb, mark, key, product) {
           added = true;
           mark.ok = true;
           if (product) product.added = true;
+          if (product && product.ref) product.ref.added = true;
           saveSnapshot();
           closeModal(true);
         } catch (err) {

@@ -2023,7 +2023,8 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div>' +
+      '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button></div>' +
       '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
       priestorSelect +
       '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
@@ -2031,8 +2032,8 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
       '<div class="field hidden" id="intervalField"><label id="intervalLabel">Každých X</label>' +
       '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '"><div class="hint" id="intervalHint"></div></div></div>' +
-      '<div class="field"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
-      '<div class="field"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
+      '<div class="field" id="iconField"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
+      '<div class="field" id="colorField"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
       '<div class="actions">' +
       (edit ? '<button type="button" class="btn text danger-text" id="delete" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' : '') +
       '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
@@ -2047,8 +2048,14 @@ function showCinnostForm(priestorId, existing, opts) {
       const shopping = form.isShopping;
       const storeInput = form.store;
       const itemInput = root.querySelector('#itemInput');
+      // Nákup: len názov, položky (a leták), popis, komu a kedy – bez obchodu, priestoru, ikony a farby.
       const applyKind = () => {
-        root.querySelector('#storeField').classList.toggle('hidden', !shopping.checked);
+        const shop = shopping.checked;
+        root.querySelector('#storeField').classList.add('hidden');
+        root.querySelector('#priestorField').classList.toggle('hidden', shop || !choosePriestor);
+        root.querySelector('#iconField').classList.toggle('hidden', shop);
+        root.querySelector('#colorField').classList.toggle('hidden', shop);
+        root.querySelector('#formLeaflets').classList.toggle('hidden', !shop);
         root.querySelector('#itemsLabel').textContent = shopping.checked ? 'Nakúpiť' : 'Checklist';
         itemInput.placeholder = shopping.checked ? 'Pridať produkt…' : 'Pridať položku…';
         if (shopping.checked && icon === 'home') selectIcon('shopping');
@@ -2138,6 +2145,13 @@ function showCinnostForm(priestorId, existing, opts) {
       }
       if (edit) setTimeout(() => document.activeElement && document.activeElement.blur(), 0);
 
+      // Leták: činnosť sa uloží a hneď sa otvoria letáky, z ktorých sa tovar pridá do nej.
+      let leafletsAfterSave = false;
+      root.querySelector('#formLeaflets').onclick = () => {
+        leafletsAfterSave = true;
+        form.requestSubmit();
+      };
+
       form.onsubmit = async (e) => {
         e.preventDefault();
         if (!form.isShopping.checked && !form.priestorId.value) {
@@ -2147,17 +2161,18 @@ function showCinnostForm(priestorId, existing, opts) {
         }
         const submit = form.querySelector('button:not([type])');
         submit.disabled = true;
+        const isShop = form.isShopping.checked;
         const data = {
-          priestorId: form.priestorId.value,
+          priestorId: isShop ? '' : form.priestorId.value,
           name: form.name.value,
           description: form.description.value,
           assignedTo: form.assignedTo.value,
           dueDate: form.dueDate.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
-          icon,
+          icon: isShop ? 'shopping' : icon,
           color,
-          kind: form.isShopping.checked ? 'nakup' : '',
+          kind: isShop ? 'nakup' : '',
           store: form.isShopping.checked ? form.store.value : '',
           // Text v poli, ktorý ešte nebol pridaný Enterom, tiež pridaj.
           items: items
@@ -2182,7 +2197,8 @@ function showCinnostForm(priestorId, existing, opts) {
           rememberLocally(c);
           renderDetail({ quiet: true });
           toast(edit ? 'Zmeny uložené' : 'Činnosť „' + c.name + '“ bola vytvorená');
-          if (!edit && c.kind === 'nakup') offerLeaflets(c);
+          if (leafletsAfterSave) openLeaflets({ taskId: c.id, store: c.store });
+          else if (!edit && c.kind === 'nakup') offerLeaflets(c);
         } catch (err) {
           const index = state.detail.cinnosti.indexOf(optimistic);
           if (index !== -1) {

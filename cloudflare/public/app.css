@@ -2101,3 +2101,7 @@ body.lf-open {
   color: var(--muted);
   font-size: 40px;
 }
+
+#formLeaflets {
+  margin-top: 8px;
+}

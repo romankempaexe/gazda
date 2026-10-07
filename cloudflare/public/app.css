@@ -2137,8 +2137,31 @@ body.lf-open {
   border: 3px solid #16a34a;
   border-radius: 8px;
   box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.28); /* okolie stmavené, produkt vynikne */
-  transition: all 0.25s ease;
+  touch-action: none; /* ťahanie rámu nesmie posúvať okno */
+  cursor: move;
 }
+
+/* rohy na zmenu veľkosti (väčšia plocha na prst, než je vidieť) */
+.lf-h {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #16a34a;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.lf-h::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
+.lf-h[data-h='tl'] { left: -4px; top: -4px; cursor: nwse-resize; }
+.lf-h[data-h='tr'] { right: -4px; top: -4px; cursor: nesw-resize; }
+.lf-h[data-h='bl'] { left: -4px; bottom: -4px; cursor: nesw-resize; }
+.lf-h[data-h='br'] { right: -4px; bottom: -4px; cursor: nwse-resize; }
 
 .lf-spin {
   position: absolute;
@@ -2163,8 +2186,4 @@ body.lf-open {
   border: 2px solid var(--primary);
   border-right-color: transparent;
   animation: lf-spin 0.8s linear infinite;
-}
-
-.lf-pv.found {
-  border: 3px solid #16a34a;
 }

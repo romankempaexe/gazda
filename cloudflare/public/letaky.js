@@ -566,7 +566,8 @@ function lfConfirm(thumb, mark, key, product, live) {
   openModal(
     '<h2>Pridať do nákupu</h2>' +
       (live
-        ? '<div class="lf-preview"><div class="lf-pv"><img src="' + thumb + '" alt=""><div class="lf-box hidden" id="lfBox"></div>' +
+        ? '<div class="lf-preview"><div class="lf-pv"><img src="' + thumb + '" alt=""><div class="lf-box hidden" id="lfBox"><span class="lf-h" data-h="tl"></span>' +
+          '<span class="lf-h" data-h="tr"></span><span class="lf-h" data-h="bl"></span><span class="lf-h" data-h="br"></span></div>' +
           '<div class="lf-spin" id="lfSpin"><span></span>Rozpoznávam…</div></div></div>'
         : '<div class="lf-preview"><img src="' + thumb + '" alt=""></div>') +
       '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="' +
@@ -588,57 +589,126 @@ function lfConfirm(thumb, mark, key, product, live) {
       root.querySelector('#lfCancel').onclick = closeModal;
       const addBtn = root.querySelector('#lfAdd');
       if (live) {
-        // výsledok AI: doplň názov a cenu (ak ich človek medzičasom nenapísal), ukáž ohraničenie
+        // Rám okolo produktu: najprv ho určí AI, človek ho môže presunúť a zväčšiť/zmenšiť –
+        // AI potom plochu v ráme prehodnotí. Uloží sa presne to, čo je v ráme.
         const priceEl = root.querySelector('#lfPrice');
-        const finish = async (found) => {
-          if (added || !document.body.contains(name)) return;
-          root.querySelector('#lfSpin').classList.add('hidden');
-          name.placeholder = found ? 'Napr. mascarpone (nepovinné)' : 'Produkt sa nenašiel – dopíš názov';
-          if (!found) return;
-          if (!name.value.trim()) name.value = found.name;
-          if (!priceEl.value.trim() && found.price) priceEl.value = priceInput(found.price);
-          const { region, img } = live;
-          const W = region.x2 - region.x;
-          const H = region.y2 - region.y;
-          let b;
-          if (found.box) {
-            const [bx1, by1, bx2, by2] = found.box;
-            const box = root.querySelector('#lfBox');
-            box.style.left = bx1 * 100 + '%';
-            box.style.top = by1 * 100 + '%';
-            box.style.width = (bx2 - bx1) * 100 + '%';
-            box.style.height = (by2 - by1) * 100 + '%';
-            box.classList.remove('hidden');
-            const pad = 0.006;
-            b = {
-              x: Math.max(0, region.x + bx1 * W - pad),
-              y: Math.max(0, region.y + by1 * H - pad),
-              x2: Math.min(1, region.x + bx2 * W + pad),
-              y2: Math.min(1, region.y + by2 * H + pad),
-            };
-          } else {
-            const [ax, ay] = live.at;
-            b = { x: Math.max(0, ax - 0.15), y: Math.max(0, ay - 0.1), x2: Math.min(1, ax + 0.15), y2: Math.min(1, ay + 0.1) };
-          }
-          // ohraničenie aj na strane letáka
+        const pv = root.querySelector('.lf-pv');
+        const boxEl = root.querySelector('#lfBox');
+        const spin = root.querySelector('#lfSpin');
+        const { region, img } = live;
+        const RW = region.x2 - region.x;
+        const RH = region.y2 - region.y;
+        let box = null; // [x1, y1, x2, y2] v zlomkoch náhľadu (výrezu)
+        let nameEdited = false;
+        let priceEdited = false;
+        name.addEventListener('input', () => (nameEdited = true));
+        priceEl.addEventListener('input', () => (priceEdited = true));
+        const alive = () => !added && document.body.contains(name);
+        const pageBounds = () => ({
+          x: region.x + box[0] * RW,
+          y: region.y + box[1] * RH,
+          x2: region.x + box[2] * RW,
+          y2: region.y + box[3] * RH,
+        });
+        const drawBox = () => {
+          boxEl.style.left = box[0] * 100 + '%';
+          boxEl.style.top = box[1] * 100 + '%';
+          boxEl.style.width = (box[2] - box[0]) * 100 + '%';
+          boxEl.style.height = (box[3] - box[1]) * 100 + '%';
+          boxEl.classList.remove('hidden');
+        };
+        // rám → ohraničenie na strane letáka a miniatúra do zoznamu
+        const applyBox = async () => {
+          const b = pageBounds();
           mark.pts = [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]];
           lfDrawMarks();
           try {
-            thumb = await lfCrop(img, b); // miniatúra len samotného produktu
+            thumb = await lfCrop(img, b);
           } catch (e) {
-            return; // ostane výrez okolia
+            // ostane predchádzajúca miniatúra
           }
-          if (added || !document.body.contains(name)) return;
-          // Náhľad = presne to, čo sa uloží: produkt na celú plochu, orámovaný
-          const pv = root.querySelector('.lf-pv');
-          pv.querySelector('img').src = thumb;
-          root.querySelector('#lfBox').classList.add('hidden');
-          pv.classList.add('found');
+        };
+        const fill = (found) => {
+          if (!found) return;
+          if (!nameEdited && found.name) name.value = found.name;
+          if (!priceEdited && found.price) priceEl.value = priceInput(found.price);
+        };
+        const finish = (found) => {
+          if (!alive()) return;
+          spin.classList.add('hidden');
+          name.placeholder = found ? 'Napr. mascarpone (nepovinné)' : 'Produkt sa nenašiel – posuň rám alebo dopíš názov';
+          fill(found);
+          // bez ohraničenia od AI: rám okolo miesta ťuknutia
+          box = found && found.box ? found.box.slice() : [0.2, 0.2, 0.8, 0.8];
+          drawBox();
+          applyBox();
         };
         live.pending.then(finish, (err) => {
           if (!isLoginRequired(err)) toast(errorMessage(err), true);
           finish(null);
         });
+
+        // Prehodnotenie po úprave rámu (len posledná odpoveď sa počíta)
+        let asked = 0;
+        const reidentify = async () => {
+          const n = ++asked;
+          spin.classList.remove('hidden');
+          let found = null;
+          try {
+            const crop = await lfCrop(img, pageBounds(), 512, 0.8, MAX_THUMB_BYTES);
+            found = await api('identifyLeafletProduct', crop);
+          } catch (err) {
+            if (!isLoginRequired(err)) toast(errorMessage(err), true);
+          }
+          if (n !== asked || !alive()) return;
+          spin.classList.add('hidden');
+          fill(found);
+        };
+
+        // Ťahanie rámu (presun) a rohov (veľkosť)
+        let drag = null;
+        const MIN = 0.08;
+        const clamp = (v) => Math.min(1, Math.max(0, v));
+        const startDrag = (e, mode) => {
+          if (!box) return;
+          e.preventDefault();
+          e.stopPropagation();
+          drag = { mode, x: e.clientX, y: e.clientY, start: box.slice(), id: e.pointerId };
+          e.target.setPointerCapture(e.pointerId);
+        };
+        boxEl.addEventListener('pointerdown', (e) => startDrag(e, e.target.dataset.h || 'move'));
+        boxEl.addEventListener('pointermove', (e) => {
+          if (!drag || e.pointerId !== drag.id) return;
+          const r = pv.getBoundingClientRect();
+          const dx = (e.clientX - drag.x) / r.width;
+          const dy = (e.clientY - drag.y) / r.height;
+          let [x1, y1, x2, y2] = drag.start;
+          if (drag.mode === 'move') {
+            const w = x2 - x1;
+            const h = y2 - y1;
+            x1 = Math.min(1 - w, Math.max(0, x1 + dx));
+            y1 = Math.min(1 - h, Math.max(0, y1 + dy));
+            x2 = x1 + w;
+            y2 = y1 + h;
+          } else {
+            if (drag.mode.includes('l')) x1 = Math.min(x2 - MIN, clamp(x1 + dx));
+            if (drag.mode.includes('r')) x2 = Math.max(x1 + MIN, clamp(x2 + dx));
+            if (drag.mode.includes('t')) y1 = Math.min(y2 - MIN, clamp(y1 + dy));
+            if (drag.mode.includes('b')) y2 = Math.max(y1 + MIN, clamp(y2 + dy));
+          }
+          box = [x1, y1, x2, y2];
+          drawBox();
+        });
+        const endDrag = (e) => {
+          if (!drag || e.pointerId !== drag.id) return;
+          const moved = box.some((v, k) => Math.abs(v - drag.start[k]) > 0.005);
+          drag = null;
+          if (!moved) return;
+          applyBox();
+          reidentify();
+        };
+        boxEl.addEventListener('pointerup', endDrag);
+        boxEl.addEventListener('pointercancel', endDrag);
       }
       const submit = async () => {
         addBtn.disabled = true;

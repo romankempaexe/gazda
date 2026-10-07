@@ -358,6 +358,7 @@ body.with-tabs .fab-bar {
 
 .card-checklist {
   flex: 0 0 100%;
+  min-width: 0; /* inak sa natiahne na šírku všetkých dlaždíc a tie sa nedajú posúvať */
   padding-left: 50px;
 }
 
@@ -1859,6 +1860,7 @@ body.lf-open {
 /* Položky z letáka v karte: veľké dlaždice vedľa seba, posúvanie do strany */
 .card-tiles {
   display: flex;
+  touch-action: pan-x pan-y;
   gap: 10px;
   overflow-x: auto;
   overscroll-behavior-x: contain;

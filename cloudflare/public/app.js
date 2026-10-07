@@ -308,6 +308,11 @@ async function onGoogleCredential(response) {
 
 async function logout() {
   try {
+    await disablePush();
+  } catch (e) {
+    // aj tak pokračuj v odhlásení
+  }
+  try {
     await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   } catch (e) {
     // aj bez internetu zabudni údaje v telefóne
@@ -423,6 +428,7 @@ function showNicknameForm(value, first) {
           if (state.detail) renderDetail({ quiet: true });
           else renderHouseholds();
           toast(first ? 'Vitaj, ' + res.nickname + '!' : 'Prezývka uložená');
+        if (first && (!pushSupported() || Notification.permission === 'default')) showNotificationSettings();
         } catch (err) {
           button.disabled = false;
           showError(err);
@@ -677,6 +683,7 @@ function showIdentity(email, nickname) {
   $('avatar').textContent = name.charAt(0).toUpperCase();
   $('avatar').title = name;
   $('avatar').classList.remove('hidden');
+  $('bellBtn').classList.remove('hidden');
 }
 
 async function loadHouseholds(initial = false) {
@@ -700,6 +707,7 @@ async function loadHouseholds(initial = false) {
   try {
     const res = await api(initial ? 'getStartData' : 'getHouseholds');
     showIdentity(res.email, res.nickname);
+    if (initial) syncPush();
     state.households = res.households;
     // Po prvom prihlásení si človek zvolí prezývku (vidia ju ostatní namiesto e-mailu).
     if (!res.nickname && !document.querySelector('#modal input[name=nickname]')) {
@@ -1894,10 +1902,164 @@ function showCinnostForm(priestorId, existing, opts) {
 }
 
 // -------------------------------------------------------------------------
+// Upozornenia (push notifikácie)
+// -------------------------------------------------------------------------
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function isIos() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+function base64UrlToBytes(text) {
+  const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+}
+
+async function currentSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+/** Zvonček ukazuje, či sú upozornenia na tomto zariadení zapnuté. */
+async function updateBell() {
+  let on = false;
+  try {
+    on = Boolean(await currentSubscription()) && Notification.permission === 'granted';
+  } catch (e) {}
+  $('bellBtn').querySelector('.ms').textContent = on ? 'notifications_active' : 'notifications_off';
+  $('bellBtn').title = on ? 'Upozornenia sú zapnuté' : 'Zapnúť upozornenia';
+}
+
+/** Pri štarte: existujúci odber zariadenia pošli serveru (napr. iný účet na tom istom telefóne). */
+async function syncPush() {
+  try {
+    const sub = Notification.permission === 'granted' ? await currentSubscription() : null;
+    if (sub) await apiQuiet('subscribePush', sub.toJSON());
+  } catch (e) {
+    // nepovinné
+  }
+  updateBell();
+}
+
+async function enablePush() {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Upozornenia nie sú povolené. Povoľ ich pre Gazdu v nastaveniach prehliadača alebo telefónu.');
+  }
+  const { publicKey } = await api('getPushKey');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(publicKey) });
+  await api('subscribePush', sub.toJSON());
+}
+
+async function disablePush() {
+  const sub = await currentSubscription();
+  if (!sub) return;
+  try {
+    await api('unsubscribePush', sub.endpoint);
+  } finally {
+    await sub.unsubscribe();
+  }
+}
+
+async function showNotificationSettings() {
+  const what =
+    '<div class="members">' +
+    '<div><span class="ms">wb_sunny</span>Ráno o 8:00 prehľad tvojich úloh na dnes</div>' +
+    '<div><span class="ms">warning</span>Úlohy, ktorým prešiel termín</div>' +
+    '<div><span class="ms">assignment_add</span>Keď ti niekto pridelí úlohu (aj s checklistom)</div></div>';
+  let status;
+  let buttons = '<button type="button" class="btn text" id="cancel">Zavrieť</button>';
+
+  if (!pushSupported()) {
+    status =
+      isIos() && !isStandalone()
+        ? 'Na iPhone fungujú upozornenia len v Gazdovi pridanom na plochu: v Safari ťukni <b>Zdieľať</b> → ' +
+          '<b>Pridať na plochu</b>, otvor Gazdu z plochy a zapni ich tam.'
+        : 'Tento prehliadač upozornenia nepodporuje. Skús Chrome (Android) alebo Gazdu pridanú na plochu (iPhone).';
+  } else if (Notification.permission === 'denied') {
+    status =
+      'Upozornenia sú pre Gazdu <b>zablokované</b> v nastaveniach prehliadača alebo telefónu. ' +
+      'Povoľ ich tam (pri adrese stránky alebo v Nastaveniach → Upozornenia) a vráť sa sem.';
+  } else if ((await currentSubscription().catch(() => null)) && Notification.permission === 'granted') {
+    status = '✅ Upozornenia sú na tomto zariadení <b>zapnuté</b>.';
+    buttons =
+      '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto">Vypnúť</button>' +
+      buttons +
+      '<button type="button" class="btn tonal" id="test"><span class="ms">send</span>Skúšobné</button>';
+  } else {
+    status = 'Upozornenia sú na tomto zariadení vypnuté. Zapni si ich – chodia, aj keď Gazdu nemáš otvorenú.';
+    buttons += '<button type="button" class="btn" id="on"><span class="ms">notifications_active</span>Zapnúť</button>';
+  }
+
+  openModal(
+    '<h2>Upozornenia</h2><div class="subtitle">' + status + '</div>' + what + '<div class="actions">' + buttons + '</div>',
+    (root) => {
+      root.querySelector('#cancel').onclick = closeModal;
+      const on = root.querySelector('#on');
+      if (on) {
+        on.onclick = async () => {
+          on.disabled = true;
+          try {
+            await enablePush();
+            toast('Upozornenia zapnuté');
+            showNotificationSettings();
+          } catch (err) {
+            on.disabled = false;
+            showError(err);
+          }
+          updateBell();
+        };
+      }
+      const off = root.querySelector('#off');
+      if (off) {
+        off.onclick = async () => {
+          off.disabled = true;
+          try {
+            await disablePush();
+            toast('Upozornenia vypnuté');
+            showNotificationSettings();
+          } catch (err) {
+            off.disabled = false;
+            showError(err);
+          }
+          updateBell();
+        };
+      }
+      const test = root.querySelector('#test');
+      if (test) {
+        test.onclick = async () => {
+          test.disabled = true;
+          try {
+            const res = await api('testPush');
+            toast(res.sent ? 'Odoslané – o chvíľu príde notifikácia' : 'Nepodarilo sa doručiť – skús upozornenia vypnúť a zapnúť');
+          } catch (err) {
+            showError(err);
+          } finally {
+            test.disabled = false;
+          }
+        };
+      }
+    },
+    { focus: false }
+  );
+}
+
+// -------------------------------------------------------------------------
 // Štart
 // -------------------------------------------------------------------------
 
 $('avatar').onclick = showAccount;
+$('bellBtn').onclick = showNotificationSettings;
 
 $('backBtn').onclick = () => {
   loadHouseholds();

@@ -15,6 +15,7 @@ import * as api from './api.js';
 import { authenticate, endSession, startSession } from './auth.js';
 import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
+import { scheduledTick } from './notifications.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -32,20 +33,31 @@ const METHODS = {
   toggleItem: api.toggleItem,
   deleteCinnost: api.deleteCinnost,
   completeCinnost: api.completeCinnost,
+  getPushKey: api.getPushKey,
+  subscribePush: api.subscribePush,
+  unsubscribePush: api.unsubscribePush,
+  testPush: api.testPush,
 };
 
 const MAX_BODY = 256 * 1024;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
+    if (url.pathname.startsWith('/api/')) return handleApi(request, env, url, ctx);
     if (url.pathname === '/manifest.webmanifest') return manifest();
     return env.ASSETS.fetch(request);
   },
+
+  // Cron (wrangler.json „triggers“): každých 15 minút – ranný prehľad raz denne o 8:00.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      scheduledTick(env.DB, new Date(event.scheduledTime)).catch((err) => console.error('Ranný prehľad: ' + err))
+    );
+  },
 };
 
-async function handleApi(request, env, url) {
+async function handleApi(request, env, url, ctx) {
   try {
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return json({ ok: true, ...(await health(env)) });
@@ -82,6 +94,9 @@ async function handleApi(request, env, url) {
       db: env.DB,
       email: await authenticate(env.DB, request),
       today: env.TODAY || todayYmd(), // TODAY len v testoch
+      origin: url.origin,
+      // Upozornenia sa posielajú až po odoslaní odpovede (nezdržia aplikáciu).
+      waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
     };
     return json({ result: await method(c, ...args) });
   } catch (err) {

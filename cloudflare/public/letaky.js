@@ -309,16 +309,11 @@ function lfModeUpdate() {
 function lfHelpUpdate() {
   const help = $('lfHelp');
   if (!help) return;
-  const found = lf.products[lfMarkKey()];
-  let text;
-  if (found === 'loading') text = 'Hľadám produkty na strane… (prvýkrát to trvá pár sekúnd)';
-  else if (found && found.error) text = found.error;
-  else if (!lf.draw) text = 'Posúvaj prstom. Na krúžkovanie ťukni Krúžkovať.';
-  else if (Array.isArray(found) && found.length) text = 'Ťukni na + pri produkte, iný tovar zakrúžkuj. Ťahom do strany listuješ.';
-  else if (Array.isArray(found)) text = 'Produkty sa nenašli – tovar zakrúžkuj prstom. Ťahom do strany listuješ.';
-  else text = 'Zakrúžkuj tovar prstom. Ťahom do strany listuješ.';
-  help.textContent = text;
-  help.classList.toggle('loading', found === 'loading');
+  // Žiadny návod cez stranu (zavadzal) – len kým sa hľadajú produkty.
+  const loading = lf.products[lfMarkKey()] === 'loading';
+  help.textContent = loading ? 'Hľadám produkty…' : '';
+  help.classList.toggle('loading', loading);
+  help.classList.toggle('hidden', !loading);
 }
 
 // ---- Rozpoznané produkty: tlačidlo + pri každom ---------------------------------------
@@ -347,6 +342,8 @@ async function lfFetchProducts(index, background) {
       })
       .catch((err) => {
         lf.products[key] = { error: isLoginRequired(err) ? '' : errorMessage(err) };
+        // chybu ukáž len pri otvorenej strane, nie pri príprave ďalších na pozadí
+        if (!background && lf.products[key].error && lf.mode === 'page' && lfMarkKey() === key) toast(lf.products[key].error, true);
       })
       .finally(() => {
         delete lfPending[key];

@@ -17,7 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
-import { debugAi, getLeaflet, getLeaflets, leafletImage } from './leaflets.js';
+import { analyzeLeafletPage, getLeaflet, getLeaflets, leafletImage } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -42,6 +42,7 @@ const METHODS = {
   createImportCode,
   getLeaflets,
   getLeaflet,
+  analyzeLeafletPage,
 };
 
 const MAX_BODY = 256 * 1024;
@@ -72,9 +73,6 @@ async function handleApi(request, env, url, ctx) {
     if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
-    }
-    if (request.method === 'GET' && url.pathname === '/api/leaflets/debug') {
-      return json(await debugAi({ page: url.searchParams.get('page') || 0 }, env.AI));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
@@ -129,6 +127,7 @@ async function context(request, env, url, ctx) {
     // Upozornenia sa posielajú až po odoslaní odpovede (nezdržia aplikáciu).
     waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
     fetch: env.TEST_FETCH, // v testoch náhrada za Lidl; inak globálny fetch
+    ai: env.TEST_AI || env.AI, // Workers AI (rozpoznávanie produktov v letákoch)
   };
 }
 

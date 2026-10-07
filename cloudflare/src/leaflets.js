@@ -118,8 +118,14 @@ async function refresh(c) {
   }));
   const cached = { fetched: Date.now(), today: c.today, list };
   await c.db.batch([
-    // staré letáky preč
+    // staré letáky a rozpoznané produkty letákov, ktoré už neplatia, preč
     c.db.prepare("DELETE FROM config WHERE key LIKE 'leaflet:%'"),
+    c.db
+      .prepare(
+        `DELETE FROM config WHERE key LIKE 'products:%'
+         AND NOT EXISTS (SELECT 1 FROM json_each(?) WHERE config.key LIKE 'products:' || value || ':%')`
+      )
+      .bind(JSON.stringify(flyers.map((f) => f.slug))),
     upsert(c, LIST_KEY, cached),
     ...flyers.map((f) => upsert(c, FLYER_KEY + f.slug, f)),
   ]);
@@ -180,60 +186,111 @@ export async function leafletImage(c, path) {
   });
 }
 
-/** DOČASNÁ diagnostika: ktoré modely Workers AI vedia nájsť produkty na strane letáka. */
-export async function debugAi(c, ai) {
-  const out = { models: null, runs: [] };
-  try {
-    const list = await ai.models({ per_page: 200 });
-    out.models = list
-      .map((m) => m.name)
-      .filter((n) => /vision|vl|scout|gemma-3|mistral-small|llava|pixtral|kimi|qwen3|maverick|image-to-text/i.test(n));
-  } catch (err) {
-    out.models = 'chyba: ' + err;
+
+// ---- Rozpoznanie produktov na strane (Workers AI) -----------------------------------
+
+export const PRODUCTS_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
+const PRODUCTS_KEY = 'products:';
+const PRODUCTS_PROMPT =
+  'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page ' +
+  '(ignore logos, headlines, opening hours and coupons). For each offer return its product name exactly as printed ' +
+  '(Slovak, including the pack size if printed, e.g. "Mascarpone 500 g"), the main offer price in EUR as a number, ' +
+  'and a bounding box that tightly covers the whole offer - the product photo, its name and its price tag - ' +
+  'as [x1, y1, x2, y2] in fractions of the image width and height (0 to 1, 0,0 = top-left). Boxes of different ' +
+  'offers must not overlap. Answer with JSON only: [{"name":"...","price":1.99,"box":[x1,y1,x2,y2]}]';
+
+/** Prvý JSON (pole alebo objekt) v texte odpovede modelu. */
+function extractJson(text) {
+  if (text && typeof text === 'object') return text;
+  text = String(text ?? '');
+  for (const [open, close] of [['[', ']'], ['{', '}']]) {
+    const a = text.indexOf(open);
+    const b = text.lastIndexOf(close);
+    if (a !== -1 && b > a) {
+      try {
+        return JSON.parse(text.slice(a, b + 1));
+      } catch {
+        // skús druhý tvar
+      }
+    }
   }
-  const slugs = await findSlugs(c);
-  const flyer = await fetchFlyer(c, slugs[0]);
-  const page = flyer.pages[Number(c.page || 0)];
-  const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
-  const bytes = new Uint8Array(await res.arrayBuffer());
+  return null;
+}
+
+/**
+ * Odpoveď modelu → [{ name, price, box: [x1, y1, x2, y2] (0–1) }]. Modely občas
+ * vrátia súradnice v tisícinách alebo v pixeloch, prehodené rohy či nezmysly.
+ */
+export function parseProducts(raw, w, h) {
+  let data = extractJson(raw);
+  if (data && !Array.isArray(data)) data = data.products || data.offers || data.items || null;
+  if (!Array.isArray(data)) return [];
+  const out = [];
+  for (const p of data) {
+    if (!p || typeof p !== 'object') continue;
+    const name = String(p.name ?? p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    let box = Array.isArray(p.box) ? p.box.map(Number) : Array.isArray(p.bbox) ? p.bbox.map(Number) : null;
+    if (!name || !box || box.length !== 4 || box.some((v) => !Number.isFinite(v))) continue;
+    const max = Math.max(...box);
+    if (max > 1.5) {
+      box = max <= 1000 ? box.map((v) => v / 1000) : [box[0] / (w || 1), box[1] / (h || 1), box[2] / (w || 1), box[3] / (h || 1)];
+    }
+    let [x1, y1, x2, y2] = box.map((v) => Math.min(1, Math.max(0, v)));
+    if (x1 > x2) [x1, x2] = [x2, x1];
+    if (y1 > y2) [y1, y2] = [y2, y1];
+    // príliš malé (bod, čiara) alebo skoro celá strana – zlé ohraničenie
+    if (x2 - x1 < 0.04 || y2 - y1 < 0.025 || (x2 - x1) * (y2 - y1) > 0.6) continue;
+    const priceNum = typeof p.price === 'number' ? p.price : parseFloat(String(p.price ?? '').replace(',', '.'));
+    const price = Number.isFinite(priceNum) && priceNum > 0 && priceNum < 10000 ? priceNum.toFixed(2) : '';
+    const round = (v) => Math.round(v * 1000) / 1000;
+    const item = { name, price, box: [x1, y1, x2, y2].map(round) };
+    if (!out.some((o) => o.name === item.name && o.box.join() === item.box.join())) out.push(item);
+  }
+  return out.slice(0, 40);
+}
+
+function toBase64(bytes) {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  const dataUrl = 'data:' + (res.headers.get('content-type') || 'image/jpeg') + ';base64,' + btoa(bin);
-  out.image = { type: res.headers.get('content-type'), bytes: bytes.length, page: page.n, w: page.w, h: page.h };
-  const prompt =
-    'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page. ' +
-    'For each, return its name exactly as printed (Slovak), the main offer price in EUR as a number, and its bounding box ' +
-    'covering the whole offer (picture, name and price) as [x1, y1, x2, y2] in coordinates normalized to 0-1000 ' +
-    '(0,0 = top-left of the image). Answer with JSON only: {"products":[{"name":"...","price":1.99,"box":[x1,y1,x2,y2]}]}';
-  const candidates = [
-    '@cf/meta/llama-4-scout-17b-16e-instruct',
-    '@cf/google/gemma-3-12b-it',
-    '@cf/mistralai/mistral-small-3.1-24b-instruct',
-    ...(Array.isArray(out.models) ? out.models.filter((n) => /qwen.*vl|vl.*qwen|kimi|maverick|pixtral/i.test(n)) : []),
-  ];
-  out.runs = await Promise.all(
-    [...new Set(candidates)].slice(0, 6).map(async (model) => {
-      const t = Date.now();
-      try {
-        const r = await ai.run(model, {
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: dataUrl } },
-                { type: 'text', text: prompt },
-              ],
-            },
-          ],
-          max_tokens: 2500,
-          temperature: 0,
-        });
-        const text = typeof r.response === 'string' ? r.response : JSON.stringify(r.response ?? r);
-        return { model, ms: Date.now() - t, usage: r.usage, text: text.slice(0, 3500) };
-      } catch (err) {
-        return { model, ms: Date.now() - t, error: String(err).slice(0, 400) };
-      }
-    })
-  );
-  return out;
+  return btoa(bin);
+}
+
+/**
+ * Produkty na strane letáka (index strany od 0). Rozpozná ich AI pri prvom otvorení
+ * strany kýmkoľvek a výsledok sa uloží – ďalší ich dostanú hneď a bez spotreby limitu.
+ */
+export async function analyzeLeafletPage(c, slug, pageIndex) {
+  slug = String(slug ?? '');
+  const flyer = await readConfig(c, FLYER_KEY + slug);
+  const page = flyer && flyer.pages[Number(pageIndex)];
+  if (!page) throw new AppError('Leták už neplatí.', 404);
+  const key = PRODUCTS_KEY + slug + ':' + page.n;
+  const cached = await readConfig(c, key);
+  if (cached) return cached.products;
+  if (!c.ai) throw new AppError('Rozpoznávanie produktov nie je dostupné.', 503);
+
+  const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
+  if (!res.ok) throw new AppError('Stranu letáka sa nepodarilo načítať.', 502);
+  const type = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
+  const dataUrl = 'data:' + type + ';base64,' + toBase64(new Uint8Array(await res.arrayBuffer()));
+  let answer;
+  try {
+    answer = await c.ai.run(PRODUCTS_MODEL, {
+      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: PRODUCTS_PROMPT }] }],
+      max_tokens: 2500,
+      temperature: 0,
+    });
+  } catch (err) {
+    console.error('Rozpoznávanie produktov: ' + err);
+    if (/4006|neurons|daily|limit/i.test(String(err))) {
+      throw new AppError('Dnešný bezplatný limit rozpoznávania je vyčerpaný. Tovar zatiaľ zakrúžkuj prstom.', 429);
+    }
+    throw new AppError('Produkty sa teraz nepodarilo rozpoznať. Tovar môžeš zakrúžkovať prstom.', 502);
+  }
+  const products = parseProducts(answer && answer.response, page.w, page.h);
+  await c.db
+    .prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
+    .bind(key, JSON.stringify({ products, model: PRODUCTS_MODEL, at: new Date().toISOString() }))
+    .run();
+  return products;
 }

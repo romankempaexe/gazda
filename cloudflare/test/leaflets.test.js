@@ -1,10 +1,21 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
+import { parseProducts } from '../src/leaflets.js';
+import { cleanPrice } from '../src/api.js';
 
 let t, roman, jana, cudzi, hid, nakupId;
 const calls = [];
 let lidlDown = false;
+const aiCalls = [];
+let aiAnswer = '';
+const fakeAi = {
+  async run(model, input) {
+    aiCalls.push({ model, input });
+    if (aiAnswer instanceof Error) throw aiAnswer;
+    return { response: aiAnswer };
+  },
+};
 
 const IMG = 'https://imgproxy.leaflets.schwarz';
 const page = (n) => ({
@@ -48,6 +59,7 @@ before(async () => {
   t = await setup();
   t.env.TODAY = '2026-10-07';
   t.env.TEST_FETCH = fakeFetch;
+  t.env.TEST_AI = fakeAi;
   roman = await t.user('roman@exe.sk');
   jana = await t.user('jana@gmail.com');
   cudzi = await t.user('cudzi@example.com');
@@ -148,4 +160,72 @@ test('miniatúry položiek: uloženie, zobrazenie členom a zmazanie s položkou
   await roman.api.toggleItem(second.id, true);
   await roman.api.completeCinnost(nakupId); // jednorazová → vymaže sa celá
   assert.equal(await count(), 0);
+});
+
+test('produkty v letáku: odpoveď AI sa vyčistí (tisíciny, pixely, prehodené rohy, nezmysly)', () => {
+  const raw =
+    'Tu je výsledok:\n```json\n' +
+    JSON.stringify([
+      { name: ' Mascarpone  500 g ', price: 2.49, box: [0.025, 0.262, 0.331, 0.497] },
+      { name: 'Prosecco', price: '2,99', box: [600, 100, 300, 400] }, // tisíciny, prehodené x
+      { name: 'Robot', price: 49.99, box: [700, 1200, 1400, 2400] }, // pixely (strana 1415 × 2400)
+      { name: 'Bod', price: 1, box: [0.5, 0.5, 0.51, 0.51] }, // príliš malé
+      { name: 'Celá strana', price: 1, box: [0, 0, 1, 1] },
+      { name: '', price: 1, box: [0.1, 0.1, 0.3, 0.3] },
+      { name: 'Bez ceny', box: [0.1, 0.6, 0.3, 0.8] },
+      { name: 'Zlá cena', price: -3, box: [0.4, 0.6, 0.6, 0.8] },
+    ]) +
+    '\n```';
+  assert.deepEqual(parseProducts(raw, 1415, 2400), [
+    { name: 'Mascarpone 500 g', price: '2.49', box: [0.025, 0.262, 0.331, 0.497] },
+    { name: 'Prosecco', price: '2.99', box: [0.3, 0.1, 0.6, 0.4] },
+    { name: 'Robot', price: '49.99', box: [0.495, 0.5, 0.989, 1] },
+    { name: 'Bez ceny', price: '', box: [0.1, 0.6, 0.3, 0.8] },
+    { name: 'Zlá cena', price: '', box: [0.4, 0.6, 0.6, 0.8] },
+  ]);
+  assert.deepEqual(parseProducts('{"products":[{"name":"Syr","price":1.5,"bbox":[0.1,0.1,0.4,0.3]}]}'), [
+    { name: 'Syr', price: '1.50', box: [0.1, 0.1, 0.4, 0.3] },
+  ]);
+  assert.deepEqual(parseProducts('neviem'), []);
+});
+
+test('produkty v letáku: AI raz na stranu, potom z pamäte; chyby a limit', async () => {
+  const slug = 'online-letak-platny-od-05-10-2026';
+  aiAnswer = '[{"name":"Mascarpone 500 g","price":2.49,"box":[0.025,0.262,0.331,0.497]}]';
+  const products = await roman.api.analyzeLeafletPage(slug, 1);
+  assert.deepEqual(products, [{ name: 'Mascarpone 500 g', price: '2.49', box: [0.025, 0.262, 0.331, 0.497] }]);
+  assert.equal(aiCalls.length, 1);
+  assert.equal(aiCalls[0].model, '@cf/meta/llama-4-scout-17b-16e-instruct');
+  const image = aiCalls[0].input.messages[0].content[0].image_url.url;
+  assert.equal(image, 'data:image/jpeg;base64,' + Buffer.from('JPEG').toString('base64'));
+  assert.equal(calls.at(-1), IMG + '/a2/rs:fit:1200:1200:1/g:no/x'); // strana 2 (index 1)
+
+  assert.deepEqual(await jana.api.analyzeLeafletPage(slug, 1), products); // z pamäte
+  assert.equal(aiCalls.length, 1);
+
+  aiAnswer = new Error('AiError: 4006: you have used up your daily free allocation of 10,000 neurons');
+  await assert.rejects(roman.api.analyzeLeafletPage(slug, 0), /bezplatný limit/);
+  aiAnswer = new Error('AiError: 3040: capacity');
+  await assert.rejects(roman.api.analyzeLeafletPage(slug, 0), /nepodarilo rozpoznať/);
+  await assert.rejects(roman.api.analyzeLeafletPage(slug, 9), /Leták už neplatí/);
+  await assert.rejects(cudzi.api.analyzeLeafletPage('neexistuje', 0), /Leták už neplatí/);
+  await assert.rejects(t.call('', 'analyzeLeafletPage', slug, 1), (err) => err.status === 401);
+});
+
+test('cena položky: uloží sa vyčistená a zostane pri úprave činnosti', async () => {
+  assert.equal(cleanPrice('2,49 €'), '2.49');
+  assert.equal(cleanPrice('15'), '15.00');
+  assert.equal(cleanPrice('007.5'), '7.50');
+  assert.equal(cleanPrice('abc'), '');
+  assert.equal(cleanPrice(''), '');
+  const task = await roman.api.addCinnost(hid, { name: 'Lidl', kind: 'nakup', store: 'Lidl', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk' });
+  const item = await roman.api.addItem(task.id, 'Mascarpone 500 g', '1', PIXEL, '2,49');
+  assert.deepEqual([item.text, item.qty, item.price], ['Mascarpone 500 g', '1 ks', '2.49']);
+  const plain = await roman.api.addItem(task.id, 'Chlieb', '', '', 'zle');
+  assert.equal(plain.price, undefined);
+  const saved = await roman.api.updateCinnost(task.id, {
+    name: 'Lidl', kind: 'nakup', store: 'Lidl', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk',
+    items: [{ id: item.id, text: 'Mascarpone', qty: '2' }, { id: plain.id, text: 'Chlieb' }],
+  });
+  assert.deepEqual(saved.items.map((i) => [i.text, i.qty, i.price]), [['Mascarpone', '2 ks', '2.49'], ['Chlieb', '', undefined]]);
 });

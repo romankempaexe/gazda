@@ -39,7 +39,15 @@ const toItem = (r) => ({
   qty: r.qty || '',
   done: Boolean(r.done),
   ...(r.has_image && { image: '/api/item-image/' + r.id }), // miniatúra (napr. z letáka)
+  ...(r.price && { price: r.price }), // cena v eurách, napr. „2.49“
 });
+
+/** Cena položky: „2,49“, „2.49 €“ → „2.49“; prázdna = bez ceny. */
+export function cleanPrice(value) {
+  const m = String(value ?? '').replace(/\s|€/g, '').match(/^(\d{1,5})(?:[.,](\d{1,2}))?$/);
+  if (!m) return '';
+  return m[1].replace(/^0+(?=\d)/, '') + '.' + (m[2] || '0').padEnd(2, '0');
+}
 
 // Položky aj s príznakom, či majú miniatúru.
 const ITEMS_SQL = `SELECT p.*, (i.item_id IS NOT NULL) AS has_image
@@ -307,9 +315,9 @@ async function validateCinnost(c, householdId, data) {
 function insertItemsStatement(c, cinnost, rows) {
   return c.db
     .prepare(
-      `INSERT INTO polozky (id, cinnost_id, household_id, text, qty, done, position, created_at, created_by)
+      `INSERT INTO polozky (id, cinnost_id, household_id, text, qty, done, position, created_at, created_by, price)
        SELECT json_extract(value, '$.id'), ?, ?, json_extract(value, '$.text'), json_extract(value, '$.qty'), 0,
-              json_extract(value, '$.position'), ?, ?
+              json_extract(value, '$.position'), ?, ?, coalesce(json_extract(value, '$.price'), '')
        FROM json_each(?)`
     )
     .bind(cinnost.id, cinnost.household_id, nowIso(), c.email, JSON.stringify(rows));
@@ -430,7 +438,8 @@ export async function updateCinnost(c, cinnostId, data) {
 }
 
 /** Pridá položku do checklistu činnosti (môže ktokoľvek z domácnosti). */
-export async function addItem(c, cinnostId, text, qty, image) {
+export async function addItem(c, cinnostId, text, qty, image, price) {
+  price = cleanPrice(price);
   ({ text, qty } = splitQty(text, qty));
   if (!text) throw new AppError('Zadaj položku.');
   image = image ? String(image) : '';
@@ -441,9 +450,9 @@ export async function addItem(c, cinnostId, text, qty, image) {
     .bind(cinnost.id)
     .first();
   if (stats.n >= MAX_ITEMS) throw new AppError('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
-  const item = toItem({ id: uuid(), text, qty, done: 0, has_image: Boolean(image) });
+  const item = toItem({ id: uuid(), text, qty, done: 0, has_image: Boolean(image), price });
   await c.db.batch([
-    insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, position: stats.last + 1 }]),
+    insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, price, position: stats.last + 1 }]),
     ...rememberShoppingStatements(c, cinnost.household_id, '', [text]),
     ...(image
       ? [

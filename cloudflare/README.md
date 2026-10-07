@@ -40,10 +40,10 @@ používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
-`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets`, `getLeaflet`.
+`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets`, `getLeaflet`, `analyzeLeafletPage`.
 `GET /api/health` overí databázu.
 
-`addItem(cinnostId, text, qty, image)` – voliteľná miniatúra ako `data:image/jpeg;base64,…`
+`addItem(cinnostId, text, qty, image, price)` – voliteľná cena („2,49“) a miniatúra ako `data:image/jpeg;base64,…`
 (najviac 200 kB); položka ju potom má v `image` (`/api/item-image/<id>`, len pre členov).
 
 Prenos: `createImportCode` (prihlásený) a `POST /api/import` `{"code", "data"}`
@@ -90,6 +90,15 @@ letáky Lidl. Strany sa listujú prstom; **Krúžkovať** otvorí stranu, na kto
 prstom zakrúžkuje tovar. Zakrúžkované miesto sa vystrihne ako malý obrázok (JPEG,
 ~10–20 kB) a po potvrdení (názov, počet, ktorý nákup – alebo nový „Nákup Lidl“)
 pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
+
+**Rozpoznanie produktov:** pri otvorení strany server pošle obrázok strany do
+Workers AI (model `@cf/meta/llama-4-scout-17b-16e-instruct`, binding `AI`), ktorý
+vráti produkty s názvom, cenou a ohraničením. Na každom produkte je tlačidlo **+**:
+označí celý produkt, vystrihne ho a ponúkne pridať s predvyplneným názvom a cenou.
+Každá strana sa rozpoznáva len raz (výsledok je v `config` pod `products:<leták>:<strana>`
+pre všetkých). Jedna strana stojí ~80 „neurónov“ z bezplatných 10 000 denne
+(≈ 120 strán za deň); po vyčerpaní limitu ostáva krúžkovanie. Položky majú cenu
+(`price`, migrácia 0006) a v detaile nákupu sa ukáže odhad sumy.
 
 Zdroj nie je oficiálne API: server prečíta zoznam letákov z lidl.sk a stránky
 z `endpoints.leaflets.schwarz` (rovnako ako web Lidlu), výsledok drží v tabuľke
@@ -207,3 +216,4 @@ npm run dev       # lokálny server na http://localhost:8787
 Pred `npm run dev` treba lokálne aplikovať migrácie:
 `npx wrangler d1 migrations apply DB --local --env=""` a do súboru `.dev.vars`
 dať `GOOGLE_CLIENT_ID="…"` (a do Google Cloud pridať origin `http://localhost:8787`).
+Lokálne beží bez Workers AI (`--local`), rozpoznávanie produktov v letákoch tam nefunguje.

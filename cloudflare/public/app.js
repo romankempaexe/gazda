@@ -1551,7 +1551,28 @@ function thumbHtml(i) {
 }
 
 function qtyHtml(i) {
-  return i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '';
+  return (
+    (i.price ? '<span class="check-price">' + esc(formatPrice(i.price)) + '</span>' : '') +
+    (i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '')
+  );
+}
+
+/** „2.49“ → „2,49 €“ */
+function formatPrice(p) {
+  return Number(p).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+/** Odhad sumy za neodškrtnuté položky s cenou (počet v kusoch/baleniach sa násobí). */
+function itemsTotal(c) {
+  let sum = 0;
+  let any = false;
+  (c.items || []).forEach((i) => {
+    if (!i.price || i.done) return;
+    any = true;
+    const m = String(i.qty || '').match(/^(\d+(?:,\d+)?) (ks|bal\.)$/);
+    sum += Number(i.price) * (m ? Number(m[1].replace(',', '.')) : 1);
+  });
+  return any ? sum : null;
 }
 
 function itemProgress(c) {
@@ -1592,8 +1613,10 @@ function showTaskDetail(id) {
       const renderList = () => {
         const items = c.items || [];
         const p = itemProgress(c);
+        const total = itemsTotal(c);
         root.querySelector('#checkLabel').textContent =
-          (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '');
+          (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '') +
+          (total !== null ? ' · spolu ~' + formatPrice(total) : '');
         const sorted = items.filter((i) => !i.done).concat(items.filter((i) => i.done));
         listEl.innerHTML = sorted.length
           ? sorted
@@ -1678,6 +1701,7 @@ let tempIds = 0;
 function optimisticTask(data, previous) {
   const done = new Map(((previous && previous.items) || []).map((i) => [i.id, i.done]));
   const images = new Map(((previous && previous.items) || []).map((i) => [i.id, i.image]));
+  const prices = new Map(((previous && previous.items) || []).map((i) => [i.id, i.price]));
   const kind = data.kind === 'nakup' ? 'nakup' : '';
   return {
     ...(previous || { id: 'tmp-' + ++tempIds, householdId: state.detail.household.id }),
@@ -1698,6 +1722,7 @@ function optimisticTask(data, previous) {
         ...splitQty(i.text, i.qty),
         done: Boolean(i.id && done.get(i.id)),
         ...(i.id && images.get(i.id) && { image: images.get(i.id) }),
+        ...(i.id && prices.get(i.id) && { price: prices.get(i.id) }),
       }))
       .filter((i) => i.text),
     pending: true,
@@ -1731,10 +1756,15 @@ function showCinnostForm(priestorId, existing, opts) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
     const done = new Map((v.items || []).map((i) => [i.id, i.done]));
     const images = new Map((v.items || []).map((i) => [i.id, i.image]));
-    v = { ...v, ...draft, items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)), image: i.id && images.get(i.id) })) };
+    const prices = new Map((v.items || []).map((i) => [i.id, i.price]));
+    v = {
+      ...v,
+      ...draft,
+      items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)), image: i.id && images.get(i.id), price: i.id && prices.get(i.id) })),
+    };
   }
   // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
-  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image }));
+  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image, price: i.price }));
   const members = state.detail.members.map((m) => m.email).sort();
   // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
   if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);

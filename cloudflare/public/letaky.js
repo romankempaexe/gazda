@@ -13,6 +13,7 @@ const lf = {
   draw: true,
   target: null, // id nákupu, do ktorého sa pridáva
   marks: {}, // zakrúžkované miesta: "slug#strana" -> [{ pts, ok }]
+  products: {}, // rozpoznané produkty: "slug#strana" -> [{ name, price, box, added }] | 'loading' | { error }
 };
 
 const THUMB_MAX = 360; // najdlhšia strana miniatúry v px
@@ -120,7 +121,7 @@ function lfRenderStrip() {
     '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
       '<span class="lf-count" id="lfCount"></span>' +
       '<button class="icon-btn" id="lfNext" title="Ďalšia"><span class="ms">chevron_right</span></button>' +
-      '<button class="btn" id="lfCircle"><span class="ms">gesture</span>Krúžkovať</button>'
+      '<button class="btn" id="lfCircle"><span class="ms">add_shopping_cart</span>Vybrať tovar</button>'
   );
   const strip = $('lfStrip');
   const go = (i) => strip.scrollTo({ left: i * strip.clientWidth, behavior: 'smooth' });
@@ -171,7 +172,7 @@ function lfOpenPage(draw) {
     f.title || 'Leták Lidl',
     'Strana ' + p.n + ' / ' + f.pages.length,
     '<div class="lf-scroll" id="lfScroll"><div class="lf-wrap" id="lfWrap">' +
-      '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas></div></div>' +
+      '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas><div class="lf-hot" id="lfHot"></div></div></div>' +
       '<div class="lf-help" id="lfHelp"></div>',
     '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
       '<button class="icon-btn" id="lfZoomOut" title="Oddialiť"><span class="ms">remove</span></button>' +
@@ -207,15 +208,94 @@ function lfOpenPage(draw) {
   lfModeUpdate();
   lfBindDrawing();
   lfLayoutPage();
+  lfLoadProducts();
 }
 
 function lfModeUpdate() {
   const btn = $('lfMode');
   btn.innerHTML = lf.draw ? '<span class="ms">pan_tool</span>Posúvať' : '<span class="ms">gesture</span>Krúžkovať';
   $('lfWrap').classList.toggle('drawing', lf.draw);
-  $('lfHelp').textContent = lf.draw
-    ? 'Zakrúžkuj prstom tovar – pridá sa do nákupu aj s obrázkom.'
-    : 'Posúvaj prstom, priblíž tlačidlom +.';
+  lfHelpUpdate();
+}
+
+/** Nápoveda dole podľa režimu a stavu rozpoznávania produktov. */
+function lfHelpUpdate() {
+  const help = $('lfHelp');
+  if (!help) return;
+  const found = lf.products[lfMarkKey()];
+  let text;
+  if (found === 'loading') text = 'Hľadám produkty na strane…';
+  else if (found && found.error) text = found.error;
+  else if (Array.isArray(found) && found.length) text = lf.draw ? 'Ťukni na + pri produkte, alebo tovar zakrúžkuj prstom.' : 'Ťukni na + pri produkte. Posúvaj prstom.';
+  else if (Array.isArray(found)) text = 'Produkty sa nenašli – zakrúžkuj tovar prstom.';
+  else text = lf.draw ? 'Zakrúžkuj prstom tovar – pridá sa do nákupu aj s obrázkom.' : 'Posúvaj prstom, priblíž tlačidlom +.';
+  help.textContent = text;
+  help.classList.toggle('loading', found === 'loading');
+}
+
+// ---- Rozpoznané produkty: tlačidlo + pri každom ---------------------------------------
+
+async function lfLoadProducts() {
+  const key = lfMarkKey();
+  const slug = lf.flyer.slug;
+  const index = lf.page;
+  if (lf.products[key] && !lf.products[key].error) return lfRenderProducts();
+  lf.products[key] = 'loading';
+  lfRenderProducts();
+  try {
+    lf.products[key] = await apiQuiet('analyzeLeafletPage', slug, index);
+  } catch (err) {
+    if (isLoginRequired(err)) return;
+    lf.products[key] = { error: errorMessage(err) };
+  }
+  if (lf.mode === 'page' && lfMarkKey() === key) lfRenderProducts();
+}
+
+function lfRenderProducts() {
+  const hot = $('lfHot');
+  if (!hot) return;
+  const list = lf.products[lfMarkKey()];
+  hot.innerHTML = Array.isArray(list)
+    ? list
+        .map((p, i) => {
+          const [x1, y1, x2, y2] = p.box;
+          return (
+            '<button class="lf-plus' + (p.added ? ' added' : '') + '" data-product="' + i + '" style="left:' +
+            ((x1 + x2) / 2) * 100 + '%;top:' + ((y1 + y2) / 2) * 100 + '%" title="' + esc(p.name) + '">' +
+            '<span class="ms">' + (p.added ? 'check' : 'add') + '</span></button>'
+          );
+        })
+        .join('')
+    : '';
+  hot.querySelectorAll('[data-product]').forEach((b) => {
+    b.onpointerdown = (e) => e.stopPropagation(); // nezačne krúžok
+    b.onclick = (e) => {
+      e.stopPropagation();
+      lfPickProduct(list[Number(b.dataset.product)]);
+    };
+  });
+  lfHelpUpdate();
+}
+
+/** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
+async function lfPickProduct(product) {
+  const [x1, y1, x2, y2] = product.box;
+  const pad = 0.006;
+  const b = { x: Math.max(0, x1 - pad), y: Math.max(0, y1 - pad), x2: Math.min(1, x2 + pad), y2: Math.min(1, y2 + pad) };
+  const mark = { pts: [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]], ok: false };
+  const key = lfMarkKey();
+  (lf.marks[key] = lf.marks[key] || []).push(mark);
+  lfDrawMarks();
+  let thumb;
+  try {
+    thumb = await lfCrop($('lfImg'), b);
+  } catch (err) {
+    lf.marks[key].splice(lf.marks[key].indexOf(mark), 1);
+    lfDrawMarks();
+    toast('Obrázok sa nepodarilo vystrihnúť. Skús to znova.', true);
+    return;
+  }
+  lfConfirm(thumb, mark, key, product);
 }
 
 function lfSetZoom(z) {
@@ -395,7 +475,10 @@ function lfShoppingTasks() {
     .sort((a, b) => Number(isLidl(b)) - Number(isLidl(a)) || a.dueDate.localeCompare(b.dueDate));
 }
 
-function lfConfirm(thumb, mark, key) {
+/** Cena „2.49“ → „2,49“ (do poľa) */
+const priceInput = (p) => (p ? String(p).replace('.', ',') : '');
+
+function lfConfirm(thumb, mark, key, product) {
   const tasks = lfShoppingTasks();
   const target = tasks.some((c) => c.id === lf.target) ? lf.target : tasks.length ? tasks[0].id : NEW_SHOPPING;
   const options =
@@ -413,10 +496,13 @@ function lfConfirm(thumb, mark, key) {
   openModal(
     '<h2>Pridať do nákupu</h2>' +
       '<div class="lf-preview"><img src="' + thumb + '" alt=""></div>' +
-      '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="Napr. mascarpone (nepovinné)">' +
+      '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="Napr. mascarpone (nepovinné)" value="' +
+      esc(product ? product.name : '') + '">' +
       '<div class="suggest hidden" id="lfSuggest"></div></div>' +
-      '<div class="row"><div class="field"><label>Počet</label>' + stepperHtml('id="lfQty"') + '</div>' +
-      '<div class="field"><label>Nákup</label><select id="lfTarget">' + options + '</select></div></div>' +
+      '<div class="row"><div class="field"><label>Počet</label>' + stepperHtml('id="lfQty"', product ? '1' : '') + '</div>' +
+      '<div class="field"><label>Cena (€)</label><input id="lfPrice" inputmode="decimal" maxlength="9" autocomplete="off" placeholder="nepovinné" value="' +
+      esc(priceInput(product && product.price)) + '"></div></div>' +
+      '<div class="field"><label>Nákup</label><select id="lfTarget">' + options + '</select></div>' +
       '<div class="actions"><button type="button" class="btn text" id="lfCancel">Zrušiť</button>' +
       '<button type="button" class="btn" id="lfAdd"><span class="ms">add_shopping_cart</span>Pridať</button></div>',
     (root) => {
@@ -452,7 +538,7 @@ function lfConfirm(thumb, mark, key) {
             rememberLocally(c);
             taskId = c.id;
           }
-          const item = await api('addItem', taskId, text, qty, thumb);
+          const item = await api('addItem', taskId, text, qty, thumb, root.querySelector('#lfPrice').value);
           const c = state.detail.cinnosti.find((x) => x.id === taskId);
           if (c) {
             c.items = (c.items || []).concat([item]);
@@ -462,6 +548,7 @@ function lfConfirm(thumb, mark, key) {
           lf.target = taskId;
           added = true;
           mark.ok = true;
+          if (product) product.added = true;
           saveSnapshot();
           closeModal(true);
         } catch (err) {
@@ -485,6 +572,7 @@ function lfConfirm(thumb, mark, key) {
           if (list.includes(mark)) list.splice(list.indexOf(mark), 1);
         }
         lfDrawMarks();
+        lfRenderProducts();
       },
     }
   );

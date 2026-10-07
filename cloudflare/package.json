@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "deploy": "wrangler deploy"
   },

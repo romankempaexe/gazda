@@ -626,8 +626,14 @@ function lfConfirm(thumb, mark, key, product, live) {
           try {
             thumb = await lfCrop(img, b); // miniatúra len samotného produktu
           } catch (e) {
-            // ostane výrez okolia
+            return; // ostane výrez okolia
           }
+          if (added || !document.body.contains(name)) return;
+          // Náhľad = presne to, čo sa uloží: produkt na celú plochu, orámovaný
+          const pv = root.querySelector('.lf-pv');
+          pv.querySelector('img').src = thumb;
+          root.querySelector('#lfBox').classList.add('hidden');
+          pv.classList.add('found');
         };
         live.pending.then(finish, (err) => {
           if (!isLoginRequired(err)) toast(errorMessage(err), true);

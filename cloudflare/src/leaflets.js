@@ -296,7 +296,8 @@ export function parseKimbinoFlyer(html, entry) {
     slug: entry.slug,
     store: entry.store,
     title: entry.title,
-    name: title ? title.replace(/&amp;/g, '&').replace(/\s*\|.*$/, '') : '',
+    // og:title je reklamný text („… » Pozrite si zľavy“) – nechaj len začiatok
+    name: title ? title.replace(/&amp;/g, '&').replace(/\s*[|»(].*$/, '').trim() : '',
     start: valid ? valid[1] : '',
     end: valid ? valid[2] : '',
     pages: list,
@@ -364,29 +365,6 @@ async function loadKimbinoFlyer(c, slug) {
   if (!flyer) throw new AppError('Leták sa nepodarilo načítať. Skús to neskôr.', 502);
   await upsert(c, FLYER_KEY + slug, flyer).run();
   return flyer;
-}
-
-/** DOČASNÁ diagnostika (preview): celý reťazec pre Tesco aj s rozpoznaním 1. strany. */
-export async function debugKimbino(c) {
-  const out = {};
-  try {
-    out.list = await getLeaflets(c, c.store || 'tesco');
-    const first = out.list[0];
-    if (first) {
-      const flyer = await getLeaflet(c, first.slug);
-      out.flyer = { title: flyer.title, name: flyer.name, start: flyer.start, end: flyer.end, pages: flyer.pages.length, page1: flyer.pages[0] };
-      const t = Date.now();
-      try {
-        const products = await analyzeLeafletPage(c, first.slug, 0);
-        out.ai = { ms: Date.now() - t, count: products.length, sample: products.slice(0, 4) };
-      } catch (err) {
-        out.ai = { ms: Date.now() - t, error: err.message };
-      }
-    }
-  } catch (err) {
-    out.error = String(err.message || err);
-  }
-  return out;
 }
 
 // ---- Rozpoznanie produktov na strane (Workers AI) -----------------------------------

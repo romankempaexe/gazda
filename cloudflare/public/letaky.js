@@ -146,7 +146,7 @@ function lfRenderList(error) {
           return (
             '<button class="lf-card" data-slug="' + esc(f.slug) + '">' +
             (f.thumb ? '<img src="' + esc(f.thumb) + '" alt="" loading="lazy">' : '<span class="lf-noimg ms">newspaper</span>') +
-            '<div><b>' + esc(f.name || f.title) + '</b>' + (info ? '<small>' + esc(info) + '</small>' : '') + '</div></button>'
+            '<div><b>' + esc(f.title || f.name) + '</b>' + (info ? '<small>' + esc(info) + '</small>' : '') + '</div></button>'
           );
         })
         .join('') +
@@ -185,7 +185,7 @@ function lfRenderStrip() {
     .map((p, i) => '<div class="lf-page" data-i="' + i + '"><img alt="Strana ' + p.n + '" draggable="false"></div>')
     .join('');
   lfFrame(
-    f.name || f.title || 'Leták ' + lfStoreName(lf.store),
+    f.title || f.name || 'Leták ' + lfStoreName(lf.store),
     lfValidity(f),
     '<div class="lf-strip" id="lfStrip">' + pages + '</div>',
     '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
@@ -249,7 +249,7 @@ function lfOpenPage(dir) {
   const f = lf.flyer;
   const p = f.pages[lf.page];
   lfFrame(
-    f.name || f.title || 'Leták ' + lfStoreName(lf.store),
+    f.title || f.name || 'Leták ' + lfStoreName(lf.store),
     'Strana ' + p.n + ' / ' + f.pages.length,
     '<div class="lf-scroll" id="lfScroll"><div class="lf-wrap" id="lfWrap">' +
       '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas><div class="lf-hot" id="lfHot"></div></div></div>' +

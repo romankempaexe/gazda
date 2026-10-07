@@ -101,13 +101,5 @@ jobs:
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
-            if [ "$TARGET_ENV" = "preview" ]; then
-              echo "--- letáky: uložené rozpoznané strany (diagnostika) ---"
-              npx wrangler d1 execute DB --remote --env=preview --json --command "SELECT key, json_array_length(value, '$.products') AS n, json_extract(value, '$.ms') AS ms, json_extract(value, '$.at') AS at FROM config WHERE key LIKE 'products:%' ORDER BY key" > "$RUNNER_TEMP/pages.json" || true
-              node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1]))[0].results; for (const x of r) console.log(x.key, "produktov:", x.n, "ms:", x.ms, x.at); const empty=r.filter(x=>!x.n).slice(0,4); for (const x of empty) { const [,slug,n]=x.key.split(":"); console.log("RETRY", slug, n); }' "$RUNNER_TEMP/pages.json" | tee "$RUNNER_TEMP/pages.txt" || true
-              grep '^RETRY' "$RUNNER_TEMP/pages.txt" | while read -r _ slug n; do
-                curl -s -m 90 "$url/api/leaflets/debug?slug=$slug&n=$n" | head -c 4000; echo
-              done
-            fi
           fi
 

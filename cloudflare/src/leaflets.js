@@ -192,6 +192,7 @@ export async function leafletImage(c, path) {
 export const PRODUCTS_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 const PRODUCTS_KEY = 'products:';
 const RETRY_EMPTY_MS = 30 * 60 * 1000;
+const PRODUCTS_VERSION = 2; // zvýšiť pri zmene čítania odpovede – staré výsledky sa rozpoznajú znova
 const PRODUCTS_PROMPT =
   'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page ' +
   '(ignore logos, headlines, opening hours and coupons). For each offer return its product name exactly as printed ' +
@@ -203,7 +204,8 @@ const PRODUCTS_PROMPT =
 /** Prvý JSON (pole alebo objekt) v texte odpovede modelu. */
 function extractJson(text) {
   if (text && typeof text === 'object') return text;
-  text = String(text ?? '');
+  // Llama občas uzavrie súradnice značkou namiesto zátvorky: [0.1,0.2,0.3,0.4</BBOX>}
+  text = String(text ?? '').replace(/<\/?\s*(?:bbox|box)\s*>\s*\]?/gi, ']');
   for (const [open, close] of [['[', ']'], ['{', '}']]) {
     const a = text.indexOf(open);
     const b = text.lastIndexOf(close);
@@ -215,14 +217,27 @@ function extractJson(text) {
       }
     }
   }
-  // Odrezaná alebo pokazená odpoveď: zober aspoň jednotlivé celé záznamy {…}.
+  // Odrezaná alebo pokazená odpoveď: prečítaj aspoň jednotlivé záznamy {…} – najprv ako
+  // JSON, inak po kúskoch (názov, cena a štyri čísla ohraničenia).
   const items = [];
-  for (const m of text.matchAll(/\{[^{}]*\}/g)) {
+  for (const m of text.matchAll(/\{[^{}]*\}?/g)) {
     try {
-      items.push(JSON.parse(m[0].replace(/,\s*\}/, '}')));
+      items.push(JSON.parse(m[0].replace(/,\s*\}$/, '}')));
+      continue;
     } catch {
-      // nečitateľný záznam vynecháme
+      // skús po kúskoch
     }
+    const name = m[0].match(/"(?:name|title)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    const price = m[0].match(/"price"\s*:\s*"?(\d+(?:[.,]\d+)?)/);
+    const box = m[0].match(/"(?:box|bbox)"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/);
+    if (!name || !box) continue;
+    let decoded = name[1];
+    try {
+      decoded = JSON.parse('"' + name[1] + '"');
+    } catch {
+      // necháme ako je
+    }
+    items.push({ name: decoded, price: price ? price[1].replace(',', '.') : '', box: box.slice(1, 5).map(Number) });
   }
   return items.length ? items : null;
 }
@@ -280,7 +295,9 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
   const key = PRODUCTS_KEY + slug + ':' + page.n;
   const cached = await readConfig(c, key);
   // Prázdny výsledok (model nič nenašiel alebo odpovedal nezmyselne) sa po chvíli skúsi znova.
-  if (cached && (cached.products.length || Date.now() - Date.parse(cached.at) < RETRY_EMPTY_MS)) return cached.products;
+  if (cached && cached.v === PRODUCTS_VERSION && (cached.products.length || Date.now() - Date.parse(cached.at) < RETRY_EMPTY_MS)) {
+    return cached.products;
+  }
   if (!c.ai) throw new AppError('Rozpoznávanie produktov nie je dostupné.', 503);
 
   const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
@@ -313,6 +330,7 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
       key,
       JSON.stringify({
         products,
+        v: PRODUCTS_VERSION,
         model: PRODUCTS_MODEL,
         at: new Date().toISOString(),
         ms: Date.now() - started,
@@ -322,23 +340,4 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
     )
     .run();
   return products;
-}
-
-/** DOČASNÁ diagnostika (len preview): znova rozpozná stranu a vráti aj surovú odpoveď modelu. */
-export async function debugAnalyze(c, slug, n) {
-  const flyer = await readConfig(c, FLYER_KEY + slug);
-  const index = flyer ? flyer.pages.findIndex((p) => p.n === Number(n)) : -1;
-  if (index < 0) return { error: 'strana neexistuje' };
-  const key = PRODUCTS_KEY + slug + ':' + n;
-  const before = await readConfig(c, key);
-  await c.db.prepare('DELETE FROM config WHERE key = ?').bind(key).run();
-  const t = Date.now();
-  let products;
-  try {
-    products = await analyzeLeafletPage(c, slug, index);
-  } catch (err) {
-    return { n, error: String(err.message || err), ms: Date.now() - t };
-  }
-  const after = await readConfig(c, key);
-  return { n, before: before && { count: before.products.length, ms: before.ms }, count: products.length, ms: Date.now() - t, names: products.map((p) => p.name + ' ' + p.price), raw: after && after.raw };
 }

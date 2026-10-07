@@ -208,6 +208,24 @@ test('produkty v letáku: odpoveď AI sa vyčistí (zlomky, tisíciny, pixely, o
     { name: 'Objekt', price: '3.00', box: [0.1, 0.1, 0.4, 0.3] },
   ]);
   assert.deepEqual(parseProducts('neviem'), []);
+  // skutočná odpoveď Llama 4 Scout: súradnice uzavreté značkou </BBOX> namiesto ]
+  const llama =
+    '[{"name":"Maslov\\u00fd croissant 57 g","price":0.29,"box":[0.582,0.243,0.979,0.497</BBOX>},' +
+    '{"name":"Kaizerka 55 g","price":0.09,"box":[0.667,0.670,0.994,0.951</BBOX>},' +
+    '{"name":"Zemiakov\\u00fd chlieb 500 g","price":1.05,"box":[0.667,0.853,0.994,1.000</BBOX]}]';
+  assert.deepEqual(parseProducts(llama, 707, 1200), [
+    { name: 'Maslový croissant 57 g', price: '0.29', box: [0.582, 0.243, 0.979, 0.497] },
+    { name: 'Kaizerka 55 g', price: '0.09', box: [0.667, 0.67, 0.994, 0.951] },
+    { name: 'Zemiakový chlieb 500 g', price: '1.05', box: [0.667, 0.853, 0.994, 1] },
+  ]);
+  assert.deepEqual(parseProducts('[{"name":"Med 900 g","price":3.29,"box":[0.5,0.038,0.77,0.331</bbox>}, {"name":"Vajcia \\"M\\"","price":2.39,"box":[0.042,0.338,0.249,0.623</bbox>}]'), [
+    { name: 'Med 900 g', price: '3.29', box: [0.5, 0.038, 0.77, 0.331] },
+    { name: 'Vajcia "M"', price: '2.39', box: [0.042, 0.338, 0.249, 0.623] },
+  ]);
+  // úplne rozbitý zápis – po kúskoch
+  assert.deepEqual(parseProducts('{"name":"Syr", "price": "1,5", "box": [0.1, 0.1, 0.4, 0.3)) {"name":"Bez boxu"}'), [
+    { name: 'Syr', price: '1.50', box: [0.1, 0.1, 0.4, 0.3] },
+  ]);
 });
 
 test('produkty v letáku: AI raz na stranu, potom z pamäte; chyby a limit', async () => {
@@ -243,6 +261,13 @@ test('produkty v letáku: AI raz na stranu, potom z pamäte; chyby a limit', asy
   aiAnswer = '[{"name":"Prosecco","price":2.99,"box":[0.3,0.1,0.6,0.4]}]';
   assert.equal((await roman.api.analyzeLeafletPage(slug, 0))[0].name, 'Prosecco');
   assert.equal(aiCalls.length, before + 2);
+
+  // výsledok staršej verzie čítania sa rozpozná znova
+  await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.v', 1) WHERE key = ?").bind('products:' + slug + ':1').run();
+  await roman.api.analyzeLeafletPage(slug, 0);
+  assert.equal(aiCalls.length, before + 3);
+  await roman.api.analyzeLeafletPage(slug, 0);
+  assert.equal(aiCalls.length, before + 3);
   await assert.rejects(t.call('', 'analyzeLeafletPage', slug, 1), (err) => err.status === 401);
 });
 

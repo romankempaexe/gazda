@@ -16,6 +16,7 @@ import { authenticate, endSession, startSession } from './auth.js';
 import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
+import { createImportCode, importData } from './import.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -37,9 +38,11 @@ const METHODS = {
   subscribePush: api.subscribePush,
   unsubscribePush: api.unsubscribePush,
   testPush: api.testPush,
+  createImportCode,
 };
 
 const MAX_BODY = 256 * 1024;
+const MAX_IMPORT_BODY = 5 * 1024 * 1024; // prenos celej starej Gazdy
 
 export default {
   async fetch(request, env, ctx) {
@@ -68,7 +71,7 @@ async function handleApi(request, env, url, ctx) {
     }
 
     const name = url.pathname.slice('/api/'.length);
-    const isAuth = name === 'auth/google' || name === 'auth/logout';
+    const isAuth = name === 'auth/google' || name === 'auth/logout' || name === 'import';
     const method = Object.hasOwn(METHODS, name) ? METHODS[name] : null;
     if (!method && !isAuth) return json({ error: 'Neznáma požiadavka.' }, 404);
     if (request.method !== 'POST') return json({ error: 'Použi POST.' }, 405);
@@ -77,7 +80,10 @@ async function handleApi(request, env, url, ctx) {
     if (!(request.headers.get('content-type') || '').startsWith('application/json')) {
       throw new AppError('Neplatná požiadavka.', 415);
     }
-    const body = await readJson(request);
+    const body = await readJson(request, name === 'import' ? MAX_IMPORT_BODY : MAX_BODY);
+
+    // Prenos zo starej Gazdy: overí sa jednorazovým kódom (nie prihlásením).
+    if (name === 'import') return json({ result: await importData(env.DB, body) });
 
     if (name === 'auth/google') {
       const user = await verifyGoogleIdToken(env, body.credential);
@@ -106,9 +112,9 @@ async function handleApi(request, env, url, ctx) {
   }
 }
 
-async function readJson(request) {
+async function readJson(request, max) {
   const text = await request.text();
-  if (text.length > MAX_BODY) throw new AppError('Požiadavka je príliš veľká.', 413);
+  if (text.length > max) throw new AppError('Požiadavka je príliš veľká.', 413);
   if (!text) return {};
   try {
     const data = JSON.parse(text);

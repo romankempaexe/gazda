@@ -208,3 +208,43 @@ test('prezývka: po prihlásení prázdna s návrhom z Google mena, potom ju vid
   assert.deepEqual(seen.members.map((m) => [m.email, m.nickname]), [['peter@x.sk', 'Peťo N.'], ['jana@gmail.com', '']]);
 });
 
+
+test('limit D1 (50 dotazov na požiadavku): úloha so 100 položkami potrebuje málo dotazov', async () => {
+  const h = (await roman.api.createHousehold('Sklad', '')).households.find((x) => x.name === 'Sklad');
+  const realDb = t.env.DB;
+  let queries = 0;
+  // Počítaj príkazy (aj tie v batch) – každý prepare je jeden dotaz.
+  t.env.DB = new Proxy(realDb, {
+    get(target, prop) {
+      const v = target[prop];
+      if (prop === 'prepare') return (...a) => (queries++, v.apply(target, a));
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  try {
+    const items = Array.from({ length: 100 }, (_, i) => 'Produkt ' + (i + 1) + ' x' + ((i % 3) + 1));
+    queries = 0;
+    const c = await roman.api.addCinnost(h.id, { name: 'Veľký nákup', dueDate: '2026-10-09', kind: 'nakup', store: 'Metro', items });
+    const addQueries = queries;
+    assert.equal(c.items.length, 100);
+    assert.deepEqual([c.items[0].text, c.items[0].qty, c.items[99].text, c.items[99].qty], ['Produkt 1', '1 ks', 'Produkt 100', '1 ks']);
+
+    // úprava: polovica preč, poradie otočené, jedna zmenená, dve nové
+    await roman.api.toggleItem(c.items[10].id, true);
+    const kept = c.items.slice(0, 50).reverse().map((i) => ({ id: i.id, text: i.text, qty: i.qty }));
+    kept[0].text = 'Zmenený';
+    queries = 0;
+    const u = await roman.api.updateCinnost(c.id, { ...c, items: [...kept, 'Nový A', 'Nový B'] });
+    const updateQueries = queries;
+    assert.equal(u.items.length, 52);
+    assert.equal(u.items[0].text, 'Zmenený');
+    assert.equal(u.items[1].text, 'Produkt 49');
+    assert.deepEqual(u.items.slice(-2).map((i) => i.text), ['Nový A', 'Nový B']);
+    assert.equal(u.items.find((i) => i.text === 'Produkt 11').done, true); // odškrtnutie ostalo
+    const products = (await roman.api.getHouseholdData(h.id)).products;
+    assert.equal(products.length, 102);
+    assert.ok(addQueries <= 15 && updateQueries <= 15, `dotazy: pridanie ${addQueries}, úprava ${updateQueries}`);
+  } finally {
+    t.env.DB = realDb;
+  }
+});

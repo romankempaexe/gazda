@@ -392,6 +392,8 @@ function showAccount() {
     '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
       '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom. ' +
       'Na tomto zariadení ostaneš prihlásený, kým sa neodhlásiš.</div></div>' +
+      '<button type="button" class="btn tonal small" id="import" style="margin:4px 0 12px">' +
+      '<span class="ms">refresh</span>Preniesť zo starej Gazdy</button>' +
       '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +
       '<span class="ms">edit</span>Prezývka</button>' +
       '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
@@ -400,7 +402,42 @@ function showAccount() {
       root.querySelector('#cancel').onclick = closeModal;
       root.querySelector('#logout').onclick = logout;
       root.querySelector('#nick').onclick = () => showNicknameForm(state.nickname, false);
+      root.querySelector('#import').onclick = showImportCode;
     }
+  );
+}
+
+/** Prenos zo starej Gazdy (Google tabuľka): jednorazový kód, ktorý sa zadá v starej Gazde. */
+async function showImportCode() {
+  let res;
+  try {
+    res = await api('createImportCode');
+  } catch (err) {
+    showError(err);
+    return;
+  }
+  const code = res.code.slice(0, 4) + '-' + res.code.slice(4);
+  openModal(
+    '<h2>Prenos zo starej Gazdy</h2>' +
+      '<div class="subtitle">Prenesie domácnosti, členov, priestory, úlohy, checklisty a našepkávanie ' +
+      'z Google tabuľky. Dá sa zopakovať – nič sa nezdvojí.</div>' +
+      '<div class="import-code" id="code">' + esc(code) + '</div>' +
+      '<ol class="steps">' +
+      '<li>Otvor <b>starú Gazdu</b> (Google) a ťukni na svoj krúžok vpravo hore.</li>' +
+      '<li>Zvoľ <b>Preniesť do novej Gazdy</b>.</li>' +
+      '<li>Zadaj adresu <b>' + esc(res.appUrl) + '</b> a tento kód.</li></ol>' +
+      '<div class="hint">Kód platí ' + res.minutes + ' minút a dá sa použiť raz. Prenos môže spustiť len ' +
+      'vlastník starej Gazdy a musí byť prihlásený tým istým Google účtom ako tu.</div>' +
+      '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+      '<button type="button" class="btn" id="done"><span class="ms">refresh</span>Hotovo – načítať</button></div>',
+    (root) => {
+      root.querySelector('#cancel').onclick = closeModal;
+      root.querySelector('#done').onclick = () => {
+        closeModal();
+        loadHouseholds(true);
+      };
+    },
+    { focus: false }
   );
 }
 

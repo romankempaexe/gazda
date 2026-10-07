@@ -292,10 +292,13 @@
       '<h2>Môj účet</h2><div class="subtitle">' + esc(state.email) + '</div>' +
         '<div class="members"><div><span class="ms">key</span>Do Gazdu vstupuješ cez svoj osobný odkaz. ' +
         'Ak si ho stratil alebo ho má niekto cudzí, vytvor nový – starý prestane fungovať.</div></div>' +
+        '<button type="button" class="btn tonal small" id="migrate" style="margin:4px 0 12px">' +
+        '<span class="ms">send</span>Preniesť do novej Gazdy</button>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
         '<button type="button" class="btn danger" id="regen">Vytvoriť nový odkaz</button></div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#migrate').onclick = showMigrate;
         root.querySelector('#regen').onclick = async (e) => {
           e.currentTarget.disabled = true;
           try {
@@ -308,6 +311,51 @@
               [{ email: res.email, link: res.link }]
             );
           } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  /** Prenos všetkých dát do novej Gazdy na Cloudflare (kód z novej Gazdy). */
+  function showMigrate() {
+    openModal(
+      '<h2>Preniesť do novej Gazdy</h2>' +
+        '<div class="subtitle">V novej Gazde (prihlásený tým istým Google účtom) otvor <b>Môj účet → ' +
+        'Preniesť zo starej Gazdy</b> a opíš sem kód. Prenesú sa všetky domácnosti, úlohy, checklisty ' +
+        'a našepkávanie; dá sa to zopakovať.</div>' +
+        '<form id="f"><div class="field"><label>Adresa novej Gazdy</label>' +
+        '<input name="url" type="url" required value="https://gazda.kempa.workers.dev"></div>' +
+        '<div class="field"><label>Kód</label><input name="code" required maxlength="9" autocomplete="off" ' +
+        'placeholder="ABCD-EFGH" style="text-transform:uppercase;letter-spacing:.1em"></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+        '<button class="btn"><span class="ms">send</span>Preniesť</button></div></form>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#f').onsubmit = async (e) => {
+          e.preventDefault();
+          const form = e.target;
+          const button = form.querySelector('button:not([type])');
+          button.disabled = true;
+          try {
+            const res = await api('migrateToCloudflare', form.url.value, form.code.value);
+            const c = res.counts;
+            openModal(
+              '<h2>Prenesené ✅</h2><div class="subtitle">Do novej Gazdy sa prenieslo:</div>' +
+                '<div class="members">' +
+                '<div><span class="ms">home</span>' + c.households + ' domácností, ' + c.members + ' členstiev</div>' +
+                '<div><span class="ms">location_on</span>' + c.priestory + ' priestorov</div>' +
+                '<div><span class="ms">task_alt</span>' + c.cinnosti + ' úloh, ' + c.polozky + ' položiek checklistu</div>' +
+                '<div><span class="ms">shopping_cart</span>' + c.obchody + ' obchodov, ' + c.produkty + ' produktov</div></div>' +
+                '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+                '<a class="btn" href="' + esc(res.url) + '" target="_blank" rel="noopener">Otvoriť novú Gazdu</a></div>',
+              (r) => {
+                r.querySelector('#cancel').onclick = closeModal;
+              }
+            );
+          } catch (err) {
+            button.disabled = false;
             showError(err);
           }
         };

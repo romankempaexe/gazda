@@ -283,11 +283,20 @@ async function validateCinnost(c, householdId, data) {
   };
 }
 
-const insertItem = (c) =>
-  c.db.prepare(
-    `INSERT INTO polozky (id, cinnost_id, household_id, text, qty, done, position, created_at, created_by)
-     VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`
-  );
+// Zoznamy (položky, produkty) idú do databázy ako JSON jedným príkazom – D1 na
+// bezplatnom pláne dovolí najviac 50 dotazov na jednu požiadavku.
+
+/** Príkaz, ktorý vloží nové položky checklistu (rows: { id, text, qty, position }). */
+function insertItemsStatement(c, cinnost, rows) {
+  return c.db
+    .prepare(
+      `INSERT INTO polozky (id, cinnost_id, household_id, text, qty, done, position, created_at, created_by)
+       SELECT json_extract(value, '$.id'), ?, ?, json_extract(value, '$.text'), json_extract(value, '$.qty'), 0,
+              json_extract(value, '$.position'), ?, ?
+       FROM json_each(?)`
+    )
+    .bind(cinnost.id, cinnost.household_id, nowIso(), c.email, JSON.stringify(rows));
+}
 
 /**
  * Príkazy, ktoré zosúladia checklist činnosti so zoznamom z formulára: nové položky
@@ -297,26 +306,43 @@ const insertItem = (c) =>
 async function syncItemsStatements(c, cinnost, items) {
   const { results: existing } = await c.db.prepare('SELECT * FROM polozky WHERE cinnost_id = ?').bind(cinnost.id).all();
   const byId = new Map(existing.map((i) => [i.id, i]));
-  const keep = new Set();
-  const statements = [];
-  const now = nowIso();
+  const keep = [];
+  const changed = [];
+  const added = [];
   items.forEach((item, index) => {
     const position = index + 1;
     const current = item.id && byId.get(item.id);
     if (current) {
-      keep.add(current.id);
+      keep.push(current.id);
       if (current.text !== item.text || (current.qty || '') !== item.qty || current.position !== position) {
-        statements.push(
-          c.db.prepare('UPDATE polozky SET text = ?, qty = ?, position = ? WHERE id = ?').bind(item.text, item.qty, position, current.id)
-        );
+        changed.push({ id: current.id, text: item.text, qty: item.qty, position });
       }
     } else {
-      statements.push(insertItem(c).bind(uuid(), cinnost.id, cinnost.household_id, item.text, item.qty, position, now, c.email));
+      added.push({ id: uuid(), text: item.text, qty: item.qty, position });
     }
   });
-  for (const i of existing) {
-    if (!keep.has(i.id)) statements.push(c.db.prepare('DELETE FROM polozky WHERE id = ?').bind(i.id));
+  const statements = [];
+  if (existing.length > keep.length) {
+    statements.push(
+      c.db
+        .prepare('DELETE FROM polozky WHERE cinnost_id = ? AND id NOT IN (SELECT value FROM json_each(?))')
+        .bind(cinnost.id, JSON.stringify(keep))
+    );
   }
+  if (changed.length) {
+    statements.push(
+      c.db
+        .prepare(
+          `UPDATE polozky SET text = j.text, qty = j.qty, position = j.position
+           FROM (SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.text') AS text,
+                        json_extract(value, '$.qty') AS qty, json_extract(value, '$.position') AS position
+                 FROM json_each(?)) AS j
+           WHERE polozky.id = j.id`
+        )
+        .bind(JSON.stringify(changed))
+    );
+  }
+  if (added.length) statements.push(insertItemsStatement(c, cinnost, added));
   return statements;
 }
 
@@ -331,18 +357,18 @@ function rememberShoppingStatements(c, householdId, store, texts) {
         .bind(householdId, nameKey(store), store, now)
     );
   }
-  const seen = new Set();
-  for (const text of texts) {
-    const key = nameKey(text);
-    if (!text || seen.has(key)) continue;
-    seen.add(key);
+  const products = new Map();
+  for (const text of texts) if (text && !products.has(nameKey(text))) products.set(nameKey(text), text);
+  if (products.size) {
     statements.push(
       c.db
         .prepare(
-          `INSERT INTO produkty (household_id, name_key, name, uses, last_used) VALUES (?, ?, ?, 1, ?)
+          // „WHERE true“ je nutné, aby SQLite nebralo ON CONFLICT ako súčasť SELECT.
+          `INSERT INTO produkty (household_id, name_key, name, uses, last_used)
+           SELECT ?, json_extract(value, '$[0]'), json_extract(value, '$[1]'), 1, ? FROM json_each(?) WHERE true
            ON CONFLICT (household_id, name_key) DO UPDATE SET uses = uses + 1, last_used = excluded.last_used`
         )
-        .bind(householdId, key, text, now)
+        .bind(householdId, now, JSON.stringify([...products]))
     );
   }
   return statements;
@@ -397,7 +423,7 @@ export async function addItem(c, cinnostId, text, qty) {
   if (stats.n >= MAX_ITEMS) throw new AppError('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
   const item = { id: uuid(), text, qty, done: false };
   await c.db.batch([
-    insertItem(c).bind(item.id, cinnost.id, cinnost.household_id, text, qty, stats.last + 1, nowIso(), c.email),
+    insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, position: stats.last + 1 }]),
     ...rememberShoppingStatements(c, cinnost.household_id, '', [text]),
   ]);
   return item;

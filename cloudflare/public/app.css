@@ -1376,3 +1376,22 @@ body.with-tabs .toast {
   max-width: 320px;
   margin: 0 auto;
 }
+
+/* Prenos zo starej Gazdy */
+.import-code {
+  font: 700 30px/1.2 ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 16px;
+  margin: 8px 0 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--primary-strong);
+  user-select: all;
+}
+
+.steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  line-height: 1.6;
+}

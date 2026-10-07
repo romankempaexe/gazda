@@ -4,10 +4,10 @@ Nová verzia Gazdy na **Cloudflare Workers** s databázou **D1**. Beží zadarmo
 (bezplatný plán Cloudflare), bez platobnej karty. Upozornenia budú len ako
 push notifikácie priamo z aplikácie.
 
-> Stav: **fáza 4 – upozornenia.** Gazda na Cloudflare má všetky funkcie verzie Apps Script,
+> Stav: **fáza 5 – prenos dát.** Gazda na Cloudflare má všetky funkcie verzie Apps Script,
 > upozornenia chodia ako **push notifikácie** priamo z aplikácie, dá sa nainštalovať na
 > plochu a každý sa prihlasuje **svojím Google účtom** (žiadne osobné odkazy).
-> Dáta sa z Google tabuľky prenesú vo fáze 5; dovtedy Gazda beží aj na Apps Script.
+> Dáta zo starej Gazdy (Google tabuľka) sa prenesú tlačidlom – pozri *Prenos zo starej Gazdy*.
 
 ## Súbory
 
@@ -19,6 +19,7 @@ push notifikácie priamo z aplikácie.
 | `src/auth.js` | Prihlásenie: relácia v cookie (v databáze len SHA-256 odtlačok) |
 | `src/google.js` | Overenie Google ID tokenu (podpis RS256, Client ID, platnosť, overený e-mail) |
 | `src/notifications.js` | Upozornenia: nová pridelená úloha, ranný prehľad (cron), odbery |
+| `src/import.js` | Prenos dát zo starej Gazdy (jednorazový kód, čistenie, hromadný zápis) |
 | `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
 | `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
 | `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
@@ -38,6 +39,9 @@ Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
 `subscribePush`, `unsubscribePush`, `testPush`. `GET /api/health` overí databázu.
+
+Prenos: `createImportCode` (prihlásený) a `POST /api/import` `{"code", "data"}`
+(volá stará Gazda, overí sa kódom; telo do 5 MB).
 
 Prihlásenie: `GET /api/auth/config` (Client ID pre tlačidlo Google),
 `POST /api/auth/google` `{"credential": "<ID token>"}` – server overí token
@@ -87,6 +91,23 @@ pre každé zariadenie zvlášť. Chodia, aj keď Gazda nie je otvorená:
 - Ranný prehľad spúšťa **cron** Cloudflare každých 15 minút (`wrangler.json` → `triggers`);
   pošle sa raz denne (dátum posledného je v tabuľke `config`).
 - Pri odhlásení sa upozornenia na danom zariadení vypnú.
+
+## Prenos zo starej Gazdy (Google tabuľka)
+
+1. V **novej Gazde** (prihlásený tým istým Google účtom, s ktorým používaš starú) ťukni na
+   svoj krúžok → **Preniesť zo starej Gazdy**. Zobrazí sa jednorazový kód (platí 30 minút).
+2. V **starej Gazde** ťukni na krúžok → **Preniesť do novej Gazdy**, skontroluj adresu
+   (`https://gazda.<subdoména>.workers.dev`) a zadaj kód. Spustiť to smie len vlastník
+   starej Gazdy (účet, pod ktorým beží Apps Script).
+3. Stará Gazda pošle všetky listy na `POST /api/import`; nová ich skontroluje a uloží
+   jednou transakciou. V novej Gazde ťukni **Hotovo – načítať**.
+
+Prenesú sa domácnosti, členovia, priestory, úlohy (s opakovaním), checklisty s počtom
+a stavom, obchody, produkty a naposledy otvorená domácnosť každého člena. Ostatní sa
+potom len prihlásia svojím Google účtom (tým e-mailom, ktorý mali v starej Gazde)
+a zvolia si prezývku. Prenos sa dá zopakovať – podľa id sa záznamy aktualizujú, nič
+sa nezdvojí ani nezmaže (úlohy pridané medzitým v novej Gazde ostanú). Po 10
+nesprávnych kódoch kód prestane platiť.
 
 ## Databáza
 

@@ -411,28 +411,49 @@ export async function preanalyzeLeaflets(c, max = 4) {
   return count;
 }
 
-/** DOČASNÁ diagnostika: odkiaľ sa dajú brať letáky iných obchodov. */
+/** DOČASNÁ diagnostika: štruktúra Kimbina, Coopu a Billy. */
 export async function debugStores() {
-  const pages = [
-    'https://www.kaufland.sk/letak.html',
-    'https://www.billa.sk/akciovy-letak',
-    'https://tesco.sk/akciove-ponuky/letaky-a-katalogy/',
-    'https://www.penny.sk/letaky',
-    'https://www.coop.sk/letaky',
-    'https://www.terno.sk/letaky/',
-    'https://www.kimbino.sk/',
-  ];
-  const LINK = /(?:https?:)?\/\/[^"'\s<>)]*?(?:publitas|issuu|leaflet|flyer|letak|let%C3%A1k|katalog|\.pdf|yumpu|view\.|prospekt|offerista|bonial|kimbino)[^"'\s<>)]*/gi;
-  return Promise.all(
-    pages.map(async (url) => {
-      try {
-        const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
-        const text = await res.text();
-        const links = [...new Set([...text.matchAll(LINK)].map((m) => m[0]))].slice(0, 14);
-        return { url, status: res.status, final: res.url, length: text.length, schwarz: /leaflets\.schwarz|flyer_identifier/.test(text), links };
-      } catch (err) {
-        return { url, error: String(err).slice(0, 200) };
-      }
-    })
-  );
+  const get = async (url) => {
+    const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
+    return { status: res.status, final: res.url, text: await res.text() };
+  };
+  const around = (text, re, n = 3, w = 500) =>
+    [...text.matchAll(re)].slice(0, n).map((m) => text.slice(Math.max(0, m.index - 150), m.index + w).replace(/\s+/g, ' '));
+  const uniq = (text, re, n = 40) => [...new Set([...text.matchAll(re)].map((m) => m[1] || m[0]))].slice(0, n);
+  const out = {};
+  try {
+    const home = await get('https://www.kimbino.sk/');
+    out.kimbinoStores = uniq(home.text, /href="https:\/\/www\.kimbino\.sk\/([a-z0-9-]+)\/"/g, 60);
+    const tesco = await get('https://www.kimbino.sk/tesco/');
+    out.tesco = { status: tesco.status, final: tesco.final, length: tesco.text.length,
+      links: uniq(tesco.text, /href="(https:\/\/www\.kimbino\.sk\/tesco\/[^"]+)"/g, 15),
+      scripts: uniq(tesco.text, /<script[^>]+id="([^"]+)"/g, 10),
+      cdn: around(tesco.text, /leafletscdn/g, 2, 300) };
+    const leafletUrl = out.tesco.links.find((l) => /\d/.test(l));
+    if (leafletUrl) {
+      const lf = await get(leafletUrl);
+      out.tescoLeaflet = { url: leafletUrl, status: lf.status, length: lf.text.length,
+        cdnCount: (lf.text.match(/leafletscdn/g) || []).length,
+        cdn: around(lf.text, /leafletscdn/g, 3, 300),
+        json: around(lf.text, /"(?:pages|images|pageCount|valid_?(?:from|to)|validFrom|validTo)"\s*:/g, 4, 400),
+        links: uniq(lf.text, /href="(https:\/\/www\.kimbino\.sk\/tesco\/[^"]+)"/g, 10) };
+    }
+  } catch (err) {
+    out.kimbinoError = String(err);
+  }
+  try {
+    const coop = await get('https://www.coop.sk/letaky/tempo-40-2026');
+    out.coop = { status: coop.status, length: coop.text.length,
+      files: uniq(coop.text, /((?:https?:)?\/\/[^"'\s<>]+?\.(?:pdf|jpe?g|png|webp))/gi, 20),
+      doc: around(coop.text, /document/g, 3, 400) };
+  } catch (err) {
+    out.coopError = String(err);
+  }
+  try {
+    const billa = await get('https://www.billa.sk/');
+    out.billa = { status: billa.status, links: uniq(billa.text, /href="([^"]*let[aá]k[^"]*)"/gi, 15) };
+  } catch (err) {
+    out.billaError = String(err);
+  }
+  return out;
 }

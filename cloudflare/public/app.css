@@ -1963,3 +1963,112 @@ body.lf-open {
 .tile.done .tile-check {
   color: var(--muted);
 }
+
+/* Položka nákupu, ktorú nemali */
+.miss-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 4px 6px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.miss-btn .ms {
+  font-size: 19px;
+}
+
+.miss-btn.on {
+  color: #fff;
+  background: var(--accent);
+}
+
+.miss-btn.on .ms {
+  font-size: 15px;
+}
+
+.check-item.missing .check-text,
+.tile.missing .tile-text,
+.st-missing .check-text,
+.st-missing .tile-text {
+  color: var(--accent);
+  text-decoration: line-through;
+}
+
+.check-item.missing > .ms:first-child,
+.tile.missing .tile-check,
+.st-missing > .ms:first-child,
+.tile.st-missing .tile-check {
+  color: var(--accent);
+}
+
+.tile.missing img {
+  opacity: 0.45;
+}
+
+.tile-meta .miss-btn {
+  padding: 2px 4px;
+}
+
+/* História */
+.hist-card .tile {
+  cursor: zoom-in;
+}
+
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: 14.5px;
+}
+
+.hist-row > .ms {
+  font-size: 20px;
+  color: var(--primary-strong);
+}
+
+.st-open .check-text,
+.st-open .tile-text,
+.st-open > .ms:first-child,
+.tile.st-open .tile-check {
+  color: var(--muted);
+}
+
+.tile.st-open img {
+  opacity: 0.45;
+}
+
+.tag.tag-warn {
+  background: rgba(249, 115, 22, 0.14);
+  color: var(--accent);
+}
+
+/* Spodná lišta s tromi kartami: ikona nad textom, aby sa nič nezalamovalo */
+.bottom-nav {
+  width: min(400px, calc(100% - 32px));
+}
+
+.bottom-nav .tab {
+  position: relative;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.bottom-nav .tab .ms {
+  font-size: 22px;
+}
+
+.bottom-nav .tab .badge {
+  position: absolute;
+  top: 3px;
+  left: calc(50% + 6px);
+}

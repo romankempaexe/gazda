@@ -11,7 +11,7 @@
 
 import * as api from './api.js';
 import { authenticate } from './auth.js';
-import { AppError, todayYmd } from './domain.js';
+import { AppError, TOKEN_RE, todayYmd } from './domain.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú platný osobný kľúč).
 const METHODS = {
@@ -38,6 +38,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url);
+    if (url.pathname === '/manifest.webmanifest') return manifest(url);
     return env.ASSETS.fetch(request);
   },
 };
@@ -78,6 +79,33 @@ async function handleApi(request, env, url) {
     console.error(err);
     return json({ error: 'Chyba servera. Skús to znova.' }, 500);
   }
+}
+
+/**
+ * Manifest na inštaláciu na plochu. Ikona na ploche otvorí start_url – s osobným
+ * kľúčom, aby bol používateľ hneď prihlásený (iPhone nezdieľa úložisko so Safari).
+ */
+function manifest(url) {
+  const k = String(url.searchParams.get('k') || '').toLowerCase();
+  const body = {
+    name: 'Gazda',
+    short_name: 'Gazda',
+    description: 'Domáce práce a nákupy pre celú domácnosť',
+    lang: 'sk',
+    start_url: TOKEN_RE.test(k) ? '/?k=' + k : '/',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#f4f6f3',
+    theme_color: '#16a34a',
+    icons: [
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+  };
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'no-store' },
+  });
 }
 
 /** Overí spojenie s databázou a že sú v nej tabuľky (migrácie prebehli). */

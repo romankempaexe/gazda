@@ -27,3 +27,20 @@ test('neznáma API cesta vráti 404, ostatné ide na statické súbory', async (
     await t.dispose();
   }
 });
+
+test('manifest: start_url s platným kľúčom, inak bez neho', async () => {
+  const t = await setup();
+  try {
+    const k = 'ab'.repeat(16);
+    let res = await t.fetch('/manifest.webmanifest?k=' + k);
+    assert.equal(res.headers.get('content-type'), 'application/manifest+json; charset=utf-8');
+    const m = await res.json();
+    assert.equal(m.start_url, '/?k=' + k);
+    assert.equal(m.display, 'standalone');
+    assert.equal(m.icons.length, 3);
+    res = await t.fetch('/manifest.webmanifest?k=<script>');
+    assert.equal((await res.json()).start_url, '/');
+  } finally {
+    await t.dispose();
+  }
+});

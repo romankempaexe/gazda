@@ -4,9 +4,9 @@ Nová verzia Gazdy na **Cloudflare Workers** s databázou **D1**. Beží zadarmo
 (bezplatný plán Cloudflare), bez platobnej karty. Upozornenia budú len ako
 push notifikácie priamo z aplikácie.
 
-> Stav: **fáza 2 – server.** API má všetky funkcie Gazdy (domácnosti, odkazy, priestory,
-> činnosti, checklist, nákup); aplikácia v prehliadači sa naň napojí vo fáze 3.
-> Gazda ďalej beží na Google Apps Script (`apps_script/`).
+> Stav: **fáza 3 – aplikácia.** Gazda na Cloudflare má všetky funkcie verzie Apps Script
+> okrem upozornení (push notifikácie pribudnú vo fáze 4) a dá sa nainštalovať na plochu.
+> Dáta sa z Google tabuľky prenesú vo fáze 5; dovtedy Gazda beží aj na Apps Script.
 
 ## Súbory
 
@@ -17,7 +17,9 @@ push notifikácie priamo z aplikácie.
 | `src/domain.js` | Doménová logika: opakovanie, počet pri položkách, validácie |
 | `src/auth.js` | Osobné odkazy (SHA-256 odtlačok kľúča, ako vo verzii Apps Script) |
 | `src/notifications.js` | Push notifikácie (fáza 4) |
-| `public/` | Statické súbory stránky |
+| `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
+| `public/sw.js` | Service worker: otvorenie bez internetu (neskôr push) |
+| `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
 | `wrangler.json` | Nastavenie Workera; `database_id` doplní CI automaticky |
 | `scripts/ensure-d1.mjs` | Nájde alebo pri prvom nasadení vytvorí databázu D1 |
@@ -37,6 +39,18 @@ Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 
 Zápisy, ktoré patria k sebe (napr. činnosť s checklistom a našepkávaním), idú
 jedným `batch` – D1 ich vykoná ako jednu transakciu.
+
+## Aplikácia v telefóne
+
+- Vstup cez osobný odkaz `https://gazda.<subdoména>.workers.dev/?k=<kľúč>`; kľúč sa
+  uloží v telefóne, takže ďalšie otvorenie funguje aj bez neho.
+- **Inštalácia na plochu:** Android/Chrome – menu ⋮ → *Pridať na plochu* (alebo
+  *Inštalovať aplikáciu*); iPhone/Safari – *Zdieľať* → *Pridať na plochu*.
+  Manifest (`/manifest.webmanifest?k=…`) generuje server a do `start_url` dá osobný
+  kľúč, aby bola aplikácia z plochy hneď prihlásená (iPhone nezdieľa úložisko so Safari).
+- **Automatická obnova:** otvorená domácnosť sa každých 20 s (a po návrate do
+  aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
+- **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
 
 ## Databáza
 

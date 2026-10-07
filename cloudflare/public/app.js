@@ -219,7 +219,7 @@ function showLogin(expired) {
   document.body.classList.remove('with-tabs');
   $('title').textContent = 'Gazda';
   $('view').innerHTML =
-    '<div class="empty login"><span class="ms">lock</span>' +
+    '<div class="empty login"><img class="login-logo" src="/icons/icon.svg" alt="">' +
     '<h2>Prihlás sa do Gazdu</h2>' +
     '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
     'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal domácnosť.</div>' +
@@ -392,6 +392,10 @@ function showAccount() {
     '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
       '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom. ' +
       'Na tomto zariadení ostaneš prihlásený, kým sa neodhlásiš.</div></div>' +
+      (canInstall()
+        ? '<button type="button" class="btn small" id="install" style="margin:4px 8px 12px 0">' +
+          '<span class="ms">add</span>Nainštalovať Gazdu</button>'
+        : '') +
       '<button type="button" class="btn tonal small" id="import" style="margin:4px 0 12px">' +
       '<span class="ms">refresh</span>Preniesť zo starej Gazdy</button>' +
       '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +
@@ -403,6 +407,8 @@ function showAccount() {
       root.querySelector('#logout').onclick = logout;
       root.querySelector('#nick').onclick = () => showNicknameForm(state.nickname, false);
       root.querySelector('#import').onclick = showImportCode;
+      const install = root.querySelector('#install');
+      if (install) install.onclick = installApp;
     }
   );
 }
@@ -840,7 +846,8 @@ function renderHouseholds() {
   html +=
     '<div class="fab-bar"><button class="btn" id="addHouseholdBtn">' +
     '<span class="ms">add</span>Pridať domácnosť</button></div>';
-  $('view').innerHTML = html;
+  $('view').innerHTML = installBannerHtml() + html;
+  bindInstallBanner();
 
   $('addHouseholdBtn').onclick = showAddHousehold;
   $('view').querySelectorAll('[data-open]').forEach((el) => {
@@ -1036,7 +1043,8 @@ function renderDetail(opts) {
   const onlyMine = state.tab === 'rozpis';
   let html = renderCalendar(onlyMine);
   html += onlyMine ? renderRozpis() : renderPlanovanie();
-  $('view').innerHTML = html;
+  $('view').innerHTML = installBannerHtml() + html;
+  bindInstallBanner();
   // Tiché prekreslenie (po uložení) bez animácie kariet, aby nepreblikli.
   $('view').classList.toggle('no-anim', Boolean(opts && opts.quiet));
   bindDetailEvents();
@@ -2038,10 +2046,23 @@ async function showNotificationSettings() {
     buttons += '<button type="button" class="btn" id="on"><span class="ms">notifications_active</span>Zapnúť</button>';
   }
 
+  const installTip =
+    pushSupported() && canInstall()
+      ? '<div class="hint" style="margin-bottom:10px">💡 Najprv si Gazdu <a href="#" id="installTip">nainštaluj</a> – ' +
+        'upozornenia potom prídu s ikonou a menom Gazdy (nie prehliadača). Zapni ich v nainštalovanej aplikácii.</div>'
+      : '';
   openModal(
-    '<h2>Upozornenia</h2><div class="subtitle">' + status + '</div>' + what + '<div class="actions">' + buttons + '</div>',
+    '<h2>Upozornenia</h2><div class="subtitle">' + status + '</div>' + what + installTip +
+      '<div class="actions">' + buttons + '</div>',
     (root) => {
       root.querySelector('#cancel').onclick = closeModal;
+      const tip = root.querySelector('#installTip');
+      if (tip) {
+        tip.onclick = (e) => {
+          e.preventDefault();
+          installApp();
+        };
+      }
       const on = root.querySelector('#on');
       if (on) {
         on.onclick = async () => {
@@ -2089,6 +2110,92 @@ async function showNotificationSettings() {
     },
     { focus: false }
   );
+}
+
+// -------------------------------------------------------------------------
+// Inštalácia aplikácie (vlastná ikona, notifikácie pod menom Gazda)
+// -------------------------------------------------------------------------
+
+let installPrompt = null; // Android/Chrome: systémové okno inštalácie
+const INSTALL_DISMISSED_KEY = 'gazda.installDismissed';
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault(); // namiesto lišty Chrome ponúkneme inštaláciu v aplikácii
+  installPrompt = e;
+  refreshInstallBanner();
+});
+
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  refreshInstallBanner();
+  toast('Gazda je nainštalovaná – nájdeš ju medzi aplikáciami');
+});
+
+function isIosSafari() {
+  return isIos() && /safari/i.test(navigator.userAgent) && !/crios|fxios|edgios|gsa/i.test(navigator.userAgent);
+}
+
+/** Dá sa Gazda nainštalovať (a ešte nie je)? */
+function canInstall() {
+  return !isStandalone() && Boolean(installPrompt || isIosSafari());
+}
+
+async function installApp() {
+  if (installPrompt) {
+    const prompt = installPrompt;
+    installPrompt = null;
+    prompt.prompt();
+    const choice = await prompt.userChoice.catch(() => null);
+    if (!choice || choice.outcome !== 'accepted') installPrompt = prompt; // ponuka ostáva
+    refreshInstallBanner();
+    return;
+  }
+  openModal(
+    '<h2>Nainštaluj si Gazdu</h2>' +
+      '<div class="subtitle">Na iPhone sa Gazda inštaluje cez Safari:</div>' +
+      '<ol class="steps"><li>Ťukni dole na <b>Zdieľať</b> (štvorček so šípkou).</li>' +
+      '<li>Zvoľ <b>Pridať na plochu</b> a potvrď <b>Pridať</b>.</li>' +
+      '<li>Otvor Gazdu z plochy, prihlás sa a zapni upozornenia 🔔.</li></ol>' +
+      '<div class="actions"><button type="button" class="btn" id="cancel">Rozumiem</button></div>',
+    (root) => {
+      root.querySelector('#cancel').onclick = closeModal;
+    },
+    { focus: false }
+  );
+}
+
+function installBannerHtml() {
+  if (!canInstall() || readFlag(INSTALL_DISMISSED_KEY)) return '';
+  return (
+    '<div class="install-banner" id="installBanner"><img src="/icons/icon.svg" alt="">' +
+    '<div class="text"><b>Nainštaluj si Gazdu</b>Ikona a upozornenia s logom Gazdy</div>' +
+    '<button type="button" class="btn small" data-install>Inštalovať</button>' +
+    '<button type="button" class="icon-btn small" data-install-close title="Teraz nie"><span class="ms">close</span></button></div>'
+  );
+}
+
+function bindInstallBanner() {
+  const banner = $('installBanner');
+  if (!banner) return;
+  banner.querySelector('[data-install]').onclick = installApp;
+  banner.querySelector('[data-install-close]').onclick = () => {
+    setFlag(INSTALL_DISMISSED_KEY, true);
+    banner.remove();
+  };
+}
+
+/** Ukáž / skry ponuku inštalácie na aktuálnej obrazovke. */
+function refreshInstallBanner() {
+  const view = $('view');
+  const current = $('installBanner');
+  const html = state.email ? installBannerHtml() : '';
+  if (!html) {
+    if (current) current.remove();
+    return;
+  }
+  if (current) return;
+  view.insertAdjacentHTML('afterbegin', html);
+  bindInstallBanner();
 }
 
 // -------------------------------------------------------------------------

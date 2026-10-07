@@ -64,9 +64,15 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
   a domácnosť hneď vidí. V okne *Zdieľať* je vidieť, kto sa ešte neprihlásil.
 - **Posledná domácnosť:** pri otvorení Gazdy (aj na novom zariadení po prihlásení)
   sa rovno otvorí naposledy otvorená domácnosť.
-- **Inštalácia na plochu:** Android/Chrome – menu ⋮ → *Pridať na plochu* (alebo
-  *Inštalovať aplikáciu*); iPhone/Safari – *Zdieľať* → *Pridať na plochu*
-  (na iPhone sa v aplikácii z plochy treba raz prihlásiť znova).
+- **Inštalácia ako aplikácia:** Gazda sama ponúkne **Nainštalovať Gazdu** (lišta hore
+  a tlačidlo v *Môj účet*). Na Androide Chrome vytvorí skutočnú aplikáciu s ikonou
+  Gazdy – v zozname aplikácií aj v nastaveniach a **notifikácie chodia pod menom
+  a ikonou Gazdy** (nie Chrome). Upozornenia treba zapnúť v nainštalovanej aplikácii.
+  Na iPhone Gazda ukáže návod *Zdieľať* → *Pridať na plochu* (v aplikácii z plochy
+  sa treba raz prihlásiť znova).
+- **Ikona:** `public/icons/` (SVG + PNG 192/512, maskable, apple-touch, favicon,
+  jednofarebný badge do stavového riadku Androidu). Vyrába ich
+  `node scripts/render-icons.cjs public/icons` z kresby v `scripts/icon-art.cjs`.
 - **Automatická obnova:** otvorená domácnosť sa každých 20 s (a po návrate do
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.

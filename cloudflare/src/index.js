@@ -128,6 +128,7 @@ async function readJson(request, max) {
 /** Manifest na inštaláciu na plochu. */
 function manifest() {
   const body = {
+    id: '/',
     name: 'Gazda',
     short_name: 'Gazda',
     description: 'Domáce práce a nákupy pre celú domácnosť',
@@ -138,8 +139,8 @@ function manifest() {
     background_color: '#f4f6f3',
     theme_color: '#16a34a',
     icons: [
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   };

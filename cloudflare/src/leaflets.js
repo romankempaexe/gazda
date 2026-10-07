@@ -648,7 +648,7 @@ export async function debugPages(c) {
       await getLeaflet(c, list[0].slug);
       const page = (await readConfig(c, FLYER_KEY + list[0].slug)).pages[index];
       const products = await analyzeLeafletPage(c, list[0].slug, index);
-      out.push({ store, page: page.n, image: absImage(page.image), products });
+      out.push({ store, page: page.n, image: absImage(page.thumb || page.image), products });
     } catch (err) {
       out.push({ store, error: String(err.message || err) });
     }

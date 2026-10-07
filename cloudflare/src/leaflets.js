@@ -179,3 +179,23 @@ export async function leafletImage(c, path) {
     headers: { 'content-type': type, 'cache-control': 'private, max-age=604800, immutable' },
   });
 }
+
+/** DOČASNÁ diagnostika: čo všetko je v dátach letáka o produktoch. */
+export async function debugFlyer(c) {
+  const slugs = await findSlugs(c);
+  const url = FLYER_API + '?flyer_identifier=' + encodeURIComponent(slugs[0]) + '&region_id=0&region_code=0';
+  const body = await (await fetcher(c)(url, { headers: { ...HEADERS, accept: 'application/json' } })).json();
+  const text = JSON.stringify(body);
+  const snippets = (re) => [...text.matchAll(re)].slice(0, 6).map((m) => text.slice(Math.max(0, m.index - 300), m.index + 400));
+  const f = body.flyer || {};
+  return {
+    slug: slugs[0],
+    size: text.length,
+    topKeys: Object.keys(body),
+    flyerKeys: Object.keys(f),
+    pageKeys: f.pages && Object.keys(f.pages[1] || {}),
+    links: (f.pages || []).slice(1, 4).map((p) => JSON.stringify(p.links).slice(0, 2500)),
+    price: snippets(/"price/gi),
+    product: snippets(/"product/gi).slice(0, 3),
+  };
+}

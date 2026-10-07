@@ -62,19 +62,22 @@ CREATE INDEX polozky_cinnost ON polozky(cinnost_id, position);
 CREATE INDEX polozky_household ON polozky(household_id);
 
 -- Obchody a produkty, ktoré domácnosť už zadala (našepkávanie).
+-- name_key = názov malými písmenami (aj s diakritikou), aby „Šunka“ a „šunka“ boli to isté.
 CREATE TABLE obchody (
   household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-  name TEXT NOT NULL COLLATE NOCASE,
+  name_key TEXT NOT NULL,
+  name TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  PRIMARY KEY (household_id, name)
+  PRIMARY KEY (household_id, name_key)
 );
 
 CREATE TABLE produkty (
   household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-  name TEXT NOT NULL COLLATE NOCASE,
+  name_key TEXT NOT NULL,
+  name TEXT NOT NULL,
   uses INTEGER NOT NULL DEFAULT 1,
   last_used TEXT NOT NULL,
-  PRIMARY KEY (household_id, name)
+  PRIMARY KEY (household_id, name_key)
 );
 
 -- Používatelia; token_hash = SHA-256 kľúča z osobného odkazu (kľúč sa neukladá).

@@ -4,25 +4,46 @@ Nová verzia Gazdy na **Cloudflare Workers** s databázou **D1**. Beží zadarmo
 (bezplatný plán Cloudflare), bez platobnej karty. Upozornenia budú len ako
 push notifikácie priamo z aplikácie.
 
-> Stav: **fáza 1 – základ.** Na adrese beží zatiaľ len úvodná stránka a kontrola
-> databázy. Aplikácia Gazda ďalej beží na Google Apps Script (`apps_script/`).
+> Stav: **fáza 2 – server.** API má všetky funkcie Gazdy (domácnosti, odkazy, priestory,
+> činnosti, checklist, nákup); aplikácia v prehliadači sa naň napojí vo fáze 3.
+> Gazda ďalej beží na Google Apps Script (`apps_script/`).
 
 ## Súbory
 
 | Súbor / priečinok | Obsah |
 |---|---|
-| `src/index.js` | Server (Worker): API na `/api/*`, ostatné sú statické súbory |
+| `src/index.js` | Server (Worker): smerovanie `/api/*`, ostatné sú statické súbory |
+| `src/api.js` | Funkcie API (rovnaké ako vo verzii Apps Script) |
+| `src/domain.js` | Doménová logika: opakovanie, počet pri položkách, validácie |
+| `src/auth.js` | Osobné odkazy (SHA-256 odtlačok kľúča, ako vo verzii Apps Script) |
+| `src/notifications.js` | Push notifikácie (fáza 4) |
 | `public/` | Statické súbory stránky |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
 | `wrangler.json` | Nastavenie Workera; `database_id` doplní CI automaticky |
 | `scripts/ensure-d1.mjs` | Nájde alebo pri prvom nasadení vytvorí databázu D1 |
 | `test/` | Testy (lokálna D1, `npm test`) |
 
+## API
+
+`POST /api/<funkcia>` s telom `{"args": [...]}` a hlavičkou
+`Authorization: Bearer <kľúč z osobného odkazu>`. Odpoveď je `{"result": …}`,
+pri chybe `{"error": "text pre používateľa"}` (neplatný odkaz: HTTP 401 a text
+začína `NEPLATNY_ODKAZ:`).
+
+Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
+`createMemberLink`, `regenerateMyLink`, `deleteHousehold`, `getHouseholdData`,
+`addPriestor`, `addCinnost`, `updateCinnost`, `addItem`, `toggleItem`,
+`deleteCinnost`, `completeCinnost`. `GET /api/health` overí databázu.
+
+Zápisy, ktoré patria k sebe (napr. činnosť s checklistom a našepkávaním), idú
+jedným `batch` – D1 ich vykoná ako jednu transakciu.
+
 ## Databáza
 
 Tabuľky zodpovedajú listom Google tabuľky: `households`, `members`, `priestory`,
 `cinnosti`, `polozky`, `obchody`, `produkty`, `users`. Databáza sa vytvorí
-v západnej Európe.
+v západnej Európe. Obchody a produkty sa porovnávajú podľa `name_key` (názov
+malými písmenami aj s diakritikou), aby „Šunka“ a „šunka“ boli jeden produkt.
 
 ## Automatické nasadenie (GitHub Actions)
 

@@ -10,8 +10,8 @@
  */
 
 import * as api from './api.js';
-import { authenticate } from './auth.js';
-import { AppError, TOKEN_RE, todayYmd } from './domain.js';
+import { authenticate, hashToken, issueToken, personalLink } from './auth.js';
+import { AppError, EMAIL_RE, TOKEN_RE, todayYmd } from './domain.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú platný osobný kľúč).
 const METHODS = {
@@ -49,6 +49,10 @@ async function handleApi(request, env, url) {
       return json({ ok: true, ...(await health(env)) });
     }
 
+    if (url.pathname === '/api/admin/link' && request.method === 'POST') {
+      return json({ result: await adminLink(request, env, url) });
+    }
+
     const name = url.pathname.slice('/api/'.length);
     const method = Object.hasOwn(METHODS, name) ? METHODS[name] : null;
     if (!method) return json({ error: 'Neznáma požiadavka.' }, 404);
@@ -79,6 +83,30 @@ async function handleApi(request, env, url) {
     console.error(err);
     return json({ error: 'Chyba servera. Skús to znova.' }, 500);
   }
+}
+
+/**
+ * Správca (náhrada funkcie mojOdkaz z Apps Script): vytvorí osobný odkaz pre e-mail.
+ * Chránené heslom ADMIN_KEY (Worker secret, nastavuje ho CI z GitHub secretu
+ * GAZDA_ADMIN_KEY). Nový odkaz nahradí starý odkaz daného človeka.
+ */
+async function adminLink(request, env, url) {
+  if (!env.ADMIN_KEY || env.ADMIN_KEY.length < 12) {
+    throw new AppError('Správca nie je nastavený (chýba heslo ADMIN_KEY).', 404);
+  }
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    throw new AppError('Neplatná požiadavka.');
+  }
+  // Porovnanie odtlačkov – nezávisí od toho, koľko znakov hesla sa zhoduje.
+  if ((await hashToken(String(data.adminKey ?? ''))) !== (await hashToken(env.ADMIN_KEY))) {
+    throw new AppError('Nesprávne heslo správcu.', 403);
+  }
+  const email = String(data.email ?? '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new AppError('Zadaj platný e-mail.');
+  return { email, link: personalLink(url.origin, await issueToken(env.DB, email)) };
 }
 
 /**

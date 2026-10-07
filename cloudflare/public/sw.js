@@ -24,8 +24,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
-  // Stránka sa ukladá pod „/“ bez osobného kľúča v adrese.
-  const key = req.mode === 'navigate' ? '/' : req;
+  // Hlavná stránka sa ukladá pod „/“ bez osobného kľúča v adrese.
+  const key = req.mode === 'navigate' && url.pathname === '/' ? '/' : req;
   event.respondWith(
     fetch(req)
       .then((res) => {

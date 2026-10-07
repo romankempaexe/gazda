@@ -90,7 +90,14 @@ Workflow `.github/workflows/deploy-cloudflare.yml`:
 6. Spusti nasadenie: **Actions → Nasadenie Cloudflare → Run workflow** (vetva `main`).
    Adresa Gazdy je v súhrne behu.
 
-Token je ako heslo – vkladaj ho len do GitHub secrets, nikomu ho neposielaj.
+7. **Heslo správcu (nepovinné)** – v GitHub secrets pridaj `GAZDA_ADMIN_KEY` = dlhé
+   heslo, ktoré si vymyslíš (aspoň 12 znakov, ulož si ho do správcu hesiel).
+   Pri nasadení sa nastaví do Cloudflare a otvorí stránku
+   `https://gazda.<subdoména>.workers.dev/admin.html`, kde po zadaní hesla a e-mailu
+   vznikne osobný odkaz (náhrada funkcie `mojOdkaz` z Apps Script). Repozitár je
+   verejný, preto sa odkazy nikdy nevypisujú do GitHub Actions.
+
+Token aj heslo správcu sú ako heslá – vkladaj ich len do GitHub secrets, nikomu ich neposielaj.
 
 ## Lokálne
 

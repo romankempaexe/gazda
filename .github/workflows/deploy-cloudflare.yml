@@ -54,6 +54,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TARGET_ENV: ${{ github.event_name == 'pull_request' && 'preview' || '' }}
+      # Heslo pre stránku správcu /admin.html (nepovinné).
+      GAZDA_ADMIN_KEY: ${{ secrets.GAZDA_ADMIN_KEY }}
     steps:
       - name: Kontrola nastavení
         id: secrets
@@ -97,3 +99,7 @@ jobs:
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
           fi
+
+      - name: Heslo správcu
+        if: steps.secrets.outputs.ready == 'true' && env.GAZDA_ADMIN_KEY != ''
+        run: printf '%s' "$GAZDA_ADMIN_KEY" | npx wrangler secret put ADMIN_KEY --env="$TARGET_ENV"

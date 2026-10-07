@@ -44,3 +44,28 @@ test('manifest: start_url s platným kľúčom, inak bez neho', async () => {
     await t.dispose();
   }
 });
+
+test('správca: odkaz len so správnym heslom', async () => {
+  const t = await setup();
+  try {
+    const post = (body) =>
+      t.fetch('/api/admin/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let res = await post({ adminKey: 'x', email: 'roman@exe.sk' });
+    assert.equal(res.status, 404); // heslo nie je nastavené
+    t.env.ADMIN_KEY = 'velmi-tajne-heslo-123';
+    res = await post({ adminKey: 'zle-heslo', email: 'roman@exe.sk' });
+    assert.equal(res.status, 403);
+    res = await post({ adminKey: 'velmi-tajne-heslo-123', email: 'nie-email' });
+    assert.equal(res.status, 400);
+    res = await post({ adminKey: 'velmi-tajne-heslo-123', email: ' Roman@Exe.sk ' });
+    const { result } = await res.json();
+    assert.equal(result.email, 'roman@exe.sk');
+    const token = result.link.split('k=')[1];
+    assert.match(token, /^[0-9a-f]{32}$/);
+    // odkaz funguje
+    const me = await t.call(token, 'getHouseholds');
+    assert.equal(me.email, 'roman@exe.sk');
+  } finally {
+    await t.dispose();
+  }
+});

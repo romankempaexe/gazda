@@ -1,11 +1,11 @@
 // API Gazdu – rovnaké funkcie a odpovede ako vo verzii Apps Script (google.script.run),
 // takže aplikácia v prehliadači sa mení len v tom, ako server volá.
 //
-// Každá funkcia dostane kontext c = { db, email, today } a argumenty z prehliadača.
+// Každá funkcia dostane kontext c = { db, email, today, origin, waitUntil } a argumenty z prehliadača.
 // Používateľ je prihlásený Google účtom; domácnosti zdieľa podľa e-mailu.
 // Zápisy, ktoré patria k sebe, idú jedným db.batch() – D1 ich vykoná ako jednu transakciu.
 
-import { notifyAssigned } from './notifications.js';
+import { notifyAssigned, rememberOrigin, saveSubscription, sendToUser, vapidKeys } from './notifications.js';
 import {
   AppError,
   COLOR_RE,
@@ -438,3 +438,39 @@ export async function completeCinnost(c, cinnostId) {
   ]);
   return { deleted: false, cinnost: await loadCinnost(c, cinnost.id) };
 }
+
+// ---- Push notifikácie ------------------------------------------------------------
+
+/** Verejný kľúč VAPID pre pushManager.subscribe v prehliadači. */
+export async function getPushKey(c) {
+  return { publicKey: (await vapidKeys(c.db)).publicKey };
+}
+
+/** Zapne upozornenia na tomto zariadení (odber z pushManager.subscribe). */
+export async function subscribePush(c, subscription) {
+  try {
+    await saveSubscription(c.db, c.email, subscription);
+  } catch {
+    throw new AppError('Neplatný odber upozornení.');
+  }
+  await rememberOrigin(c.db, c.origin);
+  return { ok: true };
+}
+
+/** Vypne upozornenia na zariadení s daným odberom. */
+export async function unsubscribePush(c, endpoint) {
+  await c.db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND email = ?').bind(String(endpoint ?? ''), c.email).run();
+  return { ok: true };
+}
+
+/** Skúšobná notifikácia na všetky moje zariadenia. */
+export async function testPush(c) {
+  const sent = await sendToUser(c.db, c.email, {
+    title: '✅ Upozornenia fungujú',
+    body: 'Takto ti Gazda dá vedieť o nových úlohách a ráno o 8:00 o dnešných úlohách.',
+    tag: 'test',
+    url: '/',
+  });
+  return { sent };
+}
+

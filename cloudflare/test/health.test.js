@@ -11,7 +11,8 @@ test('health: databáza má všetky tabuľky', async () => {
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.deepEqual(body.tables, [
-      'cinnosti', 'households', 'members', 'obchody', 'polozky', 'priestory', 'produkty', 'sessions', 'users',
+      'cinnosti', 'config', 'households', 'members', 'obchody', 'polozky', 'priestory', 'produkty',
+      'push_subscriptions', 'sessions', 'users',
     ]);
   } finally {
     await t.dispose();

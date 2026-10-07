@@ -4,9 +4,9 @@ Nová verzia Gazdy na **Cloudflare Workers** s databázou **D1**. Beží zadarmo
 (bezplatný plán Cloudflare), bez platobnej karty. Upozornenia budú len ako
 push notifikácie priamo z aplikácie.
 
-> Stav: **fáza 3 – aplikácia.** Gazda na Cloudflare má všetky funkcie verzie Apps Script
-> okrem upozornení (push notifikácie pribudnú vo fáze 4), dá sa nainštalovať na plochu
-> a každý sa prihlasuje **svojím Google účtom** (žiadne osobné odkazy).
+> Stav: **fáza 4 – upozornenia.** Gazda na Cloudflare má všetky funkcie verzie Apps Script,
+> upozornenia chodia ako **push notifikácie** priamo z aplikácie, dá sa nainštalovať na
+> plochu a každý sa prihlasuje **svojím Google účtom** (žiadne osobné odkazy).
 > Dáta sa z Google tabuľky prenesú vo fáze 5; dovtedy Gazda beží aj na Apps Script.
 
 ## Súbory
@@ -18,9 +18,10 @@ push notifikácie priamo z aplikácie.
 | `src/domain.js` | Doménová logika: opakovanie, počet pri položkách, validácie |
 | `src/auth.js` | Prihlásenie: relácia v cookie (v databáze len SHA-256 odtlačok) |
 | `src/google.js` | Overenie Google ID tokenu (podpis RS256, Client ID, platnosť, overený e-mail) |
-| `src/notifications.js` | Push notifikácie (fáza 4) |
+| `src/notifications.js` | Upozornenia: nová pridelená úloha, ranný prehľad (cron), odbery |
+| `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
 | `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
-| `public/sw.js` | Service worker: otvorenie bez internetu (neskôr push) |
+| `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
 | `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
 | `wrangler.json` | Nastavenie Workera; `database_id` doplní CI automaticky |
@@ -35,8 +36,8 @@ používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
-`addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`. `GET /api/health`
-overí databázu.
+`addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
+`subscribePush`, `unsubscribePush`, `testPush`. `GET /api/health` overí databázu.
 
 Prihlásenie: `GET /api/auth/config` (Client ID pre tlačidlo Google),
 `POST /api/auth/google` `{"credential": "<ID token>"}` – server overí token
@@ -66,11 +67,32 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
 
+## Upozornenia (push notifikácie)
+
+Zapínajú sa v aplikácii ťuknutím na 🔔 (po prvej prezývke ich Gazda ponúkne sama),
+pre každé zariadenie zvlášť. Chodia, aj keď Gazda nie je otvorená:
+
+| Upozornenie | Kedy |
+|---|---|
+| 🏠 **Dnes ťa čaká X úloh** | ráno o 8:00 (najneskôr do 11:59, ak by Cloudflare meškal) |
+| ⚠️ **Po termíne: X úloh** | ráno spolu s prehľadom |
+| 📝 **Prezývka: názov úlohy** | hneď, keď ti niekto iný pridelí činnosť – s obchodom, termínom a checklistom |
+
+- **Android (Chrome):** funguje priamo v prehliadači aj v aplikácii z plochy.
+- **iPhone (iOS 16.4+):** len v Gazdovi pridanom na plochu (*Zdieľať* → *Pridať na plochu*);
+  v aplikácii z plochy ťukni na 🔔 a povoľ upozornenia.
+- Kľúče VAPID si server vytvorí sám pri prvom použití (tabuľka `config`); súkromný
+  kľúč neopustí Cloudflare, nič netreba nastavovať. Neplatné odbery (zariadenie
+  odinštalované, upozornenia vypnuté) sa pri odoslaní automaticky zmažú.
+- Ranný prehľad spúšťa **cron** Cloudflare každých 15 minút (`wrangler.json` → `triggers`);
+  pošle sa raz denne (dátum posledného je v tabuľke `config`).
+- Pri odhlásení sa upozornenia na danom zariadení vypnú.
+
 ## Databáza
 
 Tabuľky zodpovedajú listom Google tabuľky: `households`, `members`, `priestory`,
-`cinnosti`, `polozky`, `obchody`, `produkty`, `users` a `sessions` (prihlásené
-zariadenia). Databáza sa vytvorí
+`cinnosti`, `polozky`, `obchody`, `produkty`, `users`, `sessions` (prihlásené
+zariadenia), `push_subscriptions` (zariadenia s upozorneniami) a `config`. Databáza sa vytvorí
 v západnej Európe. Obchody a produkty sa porovnávajú podľa `name_key` (názov
 malými písmenami aj s diakritikou), aby „Šunka“ a „šunka“ boli jeden produkt.
 

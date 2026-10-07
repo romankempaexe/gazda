@@ -58,11 +58,12 @@ Workflow `.github/workflows/deploy-cloudflare.yml`:
 ### Jednorazové nastavenie
 
 1. **Účet Cloudflare** – zaregistruj sa zadarmo na <https://dash.cloudflare.com/sign-up>.
-2. **Subdoména workers.dev** – v Cloudflare otvor **Compute (Workers) → Workers & Pages**.
-   Pri prvom otvorení si zvolíš názov subdomény (napr. `roman`); Gazda potom
-   pobeží na `https://gazda.<subdoména>.workers.dev`.
-3. **ID účtu** – na tej istej stránke vpravo (alebo v URL po `dash.cloudflare.com/`)
-   je **Account ID**. Skopíruj ho.
+2. **Subdoména workers.dev** – Cloudflare ju novým účtom pridelí sám (nič netreba
+   nastavovať). Nájdeš ju v **Workers & Pages** vpravo v časti **Account details →
+   Subdomain** (tlačidlom *Change* sa dá premenovať). Gazda pobeží na
+   `https://gazda.<subdoména>.workers.dev`.
+3. **ID účtu** – v tej istej časti **Account details** (alebo v URL po
+   `dash.cloudflare.com/`) je **Account ID**. Skopíruj ho.
 4. **API token** – vpravo hore ikona profilu → **Profile → API Tokens → Create Token**:
    - šablóna **Edit Cloudflare Workers** → *Use template*
    - pridaj riadok oprávnení: **Account → D1 → Edit**

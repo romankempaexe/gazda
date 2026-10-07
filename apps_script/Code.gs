@@ -82,7 +82,15 @@ const DAY_NAMES_SHORT = ['ne', 'po', 'ut', 'st', 'št', 'pi', 'so'];
 // Web app
 // ---------------------------------------------------------------------------
 
+// Gazda sa presťahovala na Cloudflare (cloudflare/). Táto verzia je vypnutá:
+// adresa ukáže odkaz na novú Gazdu, upozornenia sa neposielajú. Dáta v Google
+// tabuľke zostávajú ako archív; prenos do novej Gazdy je dostupný cez ?prenos=1.
+const MOVED = true;
+
 function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (MOVED && params.prenos !== '1') return movedPage_(params.k);
+
   // Web app beží pod účtom vlastníka. Ak vlastník nepovolil všetky oprávnenia,
   // ukáž stránku s odkazom na autorizáciu (návštevníkom len vysvetlenie).
   const auth = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
@@ -99,6 +107,44 @@ function doGet(e) {
     .evaluate()
     .setTitle('Gazda')
     .addMetaTag('viewport', VIEWPORT);
+}
+
+/** Stránka „Gazda sa presťahovala“ s tlačidlom na novú Gazdu. */
+function movedPage_(k) {
+  k = String(k || '').toLowerCase();
+  let transferLink = '';
+  if (TOKEN_RE.test(k)) {
+    let base = '';
+    try {
+      base = ScriptApp.getService().getUrl();
+    } catch (e) {
+      base = PropertiesService.getScriptProperties().getProperty('APP_URL') || '';
+    }
+    if (base) {
+      transferLink =
+        '<p class="small"><a href="' + base + '?k=' + k + '&amp;prenos=1" target="_top">' +
+        'Ešte som nepreniesol dáta – otvoriť starú Gazdu</a></p>';
+    }
+  }
+  const html =
+    '<!DOCTYPE html><html lang="sk"><head><base target="_top"><meta charset="UTF-8">' +
+    '<style>body{font-family:system-ui,sans-serif;background:#f4f6f3;color:#0f172a;margin:0;' +
+    'display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;box-sizing:border-box;text-align:center}' +
+    '.c{background:#fff;border-radius:24px;padding:32px 24px;max-width:420px;box-shadow:0 4px 12px rgba(0,0,0,.08)}' +
+    '.logo{display:block;margin:0 auto;border-radius:20px}h1{font-size:24px;margin:12px 0 8px}p{color:#64748b;line-height:1.5}' +
+    'a.b{display:inline-block;background:#16a34a;color:#fff;text-decoration:none;font-weight:700;' +
+    'padding:14px 26px;border-radius:999px;margin:10px 0 6px;font-size:17px}' +
+    '.small{font-size:13px}.small a{color:#64748b}' +
+    '@media (prefers-color-scheme:dark){body{background:#0f1512;color:#e7efe9}.c{background:#18201c}}</style></head>' +
+    '<body><div class="c"><img class="logo" src="' + NEW_APP_URL + '/icons/icon-192.png" alt="" width="88" height="88">' +
+    '<h1>Gazda sa presťahovala</h1>' +
+    '<p>Nová Gazda je rýchlejšia, prihlasuješ sa do nej svojím <b>Google účtom</b> a upozornenia ' +
+    'chodia ako notifikácie priamo do telefónu.</p>' +
+    '<a class="b" href="' + NEW_APP_URL + '" target="_top">Otvoriť novú Gazdu</a>' +
+    '<p class="small">' + NEW_APP_URL.replace('https://', '') + ' – ulož si ju na plochu (Inštalovať).</p>' +
+    transferLink +
+    '</div></body></html>';
+  return HtmlService.createHtmlOutput(html).setTitle('Gazda sa presťahovala').addMetaTag('viewport', VIEWPORT);
 }
 
 function include(name) {
@@ -644,6 +690,7 @@ function sendTestNotification(token) {
  * denne po 8:00 pošle ranný prehľad úloh na dnes a zvlášť úlohy po termíne.
  */
 function notificationTick() {
+  if (MOVED) return; // upozornenia posiela už nová Gazda
   try {
     processTelegramUpdates_();
   } catch (e) {

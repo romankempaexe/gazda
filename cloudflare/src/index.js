@@ -17,7 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
-import { debugFlyer, getLeaflet, getLeaflets, leafletImage } from './leaflets.js';
+import { debugAi, getLeaflet, getLeaflets, leafletImage } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -74,7 +74,7 @@ async function handleApi(request, env, url, ctx) {
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/debug') {
-      return json(await debugFlyer({}));
+      return json(await debugAi({ page: url.searchParams.get('page') || 0 }, env.AI));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));

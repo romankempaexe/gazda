@@ -180,22 +180,60 @@ export async function leafletImage(c, path) {
   });
 }
 
-/** DOČASNÁ diagnostika: čo všetko je v dátach letáka o produktoch. */
-export async function debugFlyer(c) {
+/** DOČASNÁ diagnostika: ktoré modely Workers AI vedia nájsť produkty na strane letáka. */
+export async function debugAi(c, ai) {
+  const out = { models: null, runs: [] };
+  try {
+    const list = await ai.models({ per_page: 200 });
+    out.models = list
+      .map((m) => m.name)
+      .filter((n) => /vision|vl|scout|gemma-3|mistral-small|llava|pixtral|kimi|qwen3|maverick|image-to-text/i.test(n));
+  } catch (err) {
+    out.models = 'chyba: ' + err;
+  }
   const slugs = await findSlugs(c);
-  const url = FLYER_API + '?flyer_identifier=' + encodeURIComponent(slugs[0]) + '&region_id=0&region_code=0';
-  const body = await (await fetcher(c)(url, { headers: { ...HEADERS, accept: 'application/json' } })).json();
-  const text = JSON.stringify(body);
-  const snippets = (re) => [...text.matchAll(re)].slice(0, 6).map((m) => text.slice(Math.max(0, m.index - 300), m.index + 400));
-  const f = body.flyer || {};
-  return {
-    slug: slugs[0],
-    size: text.length,
-    topKeys: Object.keys(body),
-    flyerKeys: Object.keys(f),
-    pageKeys: f.pages && Object.keys(f.pages[1] || {}),
-    links: (f.pages || []).slice(1, 4).map((p) => JSON.stringify(p.links).slice(0, 2500)),
-    price: snippets(/"price/gi),
-    product: snippets(/"product/gi).slice(0, 3),
-  };
+  const flyer = await fetchFlyer(c, slugs[0]);
+  const page = flyer.pages[Number(c.page || 0)];
+  const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const dataUrl = 'data:' + (res.headers.get('content-type') || 'image/jpeg') + ';base64,' + btoa(bin);
+  out.image = { type: res.headers.get('content-type'), bytes: bytes.length, page: page.n, w: page.w, h: page.h };
+  const prompt =
+    'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page. ' +
+    'For each, return its name exactly as printed (Slovak), the main offer price in EUR as a number, and its bounding box ' +
+    'covering the whole offer (picture, name and price) as [x1, y1, x2, y2] in coordinates normalized to 0-1000 ' +
+    '(0,0 = top-left of the image). Answer with JSON only: {"products":[{"name":"...","price":1.99,"box":[x1,y1,x2,y2]}]}';
+  const candidates = [
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
+    '@cf/google/gemma-3-12b-it',
+    '@cf/mistralai/mistral-small-3.1-24b-instruct',
+    ...(Array.isArray(out.models) ? out.models.filter((n) => /qwen.*vl|vl.*qwen|kimi|maverick|pixtral/i.test(n)) : []),
+  ];
+  out.runs = await Promise.all(
+    [...new Set(candidates)].slice(0, 6).map(async (model) => {
+      const t = Date.now();
+      try {
+        const r = await ai.run(model, {
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: dataUrl } },
+                { type: 'text', text: prompt },
+              ],
+            },
+          ],
+          max_tokens: 2500,
+          temperature: 0,
+        });
+        const text = typeof r.response === 'string' ? r.response : JSON.stringify(r.response ?? r);
+        return { model, ms: Date.now() - t, usage: r.usage, text: text.slice(0, 3500) };
+      } catch (err) {
+        return { model, ms: Date.now() - t, error: String(err).slice(0, 400) };
+      }
+    })
+  );
+  return out;
 }

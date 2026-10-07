@@ -41,6 +41,7 @@ export async function setup() {
   const proxy = await getPlatformProxy({
     configPath: join(root, 'wrangler.json'),
     persist: { path: mkdtempSync(join(tmpdir(), 'gazda-d1-')) },
+    remoteBindings: false, // Workers AI v testoch nahrádza falošný model (env.AI)
   });
   const env = {
     ...proxy.env,

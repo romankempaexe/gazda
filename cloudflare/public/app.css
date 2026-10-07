@@ -1796,26 +1796,32 @@ body.lf-open {
 }
 
 .check-item.edit .check-thumb {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
 }
 
-/* Počet v okne (napr. pridanie z letáka): stepper na celú šírku, väčšie tlačidlá − / + */
-.field .stepper {
+.check-item.edit {
+  gap: 8px;
+}
+
+/* Počet v okne (napr. pridanie z letáka): stepper priamo v poli na celú šírku, väčšie − / +.
+   Len „> .stepper“ – steppery v riadkoch checklistu (formulár úprav) ostávajú malé. */
+.field > .stepper {
   width: 100%;
 }
 
-.field .stepper .step {
+.field > .stepper .step {
   width: 46px;
   height: 46px;
   flex: none;
 }
 
-.field .stepper .step .ms {
+.field > .stepper .step .ms {
   font-size: 24px;
 }
 
-.field .stepper input {
+.field > .stepper input {
   flex: 1;
   width: auto;
   min-width: 0;
@@ -1829,7 +1835,7 @@ body.lf-open {
   font-weight: 600;
 }
 
-.field .stepper input:focus {
+.field > .stepper input:focus {
   box-shadow: none;
   background: transparent;
 }

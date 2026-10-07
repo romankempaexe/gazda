@@ -34,7 +34,7 @@ a cookie relácie. Odpoveď je `{"result": …}`, pri chybe `{"error": "text pre
 používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
-`deleteHousehold`, `getHouseholdData`, `addPriestor`, `addCinnost`, `updateCinnost`,
+`deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`. `GET /api/health`
 overí databázu.
 
@@ -52,8 +52,13 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
 - **Prihlásenie Google účtom** na adrese `https://gazda.<subdoména>.workers.dev`;
   na zariadení ostáva rok (alebo do odhlásenia v *Môj účet*). Kto sa už prihlásil,
   Google ho pri ďalšom otvorení prihlási sám.
+- **Prezývka:** po prvom prihlásení si každý zvolí prezývku (predvyplnené krstné
+  meno z Google účtu); v aplikácii sa ostatným zobrazujú len prezývky. Zmeniť sa dá
+  v *Môj účet*. Kto sa ešte neprihlásil, ukazuje sa e-mailom.
 - **Zdieľanie:** domácnosť sa zdieľa na Google e-mail; ten človek sa prihlási
   a domácnosť hneď vidí. V okne *Zdieľať* je vidieť, kto sa ešte neprihlásil.
+- **Posledná domácnosť:** pri otvorení Gazdy (aj na novom zariadení po prihlásení)
+  sa rovno otvorí naposledy otvorená domácnosť.
 - **Inštalácia na plochu:** Android/Chrome – menu ⋮ → *Pridať na plochu* (alebo
   *Inštalovať aplikáciu*); iPhone/Safari – *Zdieľať* → *Pridať na plochu*
   (na iPhone sa v aplikácii z plochy treba raz prihlásiť znova).

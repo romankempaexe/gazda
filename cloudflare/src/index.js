@@ -19,6 +19,7 @@ import { verifyGoogleIdToken } from './google.js';
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
   getHouseholds: api.getHouseholds,
+  setNickname: api.setNickname,
   getStartData: api.getStartData,
   createHousehold: api.createHousehold,
   shareHousehold: api.shareHousehold,

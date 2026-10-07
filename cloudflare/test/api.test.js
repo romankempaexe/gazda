@@ -190,3 +190,21 @@ test('vymazanie domácnosti: len zakladateľ, zmaže všetko', async () => {
   // Janina druhá domácnosť zostala
   assert.deepEqual((await jana.api.getHouseholds()).households.map((h) => h.name), ['Chata']);
 });
+
+test('prezývka: po prihlásení prázdna s návrhom z Google mena, potom ju vidia ostatní', async () => {
+  const t2 = t;
+  const peter = await t2.login(await (await import('./helpers.js')).signIdToken({ email: 'peter@x.sk', name: 'Peter  Novák' }));
+  const call = (name, ...args) => t2.call(peter, name, ...args);
+  let me = await call('getHouseholds');
+  assert.deepEqual([me.nickname, me.suggestedNickname], ['', 'Peter']);
+  await rejects(call('setNickname', '   '), /Zadaj prezývku/);
+  await rejects(call('setNickname', 'x'.repeat(31)), /najviac 30/);
+  assert.deepEqual(await call('setNickname', '  Peťo   N. '), { nickname: 'Peťo N.' });
+  me = await call('getHouseholds');
+  assert.equal(me.nickname, 'Peťo N.');
+  // ostatní vidia prezývku pri členoch domácnosti
+  const h = (await call('createHousehold', 'Garáž', 'jana@gmail.com')).households.find((x) => x.name === 'Garáž');
+  const seen = await jana.api.getHouseholdData(h.id);
+  assert.deepEqual(seen.members.map((m) => [m.email, m.nickname]), [['peter@x.sk', 'Peťo N.'], ['jana@gmail.com', '']]);
+});
+

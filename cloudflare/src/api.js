@@ -30,6 +30,7 @@ const toMember = (r) => ({
   role: r.role,
   addedAt: r.added_at,
   joined: Boolean(r.joined), // už sa prihlásil do Gazdu
+  nickname: r.nickname || '', // prezývka (prázdna, kým sa neprihlási a nezadá ju)
 });
 const toPriestor = (r) => ({ id: r.id, householdId: r.household_id, name: r.name, createdAt: r.created_at });
 const toItem = (r) => ({ id: r.id, text: r.text, qty: r.qty || '', done: Boolean(r.done) });
@@ -51,8 +52,11 @@ const toCinnost = (r, items = []) => ({
   items,
 });
 
-const MEMBERS_SQL = `SELECT m.*, (u.last_login IS NOT NULL AND u.last_login <> '') AS joined
+const MEMBERS_SQL = `SELECT m.*, (u.last_login IS NOT NULL AND u.last_login <> '') AS joined,
+  COALESCE(u.nickname, '') AS nickname
   FROM members m LEFT JOIN users u ON u.email = m.email`;
+
+export const MAX_NICKNAME = 30;
 
 const uuid = () => crypto.randomUUID();
 
@@ -86,7 +90,8 @@ async function loadCinnost(c, id) {
 // ---- Domácnosti ---------------------------------------------------------------
 
 export async function getHouseholds(c) {
-  const [households, members] = await c.db.batch([
+  const [me, households, members] = await c.db.batch([
+    c.db.prepare('SELECT nickname, name FROM users WHERE email = ?').bind(c.email),
     c.db
       .prepare(
         `SELECT h.* FROM households h JOIN members m ON m.household_id = h.id
@@ -97,13 +102,25 @@ export async function getHouseholds(c) {
       .prepare(MEMBERS_SQL + ' WHERE m.household_id IN (SELECT household_id FROM members WHERE email = ?) ORDER BY m.rowid')
       .bind(c.email),
   ]);
+  const user = me.results[0] || {};
   return {
     email: c.email,
+    nickname: user.nickname || '',
+    // Návrh prezývky pri prvom prihlásení: krstné meno z Google účtu.
+    suggestedNickname: String(user.name || '').trim().split(/\s+/)[0].slice(0, MAX_NICKNAME),
     households: households.results.map((h) => ({
       ...toHousehold(h),
       members: members.results.filter((m) => m.household_id === h.id).map(toMember),
     })),
   };
+}
+
+/** Nastaví prezývku prihláseného používateľa (vidia ju ostatní namiesto e-mailu). */
+export async function setNickname(c, nickname) {
+  nickname = requireText(String(nickname ?? '').replace(/\s+/g, ' '), 'Zadaj prezývku.');
+  if (nickname.length > MAX_NICKNAME) throw new AppError('Prezývka môže mať najviac ' + MAX_NICKNAME + ' znakov.');
+  await c.db.prepare('UPDATE users SET nickname = ? WHERE email = ?').bind(nickname, c.email).run();
+  return { nickname };
 }
 
 export async function createHousehold(c, name, emails) {

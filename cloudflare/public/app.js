@@ -43,6 +43,7 @@ const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok
 
 const state = {
   email: '',
+  nickname: '',
   households: [],
   detail: null, // { household, members, priestory, cinnosti, role }
   tab: 'rozpis',
@@ -94,6 +95,7 @@ function saveSnapshot() {
   try {
     const snap = readSnapshot() || { details: {} };
     snap.email = state.email;
+snap.nickname = state.nickname;
     snap.households = state.households;
     snap.details = snap.details || {};
     if (state.detail) {
@@ -209,7 +211,7 @@ function showError(err) {
 
 /** Obrazovka prihlásenia (expired = relácia vypršala alebo bola zrušená). */
 function showLogin(expired) {
-  closeModal();
+  closeModal(true);
   state.detail = null;
   state.email = '';
   ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id).classList.add('hidden'));
@@ -382,15 +384,52 @@ async function copyText(input) {
 
 function showAccount() {
   openModal(
-    '<h2>Môj účet</h2><div class="subtitle">' + esc(state.email) + '</div>' +
+    '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
       '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom. ' +
       'Na tomto zariadení ostaneš prihlásený, kým sa neodhlásiš.</div></div>' +
-      '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+      '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +
+      '<span class="ms">edit</span>Prezývka</button>' +
+      '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
       '<button type="button" class="btn danger" id="logout">Odhlásiť sa</button></div>',
     (root) => {
       root.querySelector('#cancel').onclick = closeModal;
       root.querySelector('#logout').onclick = logout;
+      root.querySelector('#nick').onclick = () => showNicknameForm(state.nickname, false);
     }
+  );
+}
+
+/** Prezývka: po prvom prihlásení povinná (first = true), neskôr z „Môj účet“. */
+function showNicknameForm(value, first) {
+  openModal(
+    '<h2>' + (first ? 'Ako ťa majú volať?' : 'Zmeniť prezývku') + '</h2>' +
+      '<div class="subtitle">Ostatní v domácnosti uvidia namiesto e-mailu túto prezývku.</div>' +
+      '<form id="f"><div class="field"><label>Prezývka</label>' +
+      '<input name="nickname" maxlength="30" required autocomplete="nickname" placeholder="napr. Roman, Mama, Ocino" value="' +
+      esc(value || '') + '"></div>' +
+      '<div class="actions">' +
+      (first ? '' : '<button type="button" class="btn text" id="cancel">Zrušiť</button>') +
+      '<button class="btn">' + (first ? 'Pokračovať' : 'Uložiť') + '</button></div></form>',
+    (root) => {
+      if (!first) root.querySelector('#cancel').onclick = closeModal;
+      root.querySelector('#f').onsubmit = async (e) => {
+        e.preventDefault();
+        const button = e.target.querySelector('button:not([type])');
+        button.disabled = true;
+        try {
+          const res = await api('setNickname', e.target.nickname.value);
+          showIdentity(state.email, res.nickname);
+          closeModal(true);
+          if (state.detail) renderDetail({ quiet: true });
+          else renderHouseholds();
+          toast(first ? 'Vitaj, ' + res.nickname + '!' : 'Prezývka uložená');
+        } catch (err) {
+          button.disabled = false;
+          showError(err);
+        }
+      };
+    },
+    { persistent: first }
   );
 }
 
@@ -448,8 +487,20 @@ function formatDateLong(s) {
   return WEEKDAYS[weekday(s)] + ', ' + formatDate(s);
 }
 
+/** Ako sa človek zobrazuje: prezývka, kým ju nemá, tak časť e-mailu pred @. */
 function shortName(email) {
-  return email ? email.split('@')[0] : 'Nepriradené';
+  if (!email) return 'Nepriradené';
+  return nicknameOf(email) || email.split('@')[0];
+}
+
+function nicknameOf(email) {
+  if (email === state.email && state.nickname) return state.nickname;
+  const lists = [(state.detail && state.detail.members) || []].concat(state.households.map((h) => h.members || []));
+  for (const list of lists) {
+    const m = list.find((x) => x.email === email && x.nickname);
+    if (m) return m.nickname;
+  }
+  return '';
 }
 
 function membersLabel(n) {
@@ -511,9 +562,12 @@ function priestorName(id) {
 let modalOnClose = null;
 
 /** opts.focus = false: neotvárať klávesnicu; opts.onClose: zavolá sa po zatvorení okna. */
+let modalPersistent = false;
+
 function openModal(html, onMount, opts) {
   opts = opts || {};
   modalOnClose = opts.onClose || null;
+  modalPersistent = Boolean(opts.persistent);
   $('modalContent').innerHTML = html;
   $('modal').classList.remove('hidden');
   if (onMount) onMount($('modalContent'));
@@ -524,7 +578,9 @@ function openModal(html, onMount, opts) {
   }
 }
 
-function closeModal() {
+function closeModal(force) {
+  if (modalPersistent && force !== true) return;
+  modalPersistent = false;
   const onClose = modalOnClose;
   modalOnClose = null;
   if (onClose) setTimeout(onClose, 0);
@@ -614,10 +670,12 @@ document.addEventListener('keydown', (e) => {
 // -------------------------------------------------------------------------
 
 /** initial = true pri štarte aplikácie: rovno otvorí naposledy použitú domácnosť. */
-function showIdentity(email) {
+function showIdentity(email, nickname) {
   state.email = email;
-  $('avatar').textContent = email.charAt(0);
-  $('avatar').title = email;
+  state.nickname = nickname || '';
+  const name = state.nickname || email;
+  $('avatar').textContent = name.charAt(0).toUpperCase();
+  $('avatar').title = name;
   $('avatar').classList.remove('hidden');
 }
 
@@ -627,7 +685,7 @@ async function loadHouseholds(initial = false) {
   if (initial) {
     const snap = readSnapshot();
     if (snap) {
-      showIdentity(snap.email);
+      showIdentity(snap.email, snap.nickname);
       state.households = snap.households;
       const detail = snap.lastId && snap.details && snap.details[snap.lastId];
       if (detail) showDetail(detail);
@@ -641,8 +699,12 @@ async function loadHouseholds(initial = false) {
 
   try {
     const res = await api(initial ? 'getStartData' : 'getHouseholds');
-    showIdentity(res.email);
+    showIdentity(res.email, res.nickname);
     state.households = res.households;
+    // Po prvom prihlásení si človek zvolí prezývku (vidia ju ostatní namiesto e-mailu).
+    if (!res.nickname && !document.querySelector('#modal input[name=nickname]')) {
+    setTimeout(() => showNicknameForm(res.suggestedNickname, true), 0);
+  }
     if (!shownSnapshot) {
       if (res.lastDetail) showDetail(res.lastDetail);
       else renderHouseholds();
@@ -787,16 +849,17 @@ function showAddHousehold() {
 
 function showShareHousehold(householdId) {
   const h = state.households.find((x) => x.id === householdId);
-    const members = h.members
-    .map((m) => {
-      return (
+  const members = h.members
+    .map(
+      (m) =>
         '<div><span class="ms">' + (m.role === 'owner' ? 'star' : 'person') + '</span>' +
-        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' + esc(m.email) +
+        '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' +
+        // Kto sa ešte neprihlásil, nemá prezývku – ukáž e-mail, nech je jasné, koho si pozval.
+        esc(m.nickname || (m.email === state.email && state.nickname) || m.email) +
         (m.role === 'owner' ? ' <span class="muted">(zakladateľ)</span>' : '') +
         (m.joined ? '' : ' <span class="muted">· ešte sa neprihlásil</span>') +
         '</span></div>'
-      );
-    })
+    )
     .join('');
   openModal(
     '<h2>Zdieľať domácnosť</h2><div class="subtitle">' + esc(h.name) + '</div>' +

@@ -4,11 +4,9 @@ export const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
-export const TOKEN_RE = /^[0-9a-f]{32}$/;
 export const MAX_ITEMS = 100;
 export const MAX_ITEM_LENGTH = 100;
 export const TIME_ZONE = 'Europe/Bratislava';
-export const INVALID_LINK = 'NEPLATNY_ODKAZ';
 
 /** Chyba, ktorej text sa ukáže používateľovi (status = HTTP kód odpovede). */
 export class AppError extends Error {

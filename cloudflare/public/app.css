@@ -1363,3 +1363,16 @@ body.with-tabs .toast {
     transition: none !important;
   }
 }
+
+/* Prihlásenie Google účtom */
+.empty.login .google-btn {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+  margin: 22px auto 8px;
+}
+
+.empty.login .hint {
+  max-width: 320px;
+  margin: 0 auto;
+}

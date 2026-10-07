@@ -1,10 +1,10 @@
 // API Gazdu – rovnaké funkcie a odpovede ako vo verzii Apps Script (google.script.run),
 // takže aplikácia v prehliadači sa mení len v tom, ako server volá.
 //
-// Každá funkcia dostane kontext c = { db, email, origin, today } a argumenty z prehliadača.
+// Každá funkcia dostane kontext c = { db, email, today } a argumenty z prehliadača.
+// Používateľ je prihlásený Google účtom; domácnosti zdieľa podľa e-mailu.
 // Zápisy, ktoré patria k sebe, idú jedným db.batch() – D1 ich vykoná ako jednu transakciu.
 
-import { issueToken, personalLink } from './auth.js';
 import { notifyAssigned } from './notifications.js';
 import {
   AppError,
@@ -29,7 +29,7 @@ const toMember = (r) => ({
   email: r.email,
   role: r.role,
   addedAt: r.added_at,
-  hasLink: Boolean(r.has_link),
+  joined: Boolean(r.joined), // už sa prihlásil do Gazdu
 });
 const toPriestor = (r) => ({ id: r.id, householdId: r.household_id, name: r.name, createdAt: r.created_at });
 const toItem = (r) => ({ id: r.id, text: r.text, qty: r.qty || '', done: Boolean(r.done) });
@@ -51,7 +51,7 @@ const toCinnost = (r, items = []) => ({
   items,
 });
 
-const MEMBERS_SQL = `SELECT m.*, (u.token_hash IS NOT NULL AND u.token_hash <> '') AS has_link
+const MEMBERS_SQL = `SELECT m.*, (u.last_login IS NOT NULL AND u.last_login <> '') AS joined
   FROM members m LEFT JOIN users u ON u.email = m.email`;
 
 const uuid = () => crypto.randomUUID();
@@ -81,12 +81,6 @@ async function loadCinnost(c, id) {
     c.db.prepare('SELECT * FROM polozky WHERE cinnost_id = ? ORDER BY position, rowid').bind(id),
   ]);
   return toCinnost(task.results[0], items.results.map(toItem));
-}
-
-async function inviteFor(c, email) {
-  const user = await c.db.prepare('SELECT token_hash FROM users WHERE email = ?').bind(email).first();
-  if (user && user.token_hash) return null;
-  return { email, link: personalLink(c.origin, await issueToken(c.db, email)) };
 }
 
 // ---- Domácnosti ---------------------------------------------------------------
@@ -123,14 +117,7 @@ export async function createHousehold(c, name, emails) {
     addMember.bind(id, c.email, 'owner', now),
     ...shareWith.map((e) => addMember.bind(id, e, 'member', now)),
   ]);
-
-  // Novým používateľom (bez odkazu) rovno vytvor pozývací odkaz.
-  const invites = [];
-  for (const e of shareWith) {
-    const invite = await inviteFor(c, e);
-    if (invite) invites.push(invite);
-  }
-  return { ...(await getHouseholds(c)), invites };
+  return getHouseholds(c);
 }
 
 export async function shareHousehold(c, householdId, newEmail) {
@@ -142,37 +129,7 @@ export async function shareHousehold(c, householdId, newEmail) {
     .bind(householdId, newEmail, 'member', nowIso())
     .run();
   if (!meta.changes) throw new AppError('Domácnosť je už zdieľaná s ' + newEmail);
-
-  const invite = await inviteFor(c, newEmail);
-  return { ...(await getHouseholds(c)), invites: invite ? [invite] : [] };
-}
-
-/**
- * Vytvorí osobný odkaz pre člena domácnosti. Člen bez odkazu ho môže dostať od
- * hocikoho z domácnosti; nový odkaz pre člena, ktorý už odkaz má, môže vytvoriť
- * len on sám alebo zakladateľ domácnosti (starý odkaz tým prestane fungovať).
- */
-export async function createMemberLink(c, householdId, memberEmail) {
-  const me = await requireMember(c, householdId);
-  memberEmail = String(memberEmail ?? '').trim().toLowerCase();
-  const target = await c.db
-    .prepare('SELECT 1 FROM members WHERE household_id = ? AND email = ?')
-    .bind(householdId, memberEmail)
-    .first();
-  if (!target) throw new AppError('Tento človek nie je členom domácnosti.');
-
-  const user = await c.db.prepare('SELECT token_hash FROM users WHERE email = ?').bind(memberEmail).first();
-  const hasLink = Boolean(user && user.token_hash);
-  if (hasLink && memberEmail !== c.email && me.role !== 'owner') {
-    throw new AppError('Nový odkaz pre iného člena môže vytvoriť len zakladateľ domácnosti.', 403);
-  }
-  return { email: memberEmail, link: personalLink(c.origin, await issueToken(c.db, memberEmail)), replaced: hasLink };
-}
-
-/** Vytvorí nový osobný odkaz pre prihláseného používateľa; starý prestane fungovať. */
-export async function regenerateMyLink(c) {
-  const token = await issueToken(c.db, c.email);
-  return { email: c.email, token, link: personalLink(c.origin, token) };
+  return getHouseholds(c);
 }
 
 export async function deleteHousehold(c, householdId) {

@@ -60,34 +60,6 @@ const $ = (id) => document.getElementById(id);
 
 let pending = 0;
 
-// Osobný kľúč z odkazu …/?k=…; uloží sa, aby fungovalo aj otvorenie bez neho
-// (napr. ťuknutím na upozornenie alebo z ikony na ploche).
-const TOKEN_KEY = 'gazda.token';
-const TOKEN_RE = /^[0-9a-f]{32}$/;
-let token = String(new URLSearchParams(location.search).get('k') || '').toLowerCase();
-if (!TOKEN_RE.test(token)) token = '';
-try {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else token = localStorage.getItem(TOKEN_KEY) || '';
-} catch (e) {
-  // Úložisko nemusí byť dostupné – vtedy treba vždy otvárať cez osobný odkaz.
-}
-
-function saveToken(newToken) {
-  token = newToken;
-  try {
-    localStorage.setItem(TOKEN_KEY, newToken);
-  } catch (e) {}
-}
-
-function forgetToken() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-    if (token) localStorage.removeItem(snapshotKey());
-  } catch (e) {}
-  token = '';
-}
-
 // -------------------------------------------------------------------------
 // Posledné načítané údaje v prehliadači – aplikácia ich ukáže hneď pri
 // otvorení a čerstvé údaje zo servera dotiahne na pozadí.
@@ -95,8 +67,17 @@ function forgetToken() {
 
 const SNAPSHOT_DETAILS = 5;
 
+const SNAPSHOT_KEY = 'gazda.snap';
+
 function snapshotKey() {
-  return 'gazda.snap.' + token.slice(0, 8);
+  return SNAPSHOT_KEY;
+}
+
+function clearSnapshot() {
+  try {
+    localStorage.removeItem(SNAPSHOT_KEY);
+    localStorage.removeItem('gazda.token'); // z čias osobných odkazov
+  } catch (e) {}
 }
 
 function readSnapshot() {
@@ -109,7 +90,7 @@ function readSnapshot() {
 }
 
 function saveSnapshot() {
-  if (!token || !state.email) return;
+  if (!state.email) return;
   try {
     const snap = readSnapshot() || { details: {} };
     snap.email = state.email;
@@ -169,7 +150,7 @@ async function request(fn, args, quiet) {
     try {
       res = await fetch('/api/' + fn, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ args }),
       });
     } catch (e) {
@@ -184,14 +165,15 @@ async function request(fn, args, quiet) {
       // odpoveď nie je JSON (výpadok servera)
     }
     if (!res.ok || !body || body.error) {
-      throw new Error((body && body.error) || 'Server je nedostupný (' + res.status + '). Skús to o chvíľu.');
+      throw Object.assign(
+        new Error((body && body.error) || 'Server je nedostupný (' + res.status + '). Skús to o chvíľu.'),
+        { code: body && body.code }
+      );
     }
     return body.result;
   } catch (err) {
-    if (isInvalidLink(err)) {
-      forgetToken();
-      showLinkRequired(true);
-    }
+    // „Vypršalo“ len ak bol človek na tomto zariadení už prihlásený (má uložené údaje).
+    if (isLoginRequired(err)) showLogin(Boolean(readSnapshot()));
     throw err;
   } finally {
     pending--;
@@ -199,15 +181,12 @@ async function request(fn, args, quiet) {
   }
 }
 
-function isInvalidLink(err) {
-  return /NEPLATNY_ODKAZ/.test(err && err.message ? err.message : String(err));
+function isLoginRequired(err) {
+  return Boolean(err && err.code === 'LOGIN_REQUIRED');
 }
 
 function errorMessage(err) {
-  const message = (err && err.message ? err.message : String(err))
-    .replace(/^Error:\s*/, '')
-    .replace(/^NEPLATNY_ODKAZ:\s*/, '');
-  return message;
+  return (err && err.message ? err.message : String(err)).replace(/^Error:\s*/, '');
 }
 
 let toastTimer;
@@ -225,74 +204,169 @@ function showError(err) {
 }
 
 // -------------------------------------------------------------------------
-// Osobné odkazy
+// Prihlásenie Google účtom
 // -------------------------------------------------------------------------
 
-function showLinkRequired(invalid) {
+/** Obrazovka prihlásenia (expired = relácia vypršala alebo bola zrušená). */
+function showLogin(expired) {
   closeModal();
   state.detail = null;
+  state.email = '';
   ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id).classList.add('hidden'));
   $('brand').classList.remove('hidden');
   document.body.classList.remove('with-tabs');
   $('title').textContent = 'Gazda';
   $('view').innerHTML =
-    '<div class="empty"><span class="ms">key</span>' +
-    '<h2>' + (invalid ? 'Odkaz už neplatí' : 'Otvor Gazdu cez svoj odkaz') + '</h2>' +
-    '<div>' +
-    (invalid
-      ? 'Tento osobný odkaz bol nahradený novým alebo je neplatný. '
-      : 'Do Gazdu sa vstupuje cez osobný odkaz, ktorý dostaneš od člena domácnosti. ') +
-    'Požiadaj niekoho z domácnosti, aby ti v okne <b>Zdieľať</b> vytvoril nový odkaz, ' +
-    'a ten si ulož na plochu telefónu.</div></div>';
+    '<div class="empty login"><span class="ms">lock</span>' +
+    '<h2>Prihlás sa do Gazdu</h2>' +
+    '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
+    'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal domácnosť.</div>' +
+    '<div id="googleBtn" class="google-btn"></div>' +
+    '<div class="hint" id="loginHint"></div></div>';
+  renderGoogleButton();
 }
 
-/** Okno so zoznamom osobných odkazov (pozvánky alebo nový vlastný odkaz). */
-function showLinks(title, intro, links, onClose) {
-  const items = links
-    .map(
-      (l, i) =>
-        '<div class="field"><label>' + esc(l.email) + '</label>' +
-        '<div class="row" style="align-items:center">' +
-        '<input readonly id="link' + i + '" value="' + esc(l.link) + '" style="flex:3">' +
-        '<button type="button" class="btn tonal small" data-copy="' + i + '" style="flex:0 0 auto" title="Kopírovať">' +
-        '<span class="ms">content_copy</span></button>' +
-        '<button type="button" class="btn tonal small" data-share-link="' + i + '" style="flex:0 0 auto" title="Poslať">' +
-        '<span class="ms">share</span></button>' +
-        '</div></div>'
-    )
-    .join('');
+let gisScript = null;
+function loadGoogleScript() {
+  if (!gisScript) {
+    gisScript = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'https://accounts.google.com/gsi/client';
+      el.async = true;
+      el.onload = resolve;
+      el.onerror = () => {
+        gisScript = null;
+        reject(new Error('Prihlásenie Google sa nepodarilo načítať. Skontroluj internet.'));
+      };
+      document.head.append(el);
+    });
+  }
+  return gisScript;
+}
+
+async function renderGoogleButton() {
+  const hint = $('loginHint');
+  try {
+    const config = await fetch('/api/auth/config').then((r) => r.json());
+    const clientId = config && config.result && config.result.googleClientId;
+    if (!clientId) {
+      hint.textContent = 'Prihlásenie Google účtom ešte nie je nastavené (chýba Client ID).';
+      return;
+    }
+    await loadGoogleScript();
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: onGoogleCredential,
+      auto_select: true, // kto sa už raz prihlásil, prihlási sa sám
+      use_fedcm_for_prompt: true,
+      itp_support: true,
+    });
+    // Po odhlásení sa nesmie hneď znova prihlásiť automaticky (Google si to zapamätá).
+    if (readFlag(LOGGED_OUT_KEY)) {
+      google.accounts.id.disableAutoSelect();
+      setFlag(LOGGED_OUT_KEY, false);
+    }
+    const box = $('googleBtn');
+    if (!box) return;
+    google.accounts.id.renderButton(box, {
+      theme: 'filled_blue',
+      size: 'large',
+      shape: 'pill',
+      text: 'signin_with',
+      locale: 'sk',
+      width: Math.min(320, box.clientWidth || 320),
+    });
+    google.accounts.id.prompt();
+  } catch (err) {
+    if (hint) hint.textContent = errorMessage(err);
+  }
+}
+
+/** Google vrátil ID token – server ho overí a nastaví prihlásenie (cookie). */
+async function onGoogleCredential(response) {
+  $('busy').classList.remove('hidden');
+  try {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body || body.error) throw new Error((body && body.error) || 'Prihlásenie sa nepodarilo.');
+    // Iný človek na tomto zariadení – údaje predchádzajúceho nepoužívaj.
+    const snap = readSnapshot();
+    if (snap && snap.email !== body.result.email) clearSnapshot();
+    await loadHouseholds(true);
+  } catch (err) {
+    showError(err);
+  } finally {
+    if (!pending) $('busy').classList.add('hidden');
+  }
+}
+
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  } catch (e) {
+    // aj bez internetu zabudni údaje v telefóne
+  }
+  clearSnapshot();
+  state.households = [];
+  // Automatické prihlásenie vypni, keď sa načíta prihlasovanie Google (renderGoogleButton).
+  setFlag(LOGGED_OUT_KEY, true);
+  showLogin(false);
+}
+
+const LOGGED_OUT_KEY = 'gazda.loggedOut';
+
+function readFlag(key) {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function setFlag(key, on) {
+  try {
+    if (on) localStorage.setItem(key, '1');
+    else localStorage.removeItem(key);
+  } catch (e) {}
+}
+
+/** Po zdieľaní: povedz novému členovi, kde je Gazda a ktorým účtom sa prihlásiť. */
+function showInviteInfo(emails) {
+  if (!emails.length) return;
+  const url = location.origin + '/';
   openModal(
-    '<h2>' + esc(title) + '</h2><div class="subtitle">' + intro + '</div>' + items +
-      '<div class="hint muted" style="font-size:12px;margin-bottom:8px">Odkaz funguje ako heslo – ' +
-      'kto ho má, vystupuje v Gazdovi ako daný človek. Posielaj ho len jemu.</div>' +
+    '<h2>Daj im vedieť</h2>' +
+      '<div class="subtitle">' + esc(emails.join(', ')) + ' sa do Gazdu prihlási svojím Google účtom ' +
+      '(tým e-mailom). Pošli ' + (emails.length === 1 ? 'mu' : 'im') + ' adresu aplikácie:</div>' +
+      '<div class="field"><div class="row" style="align-items:center">' +
+      '<input readonly id="appUrl" value="' + esc(url) + '" style="flex:3">' +
+      '<button type="button" class="btn tonal small" id="copy" style="flex:0 0 auto" title="Kopírovať">' +
+      '<span class="ms">content_copy</span></button>' +
+      '<button type="button" class="btn tonal small" id="send" style="flex:0 0 auto" title="Poslať">' +
+      '<span class="ms">share</span></button></div></div>' +
       '<div class="actions"><button type="button" class="btn" id="done">Hotovo</button></div>',
     (root) => {
-      root.querySelector('#done').onclick = () => {
-        closeModal();
-        if (onClose) onClose();
-      };
-      root.querySelectorAll('[data-copy]').forEach((b) => {
-        b.onclick = () => copyText(root.querySelector('#link' + b.dataset.copy));
-      });
-      root.querySelectorAll('[data-share-link]').forEach((b) => {
-        b.onclick = async () => {
-          const l = links[Number(b.dataset.shareLink)];
-          const text = 'Tvoj odkaz do aplikácie Gazda (ulož si ho na plochu): ' + l.link;
-          if (navigator.share) {
-            try {
-              await navigator.share({ title: 'Gazda', text });
-              return;
-            } catch (e) {
-              if (e && e.name === 'AbortError') return;
-            }
+      root.querySelector('#done').onclick = closeModal;
+      root.querySelector('#copy').onclick = () => copyText(root.querySelector('#appUrl'));
+      root.querySelector('#send').onclick = async () => {
+        const text = 'Pridal som ťa do aplikácie Gazda. Otvor ' + url + ' a prihlás sa Google účtom.';
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: 'Gazda', text });
+            return;
+          } catch (e) {
+            if (e && e.name === 'AbortError') return;
           }
-          window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-        };
-      });
-    }
+        }
+        window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+      };
+    },
+    { focus: false }
   );
-  const first = $('modalContent').querySelector('input');
-  if (first) first.blur();
 }
 
 async function copyText(input) {
@@ -306,43 +380,16 @@ async function copyText(input) {
   }
 }
 
-function showInvites(invites, onClose) {
-  if (!invites || !invites.length) {
-    if (onClose) onClose();
-    return;
-  }
-  showLinks(
-    invites.length === 1 ? 'Pošli pozvánku' : 'Pošli pozvánky',
-    'Nový člen potrebuje svoj osobný odkaz. Pošli mu ho napríklad cez WhatsApp alebo SMS.',
-    invites,
-    onClose
-  );
-}
-
 function showAccount() {
   openModal(
     '<h2>Môj účet</h2><div class="subtitle">' + esc(state.email) + '</div>' +
-      '<div class="members"><div><span class="ms">key</span>Do Gazdu vstupuješ cez svoj osobný odkaz. ' +
-      'Ak si ho stratil alebo ho má niekto cudzí, vytvor nový – starý prestane fungovať.</div></div>' +
+      '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom. ' +
+      'Na tomto zariadení ostaneš prihlásený, kým sa neodhlásiš.</div></div>' +
       '<div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button>' +
-      '<button type="button" class="btn danger" id="regen">Vytvoriť nový odkaz</button></div>',
+      '<button type="button" class="btn danger" id="logout">Odhlásiť sa</button></div>',
     (root) => {
       root.querySelector('#cancel').onclick = closeModal;
-      root.querySelector('#regen').onclick = async (e) => {
-        e.currentTarget.disabled = true;
-        try {
-          const res = await api('regenerateMyLink');
-          saveToken(res.token);
-          showLinks(
-            'Tvoj nový odkaz',
-            'Ulož si ho na plochu telefónu (otvor ho a v menu prehliadača zvoľ <b>Pridať na plochu</b>). ' +
-              'Starý odkaz už nefunguje.',
-            [{ email: res.email, link: res.link }]
-          );
-        } catch (err) {
-          showError(err);
-        }
-      };
+      root.querySelector('#logout').onclick = logout;
     }
   );
 }
@@ -575,11 +622,6 @@ function showIdentity(email) {
 }
 
 async function loadHouseholds(initial = false) {
-  if (!token) {
-    showLinkRequired(false);
-    return;
-  }
-
   // Okamžite ukáž posledné známe údaje (ak sú), čerstvé prídu o chvíľu.
   let shownSnapshot = false;
   if (initial) {
@@ -624,11 +666,11 @@ async function loadHouseholds(initial = false) {
       renderHouseholds();
     }
   } catch (err) {
-    if (!isInvalidLink(err) && !shownSnapshot) {
+    if (!isLoginRequired(err) && !shownSnapshot) {
       $('view').innerHTML = '<div class="center">' + esc(errorMessage(err)) + '</div>';
     } else if (err.offline) {
       toast('Bez internetu – ukazujem posledné uložené údaje');
-    } else if (!isInvalidLink(err)) {
+    } else if (!isLoginRequired(err)) {
       toast('Nepodarilo sa načítať čerstvé údaje: ' + errorMessage(err), true);
     }
   }
@@ -643,7 +685,7 @@ async function refreshDetail(householdId) {
       renderDetail();
     }
   } catch (err) {
-    if (!isInvalidLink(err)) toast('Nepodarilo sa načítať čerstvé údaje: ' + errorMessage(err), true);
+    if (!isLoginRequired(err)) toast('Nepodarilo sa načítať čerstvé údaje: ' + errorMessage(err), true);
   }
 }
 
@@ -732,7 +774,8 @@ function showAddHousehold() {
           closeModal();
           renderHouseholds();
           toast('Domácnosť „' + form.name.value.trim() + '“ bola vytvorená');
-          showInvites(res.invites);
+          const created = res.households[res.households.length - 1];
+          showInviteInfo(created ? created.members.filter((m) => !m.joined).map((m) => m.email) : []);
         } catch (err) {
           form.querySelector('button:not([type])').disabled = false;
           showError(err);
@@ -744,23 +787,14 @@ function showAddHousehold() {
 
 function showShareHousehold(householdId) {
   const h = state.households.find((x) => x.id === householdId);
-  const iAmOwner = h.members.some((m) => m.email === state.email && m.role === 'owner');
-  const members = h.members
+    const members = h.members
     .map((m) => {
-      let action = '';
-      if (m.email !== state.email) {
-        if (!m.hasLink) {
-          action = '<button type="button" class="btn tonal small" data-link="' + esc(m.email) + '">Vytvoriť odkaz</button>';
-        } else if (iAmOwner) {
-          action = '<button type="button" class="btn text small" data-link="' + esc(m.email) + '" data-replace="1">Nový odkaz</button>';
-        }
-      }
       return (
         '<div><span class="ms">' + (m.role === 'owner' ? 'star' : 'person') + '</span>' +
         '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' + esc(m.email) +
         (m.role === 'owner' ? ' <span class="muted">(zakladateľ)</span>' : '') +
-        (m.email !== state.email && !m.hasLink ? ' <span class="muted">· nemá odkaz</span>' : '') +
-        '</span>' + action + '</div>'
+        (m.joined ? '' : ' <span class="muted">· ešte sa neprihlásil</span>') +
+        '</span></div>'
       );
     })
     .join('');
@@ -773,28 +807,6 @@ function showShareHousehold(householdId) {
       '<button class="btn">Zdieľať</button></div></form>',
     (root) => {
       root.querySelector('#cancel').onclick = closeModal;
-      root.querySelectorAll('[data-link]').forEach((b) => {
-        b.onclick = async () => {
-          const email = b.dataset.link;
-          // Nahradenie existujúceho odkazu treba potvrdiť druhým ťuknutím.
-          if (b.dataset.replace && !b.dataset.armed) {
-            b.dataset.armed = '1';
-            b.textContent = 'Naozaj? Ťukni znova';
-            toast('Starý odkaz pre ' + email + ' prestane fungovať.');
-            return;
-          }
-          b.disabled = true;
-          try {
-            const res = await api('createMemberLink', householdId, email);
-            const member = h.members.find((m) => m.email === email);
-            if (member) member.hasLink = true;
-            showLinks('Odkaz pre ' + email, 'Pošli mu tento osobný odkaz.', [res]);
-          } catch (err) {
-            b.disabled = false;
-            showError(err);
-          }
-        };
-      });
       root.querySelector('#f').onsubmit = async (e) => {
         e.preventDefault();
         const email = e.target.email.value.trim();
@@ -808,7 +820,9 @@ function showShareHousehold(householdId) {
             renderHouseholds();
           }
           toast('Domácnosť zdieľaná s ' + email);
-          showInvites(res.invites);
+          const added = res.households.find((x) => x.id === householdId);
+          const member = added && added.members.find((m) => m.email === email.toLowerCase());
+          if (member && !member.joined) showInviteInfo([member.email]);
         } catch (err) {
           showError(err);
         }
@@ -1838,7 +1852,7 @@ document.querySelectorAll('#tabs .tab').forEach((t) => {
 const AUTO_REFRESH_MS = 20000;
 
 async function autoRefresh() {
-  if (document.hidden || !state.detail || !token || pending || !canRefreshView()) return;
+  if (document.hidden || !state.detail || !state.email || pending || !canRefreshView()) return;
   if (state.detail.cinnosti.some((c) => c.pending)) return;
   const id = state.detail.household.id;
   const before = mutations;
@@ -1860,9 +1874,6 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) autoRefresh();
 });
 
-// Inštalácia na plochu: manifest s osobným kľúčom, aby ikona na ploche otvorila
-// Gazdu prihláseného (iPhone má pre aplikáciu na ploche vlastné úložisko).
-if (token) $('manifest').href = '/manifest.webmanifest?k=' + token;
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }

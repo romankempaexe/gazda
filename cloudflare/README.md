@@ -5,7 +5,8 @@ Nová verzia Gazdy na **Cloudflare Workers** s databázou **D1**. Beží zadarmo
 push notifikácie priamo z aplikácie.
 
 > Stav: **fáza 3 – aplikácia.** Gazda na Cloudflare má všetky funkcie verzie Apps Script
-> okrem upozornení (push notifikácie pribudnú vo fáze 4) a dá sa nainštalovať na plochu.
+> okrem upozornení (push notifikácie pribudnú vo fáze 4), dá sa nainštalovať na plochu
+> a každý sa prihlasuje **svojím Google účtom** (žiadne osobné odkazy).
 > Dáta sa z Google tabuľky prenesú vo fáze 5; dovtedy Gazda beží aj na Apps Script.
 
 ## Súbory
@@ -15,7 +16,8 @@ push notifikácie priamo z aplikácie.
 | `src/index.js` | Server (Worker): smerovanie `/api/*`, ostatné sú statické súbory |
 | `src/api.js` | Funkcie API (rovnaké ako vo verzii Apps Script) |
 | `src/domain.js` | Doménová logika: opakovanie, počet pri položkách, validácie |
-| `src/auth.js` | Osobné odkazy (SHA-256 odtlačok kľúča, ako vo verzii Apps Script) |
+| `src/auth.js` | Prihlásenie: relácia v cookie (v databáze len SHA-256 odtlačok) |
+| `src/google.js` | Overenie Google ID tokenu (podpis RS256, Client ID, platnosť, overený e-mail) |
 | `src/notifications.js` | Push notifikácie (fáza 4) |
 | `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
 | `public/sw.js` | Service worker: otvorenie bez internetu (neskôr push) |
@@ -27,27 +29,34 @@ push notifikácie priamo z aplikácie.
 
 ## API
 
-`POST /api/<funkcia>` s telom `{"args": [...]}` a hlavičkou
-`Authorization: Bearer <kľúč z osobného odkazu>`. Odpoveď je `{"result": …}`,
-pri chybe `{"error": "text pre používateľa"}` (neplatný odkaz: HTTP 401 a text
-začína `NEPLATNY_ODKAZ:`).
+`POST /api/<funkcia>` s telom `{"args": [...]}` (`Content-Type: application/json`)
+a cookie relácie. Odpoveď je `{"result": …}`, pri chybe `{"error": "text pre
+používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
-`createMemberLink`, `regenerateMyLink`, `deleteHousehold`, `getHouseholdData`,
-`addPriestor`, `addCinnost`, `updateCinnost`, `addItem`, `toggleItem`,
-`deleteCinnost`, `completeCinnost`. `GET /api/health` overí databázu.
+`deleteHousehold`, `getHouseholdData`, `addPriestor`, `addCinnost`, `updateCinnost`,
+`addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`. `GET /api/health`
+overí databázu.
+
+Prihlásenie: `GET /api/auth/config` (Client ID pre tlačidlo Google),
+`POST /api/auth/google` `{"credential": "<ID token>"}` – server overí token
+a nastaví cookie `gazda_session` (HttpOnly, Secure, SameSite=Lax, 1 rok),
+`POST /api/auth/logout` odhlási zariadenie. Do API sa dá poslať len JSON, takže
+cudzia stránka nemôže zneužiť prihlásenie (CSRF).
 
 Zápisy, ktoré patria k sebe (napr. činnosť s checklistom a našepkávaním), idú
 jedným `batch` – D1 ich vykoná ako jednu transakciu.
 
 ## Aplikácia v telefóne
 
-- Vstup cez osobný odkaz `https://gazda.<subdoména>.workers.dev/?k=<kľúč>`; kľúč sa
-  uloží v telefóne, takže ďalšie otvorenie funguje aj bez neho.
+- **Prihlásenie Google účtom** na adrese `https://gazda.<subdoména>.workers.dev`;
+  na zariadení ostáva rok (alebo do odhlásenia v *Môj účet*). Kto sa už prihlásil,
+  Google ho pri ďalšom otvorení prihlási sám.
+- **Zdieľanie:** domácnosť sa zdieľa na Google e-mail; ten človek sa prihlási
+  a domácnosť hneď vidí. V okne *Zdieľať* je vidieť, kto sa ešte neprihlásil.
 - **Inštalácia na plochu:** Android/Chrome – menu ⋮ → *Pridať na plochu* (alebo
-  *Inštalovať aplikáciu*); iPhone/Safari – *Zdieľať* → *Pridať na plochu*.
-  Manifest (`/manifest.webmanifest?k=…`) generuje server a do `start_url` dá osobný
-  kľúč, aby bola aplikácia z plochy hneď prihlásená (iPhone nezdieľa úložisko so Safari).
+  *Inštalovať aplikáciu*); iPhone/Safari – *Zdieľať* → *Pridať na plochu*
+  (na iPhone sa v aplikácii z plochy treba raz prihlásiť znova).
 - **Automatická obnova:** otvorená domácnosť sa každých 20 s (a po návrate do
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
@@ -55,7 +64,8 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
 ## Databáza
 
 Tabuľky zodpovedajú listom Google tabuľky: `households`, `members`, `priestory`,
-`cinnosti`, `polozky`, `obchody`, `produkty`, `users`. Databáza sa vytvorí
+`cinnosti`, `polozky`, `obchody`, `produkty`, `users` a `sessions` (prihlásené
+zariadenia). Databáza sa vytvorí
 v západnej Európe. Obchody a produkty sa porovnávajú podľa `name_key` (názov
 malými písmenami aj s diakritikou), aby „Šunka“ a „šunka“ boli jeden produkt.
 
@@ -90,14 +100,25 @@ Workflow `.github/workflows/deploy-cloudflare.yml`:
 6. Spusti nasadenie: **Actions → Nasadenie Cloudflare → Run workflow** (vetva `main`).
    Adresa Gazdy je v súhrne behu.
 
-7. **Heslo správcu (nepovinné)** – v GitHub secrets pridaj `GAZDA_ADMIN_KEY` = dlhé
-   heslo, ktoré si vymyslíš (aspoň 12 znakov, ulož si ho do správcu hesiel).
-   Pri nasadení sa nastaví do Cloudflare a otvorí stránku
-   `https://gazda.<subdoména>.workers.dev/admin.html`, kde po zadaní hesla a e-mailu
-   vznikne osobný odkaz (náhrada funkcie `mojOdkaz` z Apps Script). Repozitár je
-   verejný, preto sa odkazy nikdy nevypisujú do GitHub Actions.
+API token je ako heslo – vkladaj ho len do GitHub secrets, nikomu ho neposielaj.
 
-Token aj heslo správcu sú ako heslá – vkladaj ich len do GitHub secrets, nikomu ich neposielaj.
+### Prihlásenie Google účtom (Google Cloud, zadarmo)
+
+1. Otvor <https://console.cloud.google.com/> a vytvor projekt (napr. **Gazda**).
+2. **Google Auth Platform** (predtým *OAuth consent screen*) → **Get started**:
+   názov aplikácie **Gazda**, e-mail podpory, publikum **External**, kontaktný e-mail.
+3. **Audience** → **Publish app** (*In production*), aby sa mohol prihlásiť hocikto
+   s Google účtom. Gazda žiada len e-mail a meno, takže overenie aplikácie Googlom
+   netreba. (Alternatíva: nechať *Testing* a pridať členov domácnosti ako *Test users*.)
+4. **Clients** → **Create client** → typ **Web application**, v časti
+   **Authorized JavaScript origins** pridaj:
+   - `https://gazda.<subdoména>.workers.dev`
+   - `https://gazda-preview.<subdoména>.workers.dev`
+5. Skopíruj **Client ID** (končí na `.apps.googleusercontent.com`; nie je tajný).
+6. V GitHub repozitári **Settings → Secrets and variables → Actions → záložka
+   Variables → New repository variable**: `GOOGLE_CLIENT_ID` = Client ID.
+7. Pri ďalšom nasadení sa Client ID dostane do aplikácie a objaví sa tlačidlo
+   *Prihlásiť sa cez Google*.
 
 ## Lokálne
 
@@ -109,4 +130,5 @@ npm run dev       # lokálny server na http://localhost:8787
 ```
 
 Pred `npm run dev` treba lokálne aplikovať migrácie:
-`npx wrangler d1 migrations apply DB --local --env=""`.
+`npx wrangler d1 migrations apply DB --local --env=""` a do súboru `.dev.vars`
+dať `GOOGLE_CLIENT_ID="…"` (a do Google Cloud pridať origin `http://localhost:8787`).

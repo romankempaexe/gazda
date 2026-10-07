@@ -10,7 +10,9 @@ test('health: databáza má všetky tabuľky', async () => {
     assert.equal(res.headers.get('cache-control'), 'no-store');
     const body = await res.json();
     assert.equal(body.ok, true);
-    assert.deepEqual(body.tables, ['cinnosti', 'households', 'members', 'obchody', 'polozky', 'priestory', 'produkty', 'users']);
+    assert.deepEqual(body.tables, [
+      'cinnosti', 'households', 'members', 'obchody', 'polozky', 'priestory', 'produkty', 'sessions', 'users',
+    ]);
   } finally {
     await t.dispose();
   }
@@ -23,6 +25,20 @@ test('neznáma API cesta vráti 404, ostatné ide na statické súbory', async (
     assert.equal(res.status, 404);
     assert.match((await res.json()).error, /Neznáma/);
     assert.equal(await (await t.fetch('/')).text(), 'asset');
+  } finally {
+    await t.dispose();
+  }
+});
+
+test('manifest na inštaláciu na plochu', async () => {
+  const t = await setup();
+  try {
+    const res = await t.fetch('/manifest.webmanifest');
+    assert.equal(res.headers.get('content-type'), 'application/manifest+json; charset=utf-8');
+    const m = await res.json();
+    assert.equal(m.start_url, '/');
+    assert.equal(m.display, 'standalone');
+    assert.equal(m.icons.length, 3);
   } finally {
     await t.dispose();
   }

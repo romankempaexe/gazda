@@ -20,35 +20,22 @@ const rejects = (promise, re, status) =>
     return true;
   });
 
-test('osobný kľúč: bez kľúča, neplatný a nahradený kľúč neprejdú', async () => {
-  await rejects(t.call('', 'getHouseholds'), /^NEPLATNY_ODKAZ:/, 401);
-  await rejects(t.call('f'.repeat(32), 'getHouseholds'), /^NEPLATNY_ODKAZ:/, 401);
-  await rejects(t.call('<script>', 'getHouseholds'), /^NEPLATNY_ODKAZ:/, 401);
-  const res = await roman.api.getHouseholds();
-  assert.deepEqual(res, { email: 'roman@exe.sk', households: [] });
-  // POST je povinný, neznáma funkcia 404
-  assert.equal((await t.fetch('/api/getHouseholds')).status, 405);
-  assert.equal((await t.fetch('/api/toString', { method: 'POST' })).status, 404);
-  assert.equal((await t.fetch('/api/getHouseholds', { method: 'POST', body: '{zle' })).status, 400);
-});
-
-test('domácnosti: vytvorenie, zdieľanie a pozvánky', async () => {
+test('domácnosti: vytvorenie a zdieľanie podľa e-mailu', async () => {
   const res = await roman.api.createHousehold('  Byt  ', 'jana@gmail.com, novy@example.com, roman@exe.sk');
   assert.equal(res.households.length, 1);
   const h = res.households[0];
   hid = h.id;
   assert.equal(h.name, 'Byt');
   assert.equal(h.createdByEmail, 'roman@exe.sk');
+  // joined = už sa prihlásil do Gazdu
   assert.deepEqual(
-    h.members.map((m) => [m.email, m.role, m.hasLink]),
-    [['roman@exe.sk', 'owner', true], ['jana@gmail.com', 'member', true], ['novy@example.com', 'member', true]]
+    h.members.map((m) => [m.email, m.role, m.joined]),
+    [['roman@exe.sk', 'owner', true], ['jana@gmail.com', 'member', true], ['novy@example.com', 'member', false]]
   );
-  // pozvánka len pre toho, kto ešte odkaz nemal
-  assert.deepEqual(res.invites.map((i) => i.email), ['novy@example.com']);
-  assert.match(res.invites[0].link, /^https:\/\/gazda\.test\/\?k=[0-9a-f]{32}$/);
-  // pozvaný sa odkazom prihlási
-  const novyToken = res.invites[0].link.split('k=')[1];
-  assert.equal((await t.call(novyToken, 'getHouseholds')).households[0].id, hid);
+  assert.equal(res.invites, undefined);
+  // nový člen sa prihlási svojím Google účtom a domácnosť hneď vidí
+  const novy = await t.user('novy@example.com');
+  assert.equal((await novy.api.getHouseholds()).households[0].id, hid);
 
   assert.equal((await jana.api.getHouseholds()).households[0].name, 'Byt');
   assert.deepEqual((await cudzi.api.getHouseholds()).households, []);
@@ -59,26 +46,10 @@ test('domácnosti: vytvorenie, zdieľanie a pozvánky', async () => {
   await rejects(roman.api.shareHousehold(hid, 'nie'), /platný e-mail/);
   await rejects(cudzi.api.shareHousehold(hid, 'x@y.sk'), /nemáš prístup/, 403);
   const shared = await roman.api.shareHousehold(hid, 'Babka@Example.com');
-  assert.deepEqual(shared.invites.map((i) => i.email), ['babka@example.com']);
-});
-
-test('osobné odkazy členov a nový vlastný odkaz', async () => {
-  // člen bez odkazu – odkaz vytvorí ktokoľvek z domácnosti
-  await t.env.DB.prepare("UPDATE users SET token_hash = NULL WHERE email = 'babka@example.com'").run();
-  const link = await jana.api.createMemberLink(hid, 'babka@example.com');
-  assert.equal(link.replaced, false);
-  // člen s odkazom – nový mu vytvorí len zakladateľ alebo on sám
-  await rejects(jana.api.createMemberLink(hid, 'babka@example.com'), /len zakladateľ/, 403);
-  assert.equal((await roman.api.createMemberLink(hid, 'babka@example.com')).replaced, true);
-  await rejects(t.call(link.link.split('k=')[1], 'getHouseholds'), /NEPLATNY_ODKAZ/); // starý prestal platiť
-  await rejects(roman.api.createMemberLink(hid, 'nikto@x.sk'), /nie je členom/);
-
-  const fresh = await cudzi.api.regenerateMyLink();
-  assert.equal(fresh.email, 'cudzi@example.com');
-  assert.equal(fresh.link, 'https://gazda.test/?k=' + fresh.token);
-  await rejects(cudzi.api.getHouseholds(), /NEPLATNY_ODKAZ/);
-  cudzi.api = new Proxy({}, { get: (_, name) => (...args) => t.call(fresh.token, name, ...args) });
-  assert.equal((await cudzi.api.getHouseholds()).email, 'cudzi@example.com');
+  assert.deepEqual(
+    shared.households[0].members.filter((m) => m.email === 'babka@example.com').map((m) => [m.role, m.joined]),
+    [['member', false]]
+  );
 });
 
 test('priestory a validácia činnosti', async () => {
@@ -219,3 +190,21 @@ test('vymazanie domácnosti: len zakladateľ, zmaže všetko', async () => {
   // Janina druhá domácnosť zostala
   assert.deepEqual((await jana.api.getHouseholds()).households.map((h) => h.name), ['Chata']);
 });
+
+test('prezývka: po prihlásení prázdna s návrhom z Google mena, potom ju vidia ostatní', async () => {
+  const t2 = t;
+  const peter = await t2.login(await (await import('./helpers.js')).signIdToken({ email: 'peter@x.sk', name: 'Peter  Novák' }));
+  const call = (name, ...args) => t2.call(peter, name, ...args);
+  let me = await call('getHouseholds');
+  assert.deepEqual([me.nickname, me.suggestedNickname], ['', 'Peter']);
+  await rejects(call('setNickname', '   '), /Zadaj prezývku/);
+  await rejects(call('setNickname', 'x'.repeat(31)), /najviac 30/);
+  assert.deepEqual(await call('setNickname', '  Peťo   N. '), { nickname: 'Peťo N.' });
+  me = await call('getHouseholds');
+  assert.equal(me.nickname, 'Peťo N.');
+  // ostatní vidia prezývku pri členoch domácnosti
+  const h = (await call('createHousehold', 'Garáž', 'jana@gmail.com')).households.find((x) => x.name === 'Garáž');
+  const seen = await jana.api.getHouseholdData(h.id);
+  assert.deepEqual(seen.members.map((m) => [m.email, m.nickname]), [['peter@x.sk', 'Peťo N.'], ['jana@gmail.com', '']]);
+});
+

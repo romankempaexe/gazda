@@ -8,7 +8,10 @@
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": [
+      "/api/*",
+      "/manifest.webmanifest"
+    ]
   },
   "d1_databases": [
     {
@@ -18,7 +21,9 @@
       "migrations_dir": "migrations"
     }
   ],
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true
+  },
   "env": {
     "preview": {
       "name": "gazda-preview",

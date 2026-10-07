@@ -54,6 +54,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TARGET_ENV: ${{ github.event_name == 'pull_request' && 'preview' || '' }}
+      # Client ID z Google Cloud pre prihlásenie Google účtom (verejný údaj – GitHub premenná).
+      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
     steps:
       - name: Kontrola nastavení
         id: secrets
@@ -88,7 +90,10 @@ jobs:
       - name: Nasadenie
         if: steps.secrets.outputs.ready == 'true'
         run: |
-          npx wrangler deploy --env="$TARGET_ENV" | tee "$RUNNER_TEMP/deploy.log"
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            echo "::warning::Chýba GitHub premenná GOOGLE_CLIENT_ID – prihlásenie Google účtom nebude fungovať (návod v cloudflare/README.md)."
+          fi
+          npx wrangler deploy --env="$TARGET_ENV" --var "GOOGLE_CLIENT_ID:$GOOGLE_CLIENT_ID" | tee "$RUNNER_TEMP/deploy.log"
           url=$(grep -Eo 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n 1)
           if [ -n "$url" ]; then
             echo "### Gazda ${TARGET_ENV:+(náhľad)}: $url" >> "$GITHUB_STEP_SUMMARY"
@@ -97,3 +102,4 @@ jobs:
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
           fi
+

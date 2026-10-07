@@ -568,7 +568,9 @@ function lfConfirm(thumb, mark, key, product, live) {
       (live
         ? '<div class="lf-preview"><div class="lf-pv"><img src="' + thumb + '" alt=""><div class="lf-box hidden" id="lfBox"><span class="lf-h" data-h="tl"></span>' +
           '<span class="lf-h" data-h="tr"></span><span class="lf-h" data-h="bl"></span><span class="lf-h" data-h="br"></span></div>' +
-          '<div class="lf-spin" id="lfSpin"><span></span>Rozpoznávam…</div></div></div>'
+          '<div class="lf-spin" id="lfSpin"><span></span>Rozpoznávam…</div>' +
+          '<div class="lf-pvzoom"><button type="button" id="lfZoomOutPv" title="Oddialiť"><span class="ms">zoom_out</span></button>' +
+          '<button type="button" id="lfZoomInPv" title="Priblížiť"><span class="ms">zoom_in</span></button></div></div></div>'
         : '<div class="lf-preview"><img src="' + thumb + '" alt=""></div>') +
       '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="' +
       (live ? 'Rozpoznávam…' : 'Napr. mascarpone (nepovinné)') + '" value="' +
@@ -595,9 +597,10 @@ function lfConfirm(thumb, mark, key, product, live) {
         const pv = root.querySelector('.lf-pv');
         const boxEl = root.querySelector('#lfBox');
         const spin = root.querySelector('#lfSpin');
-        const { region, img } = live;
-        const RW = region.x2 - region.x;
-        const RH = region.y2 - region.y;
+        const img = live.img;
+        let region = live.region; // výrez v náhľade (zlomky strany) – mení sa tlačidlami − / +
+        let RW = region.x2 - region.x;
+        let RH = region.y2 - region.y;
         let box = null; // [x1, y1, x2, y2] v zlomkoch náhľadu (výrezu)
         let nameEdited = false;
         let priceEdited = false;
@@ -709,6 +712,54 @@ function lfConfirm(thumb, mark, key, product, live) {
         };
         boxEl.addEventListener('pointerup', endDrag);
         boxEl.addEventListener('pointercancel', endDrag);
+
+        // Oddialiť / priblížiť náhľad: rám ostane na tom istom mieste letáka
+        const ZOOMS = [0.3, 0.45, 0.65, 0.9, 1];
+        let zoomLevel = 1;
+        const zoomOut = root.querySelector('#lfZoomOutPv');
+        const zoomIn = root.querySelector('#lfZoomInPv');
+        const updateZoomButtons = () => {
+          zoomIn.disabled = zoomLevel === 0;
+          zoomOut.disabled = zoomLevel === ZOOMS.length - 1;
+        };
+        const setZoom = async (level) => {
+          if (!box || level < 0 || level >= ZOOMS.length) return;
+          zoomLevel = level; // hneď, aby rýchle ťuknutia za sebou pokračovali od nového stupňa
+          updateZoomButtons();
+          const b = pageBounds();
+          const cx = (b.x + b.x2) / 2;
+          const cy = (b.y + b.y2) / 2;
+          const rw = ZOOMS[level];
+          const rh = Math.min(1, (rw * img.naturalWidth) / img.naturalHeight);
+          const x = Math.min(1 - rw, Math.max(0, cx - rw / 2));
+          const y = Math.min(1 - rh, Math.max(0, cy - rh / 2));
+          const next = { x, y, x2: x + rw, y2: y + rh };
+          let preview;
+          try {
+            preview = await lfCrop(img, next, 640, 0.8, 600000);
+          } catch (e) {
+            return;
+          }
+          if (!alive() || zoomLevel !== level) return; // medzičasom ďalšie ťuknutie
+          region = next;
+          RW = rw;
+          RH = rh;
+          pv.querySelector('img').src = preview;
+          // rám prepočítaný do nového výrezu (pri priblížení sa môže orezať)
+          const clamp01 = (v) => Math.min(1, Math.max(0, v));
+          const nb = [clamp01((b.x - x) / rw), clamp01((b.y - y) / rh), clamp01((b.x2 - x) / rw), clamp01((b.y2 - y) / rh)];
+          const cut = nb[2] - nb[0] < 0.04 || nb[3] - nb[1] < 0.04;
+          box = cut ? [0.2, 0.2, 0.8, 0.8] : nb;
+          drawBox();
+          const changed = Math.abs(pageBounds().x - b.x) + Math.abs(pageBounds().x2 - b.x2) + Math.abs(pageBounds().y - b.y) + Math.abs(pageBounds().y2 - b.y2) > 0.002;
+          if (changed) {
+            applyBox();
+            reidentify();
+          }
+        };
+        zoomOut.onclick = () => setZoom(zoomLevel + 1);
+        zoomIn.onclick = () => setZoom(zoomLevel - 1);
+        updateZoomButtons();
       }
       const submit = async () => {
         addBtn.disabled = true;

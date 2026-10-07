@@ -2187,3 +2187,36 @@ body.lf-open {
   border-right-color: transparent;
   animation: lf-spin 0.8s linear infinite;
 }
+
+/* − / + v náhľade: oddialiť alebo priblížiť výrez */
+.lf-pvzoom {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+}
+
+.lf-pvzoom button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--glass);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.lf-pvzoom button:disabled {
+  opacity: 0.4;
+}
+
+.lf-pvzoom .ms {
+  font-size: 20px;
+}

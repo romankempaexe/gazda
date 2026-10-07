@@ -148,9 +148,15 @@ function lfRenderStrip() {
   lfStripUpdate();
 }
 
+let lfDwell = null;
+
 /** Načíta obrázky len okolo aktuálnej strany (leták má aj 100 strán). */
 function lfStripUpdate() {
   const f = lf.flyer;
+  // Keď človek na strane chvíľu ostane, produkty sa začnú hľadať už teraz (pri listovaní nie).
+  clearTimeout(lfDwell);
+  const index = lf.page;
+  lfDwell = setTimeout(() => lf.mode === 'strip' && lf.page === index && lfFetchProducts(index), 1200);
   $('lfCount').textContent = lf.page + 1 + ' / ' + f.pages.length;
   $('lfPrev').disabled = lf.page === 0;
   $('lfNext').disabled = lf.page === f.pages.length - 1;
@@ -224,7 +230,7 @@ function lfHelpUpdate() {
   if (!help) return;
   const found = lf.products[lfMarkKey()];
   let text;
-  if (found === 'loading') text = 'Hľadám produkty na strane…';
+  if (found === 'loading') text = 'Hľadám produkty na strane… (prvýkrát to trvá pár sekúnd)';
   else if (found && found.error) text = found.error;
   else if (Array.isArray(found) && found.length) text = lf.draw ? 'Ťukni na + pri produkte, alebo tovar zakrúžkuj prstom.' : 'Ťukni na + pri produkte. Posúvaj prstom.';
   else if (Array.isArray(found)) text = 'Produkty sa nenašli – zakrúžkuj tovar prstom.';
@@ -235,20 +241,38 @@ function lfHelpUpdate() {
 
 // ---- Rozpoznané produkty: tlačidlo + pri každom ---------------------------------------
 
-async function lfLoadProducts() {
-  const key = lfMarkKey();
-  const slug = lf.flyer.slug;
-  const index = lf.page;
-  if (lf.products[key] && !lf.products[key].error) return lfRenderProducts();
-  lf.products[key] = 'loading';
-  lfRenderProducts();
-  try {
-    lf.products[key] = await apiQuiet('analyzeLeafletPage', slug, index);
-  } catch (err) {
-    if (isLoginRequired(err)) return;
-    lf.products[key] = { error: errorMessage(err) };
+const lfPending = {}; // rozbehnuté rozpoznávanie: kľúč strany -> Promise
+
+/** Rozpozná produkty na strane (index) – raz; súbežné volania čakajú na to isté. */
+function lfFetchProducts(index) {
+  const flyer = lf.flyer;
+  if (!flyer || index < 0 || index >= flyer.pages.length) return Promise.resolve();
+  const key = flyer.slug + '#' + index;
+  if (Array.isArray(lf.products[key])) return Promise.resolve();
+  if (!lfPending[key]) {
+    lf.products[key] = 'loading';
+    lfPending[key] = apiQuiet('analyzeLeafletPage', flyer.slug, index)
+      .then((list) => {
+        lf.products[key] = list;
+      })
+      .catch((err) => {
+        lf.products[key] = { error: isLoginRequired(err) ? '' : errorMessage(err) };
+      })
+      .finally(() => {
+        delete lfPending[key];
+        if (lf.mode === 'page' && lfMarkKey() === key) lfRenderProducts();
+      });
   }
-  if (lf.mode === 'page' && lfMarkKey() === key) lfRenderProducts();
+  return lfPending[key];
+}
+
+/** Strana otvorená na výber tovaru: jej produkty a vopred aj ďalšej strany. */
+async function lfLoadProducts() {
+  const index = lf.page;
+  const loading = lfFetchProducts(index);
+  lfRenderProducts();
+  await loading;
+  lfFetchProducts(index + 1); // kým si človek vyberá, ďalšia strana sa pripraví
 }
 
 function lfRenderProducts() {

@@ -191,6 +191,7 @@ export async function leafletImage(c, path) {
 
 export const PRODUCTS_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 const PRODUCTS_KEY = 'products:';
+const RETRY_EMPTY_MS = 30 * 60 * 1000;
 const PRODUCTS_PROMPT =
   'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page ' +
   '(ignore logos, headlines, opening hours and coupons). For each offer return its product name exactly as printed ' +
@@ -214,7 +215,16 @@ function extractJson(text) {
       }
     }
   }
-  return null;
+  // Odrezaná alebo pokazená odpoveď: zober aspoň jednotlivé celé záznamy {…}.
+  const items = [];
+  for (const m of text.matchAll(/\{[^{}]*\}/g)) {
+    try {
+      items.push(JSON.parse(m[0].replace(/,\s*\}/, '}')));
+    } catch {
+      // nečitateľný záznam vynecháme
+    }
+  }
+  return items.length ? items : null;
 }
 
 /**
@@ -225,21 +235,24 @@ export function parseProducts(raw, w, h) {
   let data = extractJson(raw);
   if (data && !Array.isArray(data)) data = data.products || data.offers || data.items || null;
   if (!Array.isArray(data)) return [];
+  const boxOf = (p) => (Array.isArray(p.box) ? p.box : Array.isArray(p.bbox) ? p.bbox : Array.isArray(p.bounding_box) ? p.bounding_box : null);
+  // Mierka súradníc pre celú odpoveď: zlomky (0–1), tisíciny, alebo pixely obrázka, ktorý model videl (w × h).
+  const all = data.flatMap((p) => (p && typeof p === 'object' && boxOf(p) ? boxOf(p).map(Number) : [])).filter(Number.isFinite);
+  const max = all.length ? Math.max(...all) : 0;
+  const scale = max <= 1.5 ? null : max > 1000 && w && h ? 'px' : 'k';
   const out = [];
   for (const p of data) {
     if (!p || typeof p !== 'object') continue;
-    const name = String(p.name ?? p.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 100);
-    let box = Array.isArray(p.box) ? p.box.map(Number) : Array.isArray(p.bbox) ? p.bbox.map(Number) : null;
+    const name = String(p.name ?? p.title ?? p.product ?? '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    let box = boxOf(p) ? boxOf(p).map(Number) : null;
     if (!name || !box || box.length !== 4 || box.some((v) => !Number.isFinite(v))) continue;
-    const max = Math.max(...box);
-    if (max > 1.5) {
-      box = max <= 1000 ? box.map((v) => v / 1000) : [box[0] / (w || 1), box[1] / (h || 1), box[2] / (w || 1), box[3] / (h || 1)];
-    }
+    if (scale === 'k') box = box.map((v) => v / 1000);
+    if (scale === 'px') box = [box[0] / w, box[1] / h, box[2] / w, box[3] / h];
     let [x1, y1, x2, y2] = box.map((v) => Math.min(1, Math.max(0, v)));
     if (x1 > x2) [x1, x2] = [x2, x1];
     if (y1 > y2) [y1, y2] = [y2, y1];
     // príliš malé (bod, čiara) alebo skoro celá strana – zlé ohraničenie
-    if (x2 - x1 < 0.04 || y2 - y1 < 0.025 || (x2 - x1) * (y2 - y1) > 0.6) continue;
+    if (x2 - x1 < 0.04 || y2 - y1 < 0.025 || (x2 - x1) * (y2 - y1) > 0.85) continue;
     const priceNum = typeof p.price === 'number' ? p.price : parseFloat(String(p.price ?? '').replace(',', '.'));
     const price = Number.isFinite(priceNum) && priceNum > 0 && priceNum < 10000 ? priceNum.toFixed(2) : '';
     const round = (v) => Math.round(v * 1000) / 1000;
@@ -266,7 +279,8 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
   if (!page) throw new AppError('Leták už neplatí.', 404);
   const key = PRODUCTS_KEY + slug + ':' + page.n;
   const cached = await readConfig(c, key);
-  if (cached) return cached.products;
+  // Prázdny výsledok (model nič nenašiel alebo odpovedal nezmyselne) sa po chvíli skúsi znova.
+  if (cached && (cached.products.length || Date.now() - Date.parse(cached.at) < RETRY_EMPTY_MS)) return cached.products;
   if (!c.ai) throw new AppError('Rozpoznávanie produktov nie je dostupné.', 503);
 
   const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
@@ -274,10 +288,11 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
   const type = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
   const dataUrl = 'data:' + type + ';base64,' + toBase64(new Uint8Array(await res.arrayBuffer()));
   let answer;
+  const started = Date.now();
   try {
     answer = await c.ai.run(PRODUCTS_MODEL, {
       messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: PRODUCTS_PROMPT }] }],
-      max_tokens: 2500,
+      max_tokens: 4000,
       temperature: 0,
     });
   } catch (err) {
@@ -287,10 +302,43 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
     }
     throw new AppError('Produkty sa teraz nepodarilo rozpoznať. Tovar môžeš zakrúžkovať prstom.', 502);
   }
-  const products = parseProducts(answer && answer.response, page.w, page.h);
+  const response = answer && answer.response;
+  // Obrázok strany je zmenšený na najviac 1200 × 1200 px – v tých pixeloch model súradnice vidí.
+  const fit = Math.min(1, 1200 / Math.max(page.w || 1, page.h || 1));
+  const products = parseProducts(response, Math.round((page.w || 0) * fit), Math.round((page.h || 0) * fit));
+  const raw = typeof response === 'string' ? response : JSON.stringify(response ?? null);
   await c.db
     .prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
-    .bind(key, JSON.stringify({ products, model: PRODUCTS_MODEL, at: new Date().toISOString() }))
+    .bind(
+      key,
+      JSON.stringify({
+        products,
+        model: PRODUCTS_MODEL,
+        at: new Date().toISOString(),
+        ms: Date.now() - started,
+        // pri prázdnom výsledku si necháme odpoveď modelu na rozbor
+        ...(!products.length && { raw: raw.slice(0, 3000) }),
+      })
+    )
     .run();
   return products;
+}
+
+/** DOČASNÁ diagnostika (len preview): znova rozpozná stranu a vráti aj surovú odpoveď modelu. */
+export async function debugAnalyze(c, slug, n) {
+  const flyer = await readConfig(c, FLYER_KEY + slug);
+  const index = flyer ? flyer.pages.findIndex((p) => p.n === Number(n)) : -1;
+  if (index < 0) return { error: 'strana neexistuje' };
+  const key = PRODUCTS_KEY + slug + ':' + n;
+  const before = await readConfig(c, key);
+  await c.db.prepare('DELETE FROM config WHERE key = ?').bind(key).run();
+  const t = Date.now();
+  let products;
+  try {
+    products = await analyzeLeafletPage(c, slug, index);
+  } catch (err) {
+    return { n, error: String(err.message || err), ms: Date.now() - t };
+  }
+  const after = await readConfig(c, key);
+  return { n, before: before && { count: before.products.length, ms: before.ms }, count: products.length, ms: Date.now() - t, names: products.map((p) => p.name + ' ' + p.price), raw: after && after.raw };
 }

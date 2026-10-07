@@ -162,13 +162,12 @@ test('miniatúry položiek: uloženie, zobrazenie členom a zmazanie s položkou
   assert.equal(await count(), 0);
 });
 
-test('produkty v letáku: odpoveď AI sa vyčistí (tisíciny, pixely, prehodené rohy, nezmysly)', () => {
+test('produkty v letáku: odpoveď AI sa vyčistí (zlomky, tisíciny, pixely, odrezaná odpoveď)', () => {
   const raw =
     'Tu je výsledok:\n```json\n' +
     JSON.stringify([
       { name: ' Mascarpone  500 g ', price: 2.49, box: [0.025, 0.262, 0.331, 0.497] },
-      { name: 'Prosecco', price: '2,99', box: [600, 100, 300, 400] }, // tisíciny, prehodené x
-      { name: 'Robot', price: 49.99, box: [700, 1200, 1400, 2400] }, // pixely (strana 1415 × 2400)
+      { name: 'Prehodené', price: '2,99', box: [0.6, 0.1, 0.3, 0.4] },
       { name: 'Bod', price: 1, box: [0.5, 0.5, 0.51, 0.51] }, // príliš malé
       { name: 'Celá strana', price: 1, box: [0, 0, 1, 1] },
       { name: '', price: 1, box: [0.1, 0.1, 0.3, 0.3] },
@@ -176,15 +175,37 @@ test('produkty v letáku: odpoveď AI sa vyčistí (tisíciny, pixely, prehoden�
       { name: 'Zlá cena', price: -3, box: [0.4, 0.6, 0.6, 0.8] },
     ]) +
     '\n```';
-  assert.deepEqual(parseProducts(raw, 1415, 2400), [
+  assert.deepEqual(parseProducts(raw, 707, 1200), [
     { name: 'Mascarpone 500 g', price: '2.49', box: [0.025, 0.262, 0.331, 0.497] },
-    { name: 'Prosecco', price: '2.99', box: [0.3, 0.1, 0.6, 0.4] },
-    { name: 'Robot', price: '49.99', box: [0.495, 0.5, 0.989, 1] },
+    { name: 'Prehodené', price: '2.99', box: [0.3, 0.1, 0.6, 0.4] },
     { name: 'Bez ceny', price: '', box: [0.1, 0.6, 0.3, 0.8] },
     { name: 'Zlá cena', price: '', box: [0.4, 0.6, 0.6, 0.8] },
   ]);
+  // tisíciny
+  assert.deepEqual(parseProducts('[{"name":"Prosecco","price":2.99,"box":[300,100,600,400]}]', 707, 1200), [
+    { name: 'Prosecco', price: '2.99', box: [0.3, 0.1, 0.6, 0.4] },
+  ]);
+  // pixely obrázka, ktorý model videl (707 × 1200)
+  assert.deepEqual(
+    parseProducts('[{"name":"Robot","price":49.99,"box":[350,600,700,1200]},{"name":"Syr","price":1,"box":[0,0,353,300]}]', 707, 1200),
+    [
+      { name: 'Robot', price: '49.99', box: [0.495, 0.5, 0.99, 1] },
+      { name: 'Syr', price: '1.00', box: [0, 0, 0.499, 0.25] },
+    ]
+  );
+  // odrezaná odpoveď (došli tokeny) – celé záznamy sa zachránia
+  assert.deepEqual(
+    parseProducts('[{"name":"A","price":1,"box":[0.1,0.1,0.3,0.3]}, {"name":"B","price":2,"box":[0.4,0.1,0.6,0.3],}, {"name":"C","pri'),
+    [
+      { name: 'A', price: '1.00', box: [0.1, 0.1, 0.3, 0.3] },
+      { name: 'B', price: '2.00', box: [0.4, 0.1, 0.6, 0.3] },
+    ]
+  );
   assert.deepEqual(parseProducts('{"products":[{"name":"Syr","price":1.5,"bbox":[0.1,0.1,0.4,0.3]}]}'), [
     { name: 'Syr', price: '1.50', box: [0.1, 0.1, 0.4, 0.3] },
+  ]);
+  assert.deepEqual(parseProducts([{ name: 'Objekt', price: 3, box: [0.1, 0.1, 0.4, 0.3] }]), [
+    { name: 'Objekt', price: '3.00', box: [0.1, 0.1, 0.4, 0.3] },
   ]);
   assert.deepEqual(parseProducts('neviem'), []);
 });
@@ -209,6 +230,19 @@ test('produkty v letáku: AI raz na stranu, potom z pamäte; chyby a limit', asy
   await assert.rejects(roman.api.analyzeLeafletPage(slug, 0), /nepodarilo rozpoznať/);
   await assert.rejects(roman.api.analyzeLeafletPage(slug, 9), /Leták už neplatí/);
   await assert.rejects(cudzi.api.analyzeLeafletPage('neexistuje', 0), /Leták už neplatí/);
+
+  // nič nenájdené: chvíľu sa vracia prázdny zoznam, potom sa strana skúsi znova
+  aiAnswer = 'Na strane nevidím žiadne produkty.';
+  const before = aiCalls.length;
+  assert.deepEqual(await roman.api.analyzeLeafletPage(slug, 0), []);
+  assert.deepEqual(await roman.api.analyzeLeafletPage(slug, 0), []);
+  assert.equal(aiCalls.length, before + 1);
+  const stored = JSON.parse((await t.env.DB.prepare("SELECT value FROM config WHERE key = ?").bind('products:' + slug + ':1').first()).value);
+  assert.equal(stored.raw, 'Na strane nevidím žiadne produkty.');
+  await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.at', '2026-01-01T00:00:00Z') WHERE key = ?").bind('products:' + slug + ':1').run();
+  aiAnswer = '[{"name":"Prosecco","price":2.99,"box":[0.3,0.1,0.6,0.4]}]';
+  assert.equal((await roman.api.analyzeLeafletPage(slug, 0))[0].name, 'Prosecco');
+  assert.equal(aiCalls.length, before + 2);
   await assert.rejects(t.call('', 'analyzeLeafletPage', slug, 1), (err) => err.status === 401);
 });
 

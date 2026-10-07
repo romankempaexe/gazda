@@ -1,6 +1,9 @@
-// Letáky Lidl (neoficiálne – rovnaké zdroje, aké používa web lidl.sk):
+// Letáky obchodov (neoficiálne – rovnaké zdroje, aké používajú ich weby):
+// Lidl:
 // 1. stránka s letákmi na lidl.sk → identifikátory letákov (slug),
 // 2. endpoints.leaflets.schwarz/v4/flyer → stránky letáka s obrázkami a platnosťou.
+// Ostatné obchody (Tesco, Kaufland, Billa, …) z agregátora kimbino.sk: stránka obchodu
+// → odkazy na letáky, stránka letáka → adresy obrázkov strán (dáta Nuxt) a platnosť.
 // Obrázky idú cez náš server (/api/leaflets/image), aby sa z nich v prehliadači
 // dali vystrihnúť miniatúry (canvas nesmie byť „zašpinený“ cudzím pôvodom).
 //
@@ -12,6 +15,22 @@ import { AppError } from './domain.js';
 const LIDL = 'https://www.lidl.sk';
 const FLYER_API = 'https://endpoints.leaflets.schwarz/v4/flyer';
 export const IMAGE_ORIGIN = 'https://imgproxy.leaflets.schwarz';
+const KIMBINO = 'https://www.kimbino.sk';
+// Servery, z ktorých smie /api/leaflets/image brať obrázky.
+const IMAGE_HOSTS = ['imgproxy.leaflets.schwarz', 'eu.kimbicdn.com'];
+
+/** Obchody s letákmi (id = parameter pre getLeaflets). */
+export const STORES = [
+  { id: 'lidl', name: 'Lidl' },
+  { id: 'tesco', name: 'Tesco', kimbino: 'tesco' },
+  { id: 'kaufland', name: 'Kaufland', kimbino: 'kaufland' },
+  { id: 'billa', name: 'Billa', kimbino: 'billa' },
+  { id: 'coop', name: 'Coop Jednota', kimbino: 'coop-jednota' },
+  { id: 'terno', name: 'Terno', kimbino: 'terno' },
+  { id: 'fresh', name: 'Fresh', kimbino: 'fresh' },
+  { id: 'kraj', name: 'Kraj', kimbino: 'kraj' },
+  { id: 'metro', name: 'Metro', kimbino: 'metro' },
+];
 const HEADERS = {
   'user-agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36',
   'accept-language': 'sk-SK,sk;q=0.9',
@@ -118,11 +137,11 @@ async function refresh(c) {
   }));
   const cached = { fetched: Date.now(), today: c.today, list };
   await c.db.batch([
-    // staré letáky a rozpoznané produkty letákov, ktoré už neplatia, preč
-    c.db.prepare("DELETE FROM config WHERE key LIKE 'leaflet:%'"),
+    // staré letáky Lidlu a rozpoznané produkty letákov, ktoré už neplatia, preč (k-… sú iné obchody)
+    c.db.prepare("DELETE FROM config WHERE key LIKE 'leaflet:%' AND key NOT LIKE 'leaflet:k-%'"),
     c.db
       .prepare(
-        `DELETE FROM config WHERE key LIKE 'products:%'
+        `DELETE FROM config WHERE key LIKE 'products:%' AND key NOT LIKE 'products:k-%'
          AND NOT EXISTS (SELECT 1 FROM json_each(?) WHERE config.key LIKE 'products:' || value || ':%')`
       )
       .bind(JSON.stringify(flyers.map((f) => f.slug))),
@@ -134,8 +153,10 @@ async function refresh(c) {
 
 const imageUrl = (path) => (path ? '/api/leaflets/image?p=' + encodeURIComponent(path) : '');
 
-/** Zoznam aktuálnych letákov Lidl (z pamäte, po pár hodinách sa obnoví). */
-export async function getLeaflets(c) {
+/** Zoznam aktuálnych letákov obchodu (z pamäte, po pár hodinách sa obnoví). */
+export async function getLeaflets(c, storeId) {
+  const store = findStore(storeId);
+  if (store.kimbino) return kimbinoLeaflets(c, store);
   let cached = await readConfig(c, LIST_KEY);
   if (!cached || cached.today !== c.today || Date.now() - cached.fetched > REFRESH_MS) {
     try {
@@ -154,7 +175,9 @@ export async function getLeaflets(c) {
 export async function getLeaflet(c, slug) {
   slug = String(slug ?? '');
   let flyer = await readConfig(c, FLYER_KEY + slug);
-  if (!flyer) {
+  if (!flyer && slug.startsWith('k-')) {
+    flyer = await loadKimbinoFlyer(c, slug);
+  } else if (!flyer) {
     await getLeaflets(c); // zoznam mohol medzičasom zastarať
     flyer = await readConfig(c, FLYER_KEY + slug);
   }
@@ -165,16 +188,22 @@ export async function getLeaflet(c, slug) {
   };
 }
 
-/** GET /api/leaflets/image?p=<cesta> – obrázok letáka z imgproxy.leaflets.schwarz. */
+/** Obrázok strany: Lidl ukladá cestu na imgproxy, ostatné obchody celú adresu. */
+const absImage = (p) => (p.startsWith('/') ? IMAGE_ORIGIN + p : p);
+
+/** GET /api/leaflets/image?p=<cesta alebo adresa> – obrázok letáka (len z povolených serverov). */
 export async function leafletImage(c, path) {
   path = String(path ?? '');
   let url;
   try {
-    url = new URL(path, IMAGE_ORIGIN);
+    url = new URL(absImage(path));
   } catch {
     url = null;
   }
-  if (!path.startsWith('/') || !url || url.origin !== IMAGE_ORIGIN) throw new AppError('Neplatný obrázok.', 400);
+  const allowed =
+    url && url.protocol === 'https:' && IMAGE_HOSTS.includes(url.hostname) && !url.username && !url.port &&
+    (path.startsWith('/') ? url.origin === IMAGE_ORIGIN && !/^\/\/|\\/.test(path) : path.startsWith('https://'));
+  if (!allowed) throw new AppError('Neplatný obrázok.', 400);
   const res = await fetcher(c)(url.href, {
     headers: { ...HEADERS, accept: 'image/webp,image/jpeg,image/*' },
     cf: { cacheEverything: true, cacheTtl: 7 * 24 * 3600 },
@@ -186,6 +215,179 @@ export async function leafletImage(c, path) {
   });
 }
 
+
+// ---- Ostatné obchody cez kimbino.sk ---------------------------------------------------
+
+const KSTORE_KEY = 'kstore:';
+const MAX_KIMBINO_FLYERS = 6;
+const KIMBINO_IMG = /^https:\/\/eu\.kimbicdn\.com\/thumbor\/[^/]+\/(0x0|full-fit-in\/240x240)\/.*\/sk\/data\/\d+\/(\d+)\/(\d+)\.jpg/;
+
+function findStore(storeId) {
+  const store = STORES.find((s) => s.id === String(storeId || 'lidl'));
+  if (!store) throw new AppError('Letáky tohto obchodu nepoznám.', 404);
+  return store;
+}
+
+/** „tesco-hypermarket-letak-od-stredy-07-10-2026“ → „Tesco hypermarket leták od stredy 07.10.2026“ */
+function kimbinoTitle(slugPart) {
+  const t = slugPart
+    .replace(/(\d{2})-(\d{2})-(\d{4})/g, '$1.$2.$3')
+    .replace(/-/g, ' ')
+    .replace(/\bletak\b/g, 'leták');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Stránka obchodu na Kimbine → [{ slug, store, title, path, thumb }] */
+export function parseKimbinoStore(html, store) {
+  const re = new RegExp('href="(?:https://www\\.kimbino\\.sk)?/' + store.kimbino + '/([a-z0-9-]+?)-(\\d{5,})/"', 'g');
+  const thumbs = [...html.matchAll(/https:\/\/eu\.kimbicdn\.com\/thumbor\/[^"'\s\\]+?\/sk\/data\/\d+\/(\d+)\/0\.jpg[^"'\s\\]*/g)];
+  const seen = new Set();
+  const list = [];
+  for (const m of html.matchAll(re)) {
+    const id = m[2];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const thumb = thumbs.filter((t) => id.endsWith(t[1])).sort((a, b) => Number(/240x240/.test(b[0])) - Number(/240x240/.test(a[0])))[0];
+    list.push({
+      slug: 'k-' + store.id + '-' + id,
+      store: store.id,
+      title: kimbinoTitle(m[1]),
+      path: '/' + store.kimbino + '/' + m[1] + '-' + id + '/',
+      thumb: thumb ? thumb[0].replace(/&amp;/g, '&') : '',
+    });
+  }
+  return list.slice(0, MAX_KIMBINO_FLYERS);
+}
+
+/** Reťazce z dát Nuxt (__NUXT_DATA__) na stránke letáka. */
+function nuxtStrings(html) {
+  const m = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return [];
+  try {
+    const data = JSON.parse(m[1]);
+    return Array.isArray(data) ? data.filter((v) => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Stránka letáka na Kimbine → { slug, store, title, start, end, pages } */
+export function parseKimbinoFlyer(html, entry) {
+  const id = entry.slug.split('-').pop();
+  const strings = nuxtStrings(html);
+  const pages = new Map(); // číslo strany (od 0) -> { image, thumb }
+  for (const v of strings) {
+    const m = v.match(KIMBINO_IMG);
+    if (!m || !id.endsWith(m[2])) continue; // iné letáky (odporúčané) vynechaj
+    const n = Number(m[3]);
+    const p = pages.get(n) || {};
+    if (m[1] === '0x0') p.image = v;
+    else p.thumb = v;
+    pages.set(n, p);
+  }
+  const list = [...pages.entries()]
+    .filter(([, p]) => p.image)
+    .sort((a, b) => a[0] - b[0])
+    .map(([n, p]) => ({ n: n + 1, w: 0, h: 0, image: p.image, zoom: p.image, thumb: p.thumb || p.image }));
+  if (!list.length) return null;
+  const valid = strings.map((v) => v.match(/^(\d{4}-\d{2}-\d{2})T[^/]*\/(\d{4}-\d{2}-\d{2})T/)).find(Boolean);
+  const title = (html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/) || [])[1];
+  return {
+    slug: entry.slug,
+    store: entry.store,
+    title: entry.title,
+    name: title ? title.replace(/&amp;/g, '&').replace(/\s*\|.*$/, '') : '',
+    start: valid ? valid[1] : '',
+    end: valid ? valid[2] : '',
+    pages: list,
+  };
+}
+
+async function kimbinoLeaflets(c, store) {
+  const key = KSTORE_KEY + store.id;
+  let cached = await readConfig(c, key);
+  if (!cached || cached.today !== c.today || Date.now() - cached.fetched > REFRESH_MS) {
+    try {
+      const list = parseKimbinoStore(await getText(c, KIMBINO + '/' + store.kimbino + '/'), store);
+      if (!list.length) throw new Error('žiadny leták');
+      cached = { fetched: Date.now(), today: c.today, list };
+      const slugs = JSON.stringify(list.map((f) => f.slug));
+      const prefix = 'k-' + store.id + '-';
+      await c.db.batch([
+        upsert(c, key, cached),
+        // letáky tohto obchodu, ktoré už nie sú v ponuke, preč (aj ich rozpoznané produkty)
+        c.db
+          .prepare(
+            `DELETE FROM config WHERE (key LIKE 'leaflet:' || ? || '%' OR key LIKE 'products:' || ? || '%')
+             AND NOT EXISTS (SELECT 1 FROM json_each(?) WHERE config.key = 'leaflet:' || value OR config.key LIKE 'products:' || value || ':%')`
+          )
+          .bind(prefix, prefix, slugs),
+      ]);
+    } catch (err) {
+      console.error('Letáky ' + store.name + ': ' + err);
+      if (!cached) throw new AppError('Letáky ' + store.name + ' sa teraz nedajú načítať. Skús to neskôr.', 502);
+    }
+  }
+  // platnosť a počet strán poznáme, až keď niekto leták otvorí
+  const out = [];
+  for (const f of cached.list) {
+    const flyer = await readConfig(c, FLYER_KEY + f.slug);
+    if (flyer && flyer.end && flyer.end < c.today) continue;
+    out.push({
+      slug: f.slug,
+      store: f.store,
+      title: f.title,
+      name: flyer ? flyer.name : '',
+      start: flyer ? flyer.start : '',
+      end: flyer ? flyer.end : '',
+      pageCount: flyer ? flyer.pages.length : null,
+      thumb: imageUrl(f.thumb),
+    });
+  }
+  return out;
+}
+
+async function loadKimbinoFlyer(c, slug) {
+  const storeId = slug.split('-')[1];
+  const store = STORES.find((s) => s.id === storeId && s.kimbino);
+  if (!store) return null;
+  const cachedList = (await readConfig(c, KSTORE_KEY + store.id)) || (await kimbinoLeaflets(c, store), await readConfig(c, KSTORE_KEY + store.id));
+  const entry = cachedList && cachedList.list.find((f) => f.slug === slug);
+  if (!entry) return null;
+  let html = '';
+  try {
+    html = await getText(c, KIMBINO + entry.path);
+  } catch (err) {
+    console.error('Leták ' + slug + ': ' + err);
+  }
+  const flyer = html && parseKimbinoFlyer(html, entry);
+  if (!flyer) throw new AppError('Leták sa nepodarilo načítať. Skús to neskôr.', 502);
+  await upsert(c, FLYER_KEY + slug, flyer).run();
+  return flyer;
+}
+
+/** DOČASNÁ diagnostika (preview): celý reťazec pre Tesco aj s rozpoznaním 1. strany. */
+export async function debugKimbino(c) {
+  const out = {};
+  try {
+    out.list = await getLeaflets(c, c.store || 'tesco');
+    const first = out.list[0];
+    if (first) {
+      const flyer = await getLeaflet(c, first.slug);
+      out.flyer = { title: flyer.title, name: flyer.name, start: flyer.start, end: flyer.end, pages: flyer.pages.length, page1: flyer.pages[0] };
+      const t = Date.now();
+      try {
+        const products = await analyzeLeafletPage(c, first.slug, 0);
+        out.ai = { ms: Date.now() - t, count: products.length, sample: products.slice(0, 4) };
+      } catch (err) {
+        out.ai = { ms: Date.now() - t, error: err.message };
+      }
+    }
+  } catch (err) {
+    out.error = String(err.message || err);
+  }
+  return out;
+}
 
 // ---- Rozpoznanie produktov na strane (Workers AI) -----------------------------------
 
@@ -307,7 +509,7 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
   // Príprava strán vopred (na pozadí) smie minúť len časť denného bezplatného limitu.
   if (background && (await neuronsToday(c)) >= BACKGROUND_NEURONS) return null;
 
-  const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
+  const res = await fetcher(c)(absImage(page.image), { headers: { ...HEADERS, accept: 'image/jpeg' } });
   if (!res.ok) throw new AppError('Stranu letáka sa nepodarilo načítať.', 502);
   const type = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
   const dataUrl = 'data:' + type + ';base64,' + toBase64(new Uint8Array(await res.arrayBuffer()));
@@ -379,6 +581,11 @@ async function addNeurons(c, neurons) {
 export async function preanalyzeLeaflets(c, max = 4) {
   if (!c.ai) return 0;
   const list = await getLeaflets(c);
+  // ostatné obchody len ak si ich už niekto otvoril (zoznam je v pamäti) – bez sťahovania navyše
+  for (const store of STORES.filter((s) => s.kimbino)) {
+    const cachedList = await readConfig(c, KSTORE_KEY + store.id);
+    if (cachedList) list.push(...cachedList.list);
+  }
   const { results } = await c.db
     .prepare(
       `SELECT key, json_extract(value, '$.v') AS v, json_array_length(value, '$.products') AS n,
@@ -409,49 +616,4 @@ export async function preanalyzeLeaflets(c, max = 4) {
     if (count >= max) break;
   }
   return count;
-}
-
-/** DOČASNÁ diagnostika: obrázky strán letákov na Kimbine a v Bille. */
-export async function debugStores() {
-  const get = async (url) => {
-    const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
-    return { status: res.status, final: res.url, text: await res.text() };
-  };
-  const uniq = (text, re, n = 40) => [...new Set([...text.matchAll(re)].map((m) => m[1] || m[0]))].slice(0, n);
-  const nuxtStrings = (html) => {
-    const m = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-    if (!m) return [];
-    try {
-      return JSON.parse(m[1]).filter((v) => typeof v === 'string');
-    } catch {
-      return ['parse error'];
-    }
-  };
-  const out = {};
-  try {
-    const home = await get('https://www.kimbino.sk/');
-    out.kimbinoStores = uniq(home.text, /href="\/([a-z0-9-]+)\/"/g, 80);
-    const lf = await get('https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/');
-    const strs = nuxtStrings(lf.text);
-    out.nuxtCount = strs.length;
-    out.images = strs.filter((v) => /\.(jpe?g|webp|png)|leafletscdn|\/page/i.test(v)).slice(0, 25);
-    out.dates = strs.filter((v) => /^\d{4}-\d{2}-\d{2}/.test(v)).slice(0, 10);
-    out.keys = [...new Set(lf.text.match(/\\?"[a-z_]{3,30}\\?":/g) || [])].slice(0, 120).join(' ');
-    out.apis = uniq(lf.text, /((?:https?:)?\/\/[a-z0-9.-]+\/api\/[^"'\s<>\\]+)/gi, 15);
-    const page2 = await get('https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/2/');
-    out.page2 = { status: page2.status, images: nuxtStrings(page2.text).filter((v) => /\.(jpe?g|webp|png)|leafletscdn/i.test(v)).slice(0, 8) };
-    out.ogImage = uniq(lf.text, /<meta[^>]+property="og:image"[^>]+content="([^"]+)"/g, 3);
-  } catch (err) {
-    out.kimbinoError = String(err);
-  }
-  try {
-    const billa = await get('https://www.billa.sk/letaky-a-akcie/letaky');
-    out.billa = { status: billa.status, length: billa.text.length,
-      links: uniq(billa.text, /href="([^"]*(?:letak|publitas|view|pdf)[^"]*)"/gi, 20),
-      iframes: uniq(billa.text, /<iframe[^>]+src="([^"]+)"/gi, 10),
-      files: uniq(billa.text, /((?:https?:)?\/\/[^"'\s<>]+?\.(?:pdf|jpe?g|png|webp))/gi, 10) };
-  } catch (err) {
-    out.billaError = String(err);
-  }
-  return out;
 }

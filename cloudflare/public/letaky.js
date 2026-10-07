@@ -1,4 +1,4 @@
-// Letáky Lidl v Gazde: prehliadanie strán, krúžkovanie tovaru prstom a pridanie
+// Letáky obchodov v Gazde (Lidl, Tesco, Kaufland, Billa, …): prehliadanie strán, krúžkovanie tovaru prstom a pridanie
 // vystrihnutej miniatúry do nákupného zoznamu. Používa funkcie z app.js (api,
 // state, openModal, toast…). Obrázky idú cez náš server (/api/leaflets/image),
 // preto sa z nich na plátne (canvas) dá vystrihnúť kúsok.
@@ -16,12 +16,44 @@ const lf = {
   products: {}, // rozpoznané produkty: "slug#strana" -> [{ name, price, box, added }] | 'loading' | { error }
 };
 
+// Obchody s letákmi (rovnaké id ako na serveri, src/leaflets.js STORES).
+const LF_STORES = [
+  { id: 'lidl', name: 'Lidl' },
+  { id: 'tesco', name: 'Tesco' },
+  { id: 'kaufland', name: 'Kaufland' },
+  { id: 'billa', name: 'Billa' },
+  { id: 'coop', name: 'Coop Jednota', match: /coop|jednota/ },
+  { id: 'terno', name: 'Terno' },
+  { id: 'fresh', name: 'Fresh' },
+  { id: 'kraj', name: 'Kraj' },
+  { id: 'metro', name: 'Metro' },
+];
+const LF_STORE_KEY = 'gazda.lfStore';
+
+/** Obchod podľa názvu z nákupu („Lidl Ružinov“ → lidl). */
+function lfStoreFor(name) {
+  const n = normalizeText(name || '');
+  if (!n) return null;
+  const s = LF_STORES.find((x) => (x.match ? x.match.test(n) : n.includes(normalizeText(x.name))));
+  return s ? s.id : null;
+}
+
+const lfStoreName = (id) => (LF_STORES.find((s) => s.id === id) || LF_STORES[0]).name;
+
 const THUMB_MAX = 360; // najdlhšia strana miniatúry v px
 const MAX_THUMB_BYTES = 150000;
 
 /** Otvorí letáky; opts.taskId = nákup, do ktorého sa majú pridávať položky. */
 async function openLeaflets(opts) {
   lf.target = (opts && opts.taskId) || lf.target;
+  // obchod: z nákupu, inak naposledy zvolený, inak Lidl
+  let remembered = null;
+  try {
+    remembered = localStorage.getItem(LF_STORE_KEY);
+  } catch (e) {
+    // bez pamäte prehliadača
+  }
+  lf.store = lfStoreFor(opts && opts.store) || lf.store || (LF_STORES.some((s) => s.id === remembered) ? remembered : 'lidl');
   if (!lf.root) {
     lf.root = document.createElement('div');
     lf.root.id = 'leaflet';
@@ -34,16 +66,31 @@ async function openLeaflets(opts) {
   }
   lf.root.classList.remove('hidden');
   document.body.classList.add('lf-open');
-  lfFrame('Letáky Lidl', '', '<div class="center muted">Načítavam letáky…</div>', '');
+  lfLoadStore(lf.store);
+}
+
+/** Načíta letáky obchodu a ukáže ich zoznam (s výberom obchodu hore). */
+async function lfLoadStore(storeId) {
+  lf.store = storeId;
   try {
-    lf.list = await api('getLeaflets');
+    localStorage.setItem(LF_STORE_KEY, storeId);
+  } catch (e) {
+    // bez pamäte prehliadača
+  }
+  lf.list = null;
+  lfRenderList();
+  let list;
+  try {
+    list = await api('getLeaflets', storeId);
   } catch (err) {
-    closeLeaflets();
-    showError(err);
+    if (lf.store !== storeId) return;
+    lf.list = [];
+    lfRenderList(errorMessage(err));
     return;
   }
-  if (lf.list.length === 1) openFlyer(lf.list[0].slug);
-  else lfRenderList();
+  if (lf.store !== storeId) return; // medzičasom iný obchod
+  lf.list = list;
+  lfRenderList();
 }
 
 function closeLeaflets() {
@@ -58,7 +105,7 @@ function closeLeaflets() {
 /** Krok späť: strana → strany → zoznam letákov → zatvoriť. */
 function lfBack() {
   if (lf.mode === 'page') lfRenderStrip();
-  else if (lf.mode === 'strip' && lf.list.length > 1) lfRenderList();
+  else if (lf.mode === 'strip') lfRenderList();
   else closeLeaflets();
 }
 
@@ -78,16 +125,39 @@ function lfValidity(f) {
   return f.end ? 'do ' + formatDateShort(f.end) : '';
 }
 
-function lfRenderList() {
+function lfRenderList(error) {
   lf.mode = 'list';
-  const cards = lf.list
-    .map(
-      (f) =>
-        '<button class="lf-card" data-slug="' + esc(f.slug) + '"><img src="' + esc(f.thumb) + '" alt="" loading="lazy">' +
-        '<div><b>' + esc(f.title || f.name) + '</b><small>' + esc(lfValidity(f)) + ' · ' + f.pageCount + ' strán</small></div></button>'
-    )
-    .join('');
-  lfFrame('Letáky Lidl', 'Vyber leták', '<div class="lf-list">' + cards + '</div>', '');
+  const chips =
+    '<div class="lf-stores chips">' +
+    LF_STORES.map(
+      (s) => '<button class="chip' + (s.id === lf.store ? ' active' : '') + '" data-store="' + s.id + '">' + esc(s.name) + '</button>'
+    ).join('') +
+    '</div>';
+  let body;
+  if (error) body = '<div class="empty"><span class="ms">newspaper</span><div>' + esc(error) + '</div></div>';
+  else if (!lf.list) body = '<div class="center muted">Načítavam letáky…</div>';
+  else if (!lf.list.length) body = '<div class="empty"><span class="ms">newspaper</span><div>' + esc(lfStoreName(lf.store)) + ' teraz nemá žiadny leták.</div></div>';
+  else {
+    body =
+      '<div class="lf-list">' +
+      lf.list
+        .map((f) => {
+          const info = [lfValidity(f), f.pageCount ? f.pageCount + ' strán' : ''].filter(Boolean).join(' · ');
+          return (
+            '<button class="lf-card" data-slug="' + esc(f.slug) + '">' +
+            (f.thumb ? '<img src="' + esc(f.thumb) + '" alt="" loading="lazy">' : '<span class="lf-noimg ms">newspaper</span>') +
+            '<div><b>' + esc(f.name || f.title) + '</b>' + (info ? '<small>' + esc(info) + '</small>' : '') + '</div></button>'
+          );
+        })
+        .join('') +
+      '</div>';
+  }
+  lfFrame('Letáky', 'Vyber obchod a leták', chips + body, '');
+  lf.root.querySelectorAll('[data-store]').forEach((b) => {
+    b.onclick = () => b.dataset.store !== lf.store && lfLoadStore(b.dataset.store);
+  });
+  const active = lf.root.querySelector('.lf-stores .active');
+  if (active) active.scrollIntoView({ block: 'nearest', inline: 'center' });
   lf.root.querySelectorAll('[data-slug]').forEach((b) => {
     b.onclick = () => openFlyer(b.dataset.slug);
   });
@@ -115,7 +185,7 @@ function lfRenderStrip() {
     .map((p, i) => '<div class="lf-page" data-i="' + i + '"><img alt="Strana ' + p.n + '" draggable="false"></div>')
     .join('');
   lfFrame(
-    f.title || 'Leták Lidl',
+    f.name || f.title || 'Leták ' + lfStoreName(lf.store),
     lfValidity(f),
     '<div class="lf-strip" id="lfStrip">' + pages + '</div>',
     '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
@@ -179,7 +249,7 @@ function lfOpenPage(dir) {
   const f = lf.flyer;
   const p = f.pages[lf.page];
   lfFrame(
-    f.title || 'Leták Lidl',
+    f.name || f.title || 'Leták ' + lfStoreName(lf.store),
     'Strana ' + p.n + ' / ' + f.pages.length,
     '<div class="lf-scroll" id="lfScroll"><div class="lf-wrap" id="lfWrap">' +
       '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas><div class="lf-hot" id="lfHot"></div></div></div>' +
@@ -558,12 +628,12 @@ async function lfCrop(img, b) {
 
 const NEW_SHOPPING = '__new__';
 
-/** Nákupy domácnosti – najprv tie do Lidla. */
+/** Nákupy domácnosti – najprv tie do obchodu, ktorého leták je otvorený. */
 function lfShoppingTasks() {
-  const isLidl = (c) => normalizeText(c.store || '').includes('lidl');
+  const same = (c) => lfStoreFor(c.store) === lf.store;
   return state.detail.cinnosti
     .filter((c) => c.kind === 'nakup' && !c.pending)
-    .sort((a, b) => Number(isLidl(b)) - Number(isLidl(a)) || a.dueDate.localeCompare(b.dueDate));
+    .sort((a, b) => Number(same(b)) - Number(same(a)) || a.dueDate.localeCompare(b.dueDate));
 }
 
 /** Cena „2.49“ → „2,49“ (do poľa) */
@@ -580,7 +650,7 @@ function lfConfirm(thumb, mark, key, product) {
           (c.store ? ' · ' + esc(c.store) : '') + ' (' + esc(formatDateShort(c.dueDate)) + ')</option>'
       )
       .join('') +
-    '<option value="' + NEW_SHOPPING + '"' + (target === NEW_SHOPPING ? ' selected' : '') + '>+ Nový nákup v Lidli</option>';
+    '<option value="' + NEW_SHOPPING + '"' + (target === NEW_SHOPPING ? ' selected' : '') + '>+ Nový nákup (' + esc(lfStoreName(lf.store)) + ')</option>';
   const pageNo = lf.flyer.pages[lf.page].n;
   let added = false;
 
@@ -606,14 +676,15 @@ function lfConfirm(thumb, mark, key, product) {
       const addBtn = root.querySelector('#lfAdd');
       const submit = async () => {
         addBtn.disabled = true;
-        const text = name.value.trim() || 'Z letáka Lidl (str. ' + pageNo + ')';
+        const storeName = lfStoreName(lf.store);
+        const text = name.value.trim() || 'Z letáka ' + storeName + ' (str. ' + pageNo + ')';
         const qty = root.querySelector('#lfQty').value;
         let taskId = root.querySelector('#lfTarget').value;
         try {
           if (taskId === NEW_SHOPPING) {
             const c = await api('addCinnost', state.detail.household.id, {
               priestorId: '',
-              name: 'Nákup Lidl',
+              name: 'Nákup ' + storeName,
               description: '',
               assignedTo: state.email,
               dueDate: todayYmd(),
@@ -622,7 +693,7 @@ function lfConfirm(thumb, mark, key, product) {
               icon: 'shopping',
               color: COLORS['Zelená'],
               kind: 'nakup',
-              store: 'Lidl',
+              store: storeName,
               items: [],
             });
             state.detail.cinnosti.push(c);

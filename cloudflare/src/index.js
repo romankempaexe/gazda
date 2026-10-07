@@ -17,7 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
-import { analyzeLeafletPage, debugStores, getLeaflet, getLeaflets, leafletImage, preanalyzeLeaflets } from './leaflets.js';
+import { analyzeLeafletPage, debugKimbino, getLeaflet, getLeaflets, leafletImage, preanalyzeLeaflets } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -80,7 +80,8 @@ async function handleApi(request, env, url, ctx) {
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/debug' && url.hostname.startsWith('gazda-preview.')) {
-      return json(await debugStores());
+      const store = url.searchParams.get('store') || 'tesco';
+      return json(await debugKimbino({ db: env.DB, today: todayYmd(), ai: env.AI, store }));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));

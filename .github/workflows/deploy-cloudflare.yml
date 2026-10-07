@@ -102,8 +102,12 @@ jobs:
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
             if [ "$TARGET_ENV" = "preview" ]; then
-              echo "--- letáky iných obchodov (diagnostika) ---"
-              curl -s -m 60 "$url/api/leaflets/debug" | head -c 30000 || true
+              sleep 15 # nová verzia Workera sa chvíľu šíri
+              for store in tesco kaufland billa; do
+                echo "--- letáky $store (diagnostika) ---"
+                curl -s -m 90 "$url/api/leaflets/debug?store=$store" | head -c 5000 || true
+                echo
+              done
               echo
             fi
           fi

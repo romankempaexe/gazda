@@ -40,7 +40,8 @@ používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
-`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets`, `getLeaflet`, `analyzeLeafletPage`.
+`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets(store)`, `getLeaflet`, `analyzeLeafletPage`,
+`setItemMissing`, `getHistory`.
 `GET /api/health` overí databázu.
 
 `addItem(cinnostId, text, qty, image, price)` – voliteľná cena („2,49“) a miniatúra ako `data:image/jpeg;base64,…`
@@ -83,10 +84,21 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
 
-## Letáky Lidl
+## Letáky (Lidl, Tesco, Kaufland, Billa, Coop Jednota, Terno, Fresh, Kraj, Metro)
 
-V Plánovaní tlačidlo **Letáky** (alebo **Leták** v detaile nákupu) otvorí aktuálne
-letáky Lidl. Strany sa listujú prstom; **Krúžkovať** otvorí stranu, na ktorej sa
+Lidl sa číta priamo (nižšie). Ostatné obchody z agregátora **kimbino.sk**: stránka
+obchodu (`/tesco/`) → odkazy na aktuálne letáky, stránka letáka → adresy obrázkov
+strán z dát Nuxt (`__NUXT_DATA__`, server `eu.kimbicdn.com`) a platnosť. Zoznam
+obchodu je v `config` pod `kstore:<obchod>`, letáky pod `leaflet:k-<obchod>-<id>`.
+Obrázky idú tiež cez `/api/leaflets/image` (povolené len `imgproxy.leaflets.schwarz`
+a `eu.kimbicdn.com`). V prehliadači letákov sa obchod vyberá hore; pri nákupe do
+konkrétneho obchodu sa otvoria rovno jeho letáky. Weby Kauflandu a Tesca roboty
+z Cloudflare blokujú, preto Kimbino. Rozpoznanie produktov a „+“ fungujú rovnako.
+
+### Lidl
+
+Po vytvorení nákupu sa aplikácia spýta, či otvoriť letáky; inak tlačidlo **Leták**
+v detaile nákupu. Strany sa listujú prstom; **Krúžkovať** otvorí stranu, na ktorej sa
 prstom zakrúžkuje tovar. Zakrúžkované miesto sa vystrihne ako malý obrázok (JPEG,
 ~10–20 kB) a po potvrdení (názov, počet, ktorý nákup – alebo nový „Nákup Lidl“)
 pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
@@ -115,6 +127,14 @@ z `endpoints.leaflets.schwarz` (rovnako ako web Lidlu), výsledok drží v tabu�
 Obrázky strán idú cez `GET /api/leaflets/image?p=…` (len z `imgproxy.leaflets.schwarz`,
 len pre prihlásených), aby sa z nich v prehliadači dalo strihať. Ak Lidl zmení
 svoj web, prestane fungovať len táto časť.
+
+## Nákup: „Nemali“ a história
+
+Pri položke nákupu je tlačidlo **Nemali** (oranžová, počíta sa ako vybavená).
+**Hotové** zapíše činnosť do tabuľky `historia` – kto a kedy, a každú položku so
+stavom (kúpené / nemali / nekúpené), cenou a obrázkom (obrázky v histórii sa nemažú).
+Pri opakovanom nákupe kúpené položky zmiznú a čo nemali, ostane na budúce.
+Karta **História** ich ukazuje po dňoch.
 
 ## Upozornenia (push notifikácie)
 

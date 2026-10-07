@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
-import { parseProducts, preanalyzeLeaflets } from '../src/leaflets.js';
+import { parseProducts, preanalyzeLeaflets, parseKimbinoStore, parseKimbinoFlyer } from '../src/leaflets.js';
 import { cleanPrice } from '../src/api.js';
 
 let t, roman, jana, cudzi, hid, nakupId;
@@ -32,6 +32,31 @@ const FLYERS = {
   'stary-letak-platny-od-28-09-2026': { title: 'Starý', offerStartDate: '2026-09-28', offerEndDate: '2026-10-04', pages: [page(1)] },
 };
 
+const KCDN = 'https://eu.kimbicdn.com';
+const kimg = (size, leaflet, n) => `${KCDN}/thumbor/sig${n}=/${size}/filters:format(webp):quality(65)/sk/data/2/${leaflet}/${n}.jpg?t=1`;
+const KIMBINO_STORE =
+  '<a href="https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/">L</a>' +
+  `<img src="${kimg('full-fit-in/240x240', 132237, 0)}">` +
+  '<a href="/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/">znova</a>' +
+  '<a href="https://www.kimbino.sk/tesco/tesco-katalog-hracky-6130001/">K</a>' +
+  '<a href="https://www.kimbino.sk/kaufland/kaufland-letak-6139999/">iný obchod</a>';
+const KIMBINO_FLYER =
+  '<meta property="og:title" content="Tesco hypermarket leták | Kimbino">' +
+  '<script type="application/json" data-nuxt-data="nuxt-app" id="__NUXT_DATA__">' +
+  JSON.stringify([
+    { data: 1 },
+    kimg('0x0', 132237, 0),
+    kimg('full-fit-in/240x240', 132237, 0),
+    kimg('0x0', 132237, 1),
+    kimg('full-fit-in/240x240', 132237, 1),
+    'thumbor/relativne/0x0/x/sk/data/2/132237/2.jpg',
+    kimg('0x0', 132237, 2),
+    kimg('0x0', 130001, 0), // odporúčaný iný leták
+    '2026-10-07T00:00:00+00:00/2026-10-13T23:59:59+00:00',
+    42,
+  ]) +
+  '</script>';
+
 /** Náhrada za lidl.sk a servery Schwarz. */
 async function fakeFetch(url) {
   url = String(url);
@@ -52,6 +77,9 @@ async function fakeFetch(url) {
     return f ? Response.json({ success: true, flyer: { id: m[1], ...f } }) : new Response('{}', { status: 404 });
   }
   if (url.startsWith(IMG + '/')) return new Response('JPEG', { headers: { 'content-type': 'image/jpeg' } });
+  if (url === 'https://www.kimbino.sk/tesco/') return new Response(KIMBINO_STORE);
+  if (url === 'https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/') return new Response(KIMBINO_FLYER);
+  if (url.startsWith(KCDN + '/')) return new Response('WEBP', { headers: { 'content-type': 'image/webp' } });
   return new Response('?', { status: 404 });
 }
 
@@ -324,4 +352,56 @@ test('produkty v letáku: príprava vopred (cron) v rámci denného limitu', asy
   await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.day', '2000-01-01') WHERE key = 'ai_neurons'").run();
   assert.equal(await preanalyzeLeaflets(c, 5), 2);
   assert.equal((await budget()).neurons, 2 * 75.5);
+});
+
+test('letáky ďalších obchodov (Kimbino): zoznam, strany s platnosťou, obrázky a rozpoznanie', async () => {
+  const store = { id: 'tesco', name: 'Tesco', kimbino: 'tesco' };
+  assert.deepEqual(parseKimbinoStore(KIMBINO_STORE, store), [
+    {
+      slug: 'k-tesco-6132237',
+      store: 'tesco',
+      title: 'Tesco hypermarket leták od stredy 07.10.2026',
+      path: '/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/',
+      thumb: kimg('full-fit-in/240x240', 132237, 0),
+    },
+    { slug: 'k-tesco-6130001', store: 'tesco', title: 'Tesco katalog hracky', path: '/tesco/tesco-katalog-hracky-6130001/', thumb: '' },
+  ]);
+  const flyer = parseKimbinoFlyer(KIMBINO_FLYER, { slug: 'k-tesco-6132237', store: 'tesco', title: 'T' });
+  assert.deepEqual([flyer.name, flyer.start, flyer.end], ['Tesco hypermarket leták', '2026-10-07', '2026-10-13']);
+  assert.deepEqual(flyer.pages.map((p) => [p.n, p.image, p.thumb]), [
+    [1, kimg('0x0', 132237, 0), kimg('full-fit-in/240x240', 132237, 0)],
+    [2, kimg('0x0', 132237, 1), kimg('full-fit-in/240x240', 132237, 1)],
+    [3, kimg('0x0', 132237, 2), kimg('0x0', 132237, 2)],
+  ]);
+  assert.equal(parseKimbinoFlyer('<html>nič</html>', { slug: 'k-tesco-1', store: 'tesco', title: '' }), null);
+
+  // cez API: zoznam (platnosť až po otvorení), leták, obrázok cez náš server
+  let list = await roman.api.getLeaflets('tesco');
+  assert.deepEqual(list.map((f) => [f.slug, f.pageCount, f.end]), [['k-tesco-6132237', null, ''], ['k-tesco-6130001', null, '']]);
+  assert.equal(list[0].thumb, '/api/leaflets/image?p=' + encodeURIComponent(kimg('full-fit-in/240x240', 132237, 0)));
+  const opened = await jana.api.getLeaflet('k-tesco-6132237');
+  assert.equal(opened.pages.length, 3);
+  assert.equal(opened.pages[1].image, '/api/leaflets/image?p=' + encodeURIComponent(kimg('0x0', 132237, 1)));
+  list = await roman.api.getLeaflets('tesco');
+  assert.deepEqual([list[0].pageCount, list[0].start, list[0].end], [3, '2026-10-07', '2026-10-13']);
+  await assert.rejects(roman.api.getLeaflet('k-tesco-6130001'), /nepodarilo načítať/); // stránka letáka neodpovedá
+  await assert.rejects(roman.api.getLeaflets('neznamy'), /nepoznám/);
+
+  const img = await get(opened.pages[0].image, roman);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/webp');
+  for (const bad of ['https://eu.kimbicdn.com.evil.com/x.jpg', 'http://eu.kimbicdn.com/x.jpg', 'https://evil.com/x', 'https://user@eu.kimbicdn.com/x']) {
+    assert.equal((await get('/api/leaflets/image?p=' + encodeURIComponent(bad), roman)).status, 400, bad);
+  }
+
+  aiAnswer = '[{"name":"Mlieko 1 l","price":0.89,"box":[0.1,0.1,0.4,0.3]}]';
+  assert.equal((await roman.api.analyzeLeafletPage('k-tesco-6132237', 1))[0].name, 'Mlieko 1 l');
+  const sent = aiCalls.at(-1).input.messages[0].content[0].image_url.url;
+  assert.equal(sent, 'data:image/webp;base64,' + Buffer.from('WEBP').toString('base64'));
+
+  // obnova Lidlu letáky iných obchodov nezmaže
+  await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.fetched', 0) WHERE key = 'leaflets'").run();
+  await roman.api.getLeaflets();
+  assert.equal((await roman.api.getLeaflet('k-tesco-6132237')).pages.length, 3);
+  assert.ok(await t.env.DB.prepare("SELECT 1 FROM config WHERE key = 'products:k-tesco-6132237:2'").first());
 });

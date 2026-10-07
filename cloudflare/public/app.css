@@ -1768,7 +1768,8 @@ body.lf-open {
 
 /* globálne button:active mení transform – tu by tlačidlo uskočilo spod prsta */
 .lf-plus:active:not(:disabled) {
-  transform: translate(-50%, -50%) scale(0.92);
+  transform: translate(-50%, -50%); /* bez zmenšenia – okraj by uskočil spod prsta */
+  background: rgba(22, 163, 74, 0.85);
 }
 
 .lf-plus.added {

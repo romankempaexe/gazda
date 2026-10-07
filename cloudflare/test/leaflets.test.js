@@ -265,6 +265,11 @@ test('produkty v letáku: odpoveď AI sa vyčistí (zlomky, tisíciny, pixely, o
     { name: 'Med 900 g', price: '3.29', box: [0.5, 0.038, 0.77, 0.331] },
     { name: 'Vajcia "M"', price: '2.39', box: [0.042, 0.338, 0.249, 0.623] },
   ]);
+  // skutočná odpoveď: súradnice bez hranatých zátvoriek
+  assert.deepEqual(parseProducts('[{"name":"Donut 53 g","price":0.29,"box":0.591,0.384,0.969,0.658},{"name":"Kaizerka","price":0.09,"box":[0.591,0.670,0.969,0.953]}]'), [
+    { name: 'Donut 53 g', price: '0.29', box: [0.591, 0.384, 0.969, 0.658] },
+    { name: 'Kaizerka', price: '0.09', box: [0.591, 0.67, 0.969, 0.953] },
+  ]);
   // úplne rozbitý zápis – po kúskoch
   assert.deepEqual(parseProducts('{"name":"Syr", "price": "1,5", "box": [0.1, 0.1, 0.4, 0.3)) {"name":"Bez boxu"}'), [
     { name: 'Syr', price: '1.50', box: [0.1, 0.1, 0.4, 0.3] },

@@ -414,7 +414,7 @@ function extractJson(text) {
     }
     const name = m[0].match(/"(?:name|title)"\s*:\s*"((?:[^"\\]|\\.)*)"/);
     const price = m[0].match(/"price"\s*:\s*"?(\d+(?:[.,]\d+)?)/);
-    const box = m[0].match(/"(?:box|bbox)"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/);
+    const box = m[0].match(/"(?:box|bbox)"\s*:\s*\[?\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/);
     if (!name || !box) continue;
     let decoded = name[1];
     try {
@@ -565,7 +565,8 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
         at: new Date().toISOString(),
         ms: Date.now() - started,
         // pri prázdnom výsledku si necháme odpoveď modelu na rozbor
-        raw: raw.slice(0, 1500), // DOČASNE vždy (diagnostika)
+        // pri prázdnom výsledku si necháme odpoveď modelu na rozbor
+        ...(!products.length && { raw: raw.slice(0, 3000) }),
       })
     )
     .run();
@@ -636,26 +637,4 @@ export async function preanalyzeLeaflets(c, max = 4) {
     if (count >= max) break;
   }
   return count;
-}
-
-/** DOČASNÁ diagnostika (preview): surová odpoveď AI a veľkosť obrázka pre pár strán. */
-export async function debugBoxes(c) {
-  const out = [];
-  for (const [store, index] of [['lidl', 1], ['lidl', 3], ['tesco', 1]]) {
-    try {
-      const list = await getLeaflets(c, store);
-      const flyer = await getLeaflet(c, list[0].slug);
-      const page = (await readConfig(c, FLYER_KEY + list[0].slug)).pages[index];
-      const bytes = new Uint8Array(await (await fetcher(c)(absImage(page.image), { headers: { ...HEADERS, accept: 'image/jpeg' } })).arrayBuffer());
-      await c.db.prepare('DELETE FROM config WHERE key = ?').bind(PRODUCTS_KEY + list[0].slug + ':' + page.n).run();
-      const t = Date.now();
-      const products = await analyzeLeafletPage(c, list[0].slug, index);
-      const stored = await readConfig(c, PRODUCTS_KEY + list[0].slug + ':' + page.n);
-      out.push({ store, page: page.n, pages: flyer.pages.length, size: imageSize(bytes), meta: { w: page.w, h: page.h }, ms: Date.now() - t,
-        products: products.slice(0, 6).map((p) => p.name.slice(0, 30) + ' ' + p.box.join(',')), raw: stored && stored.raw });
-    } catch (err) {
-      out.push({ store, error: String(err.message || err) });
-    }
-  }
-  return out;
 }

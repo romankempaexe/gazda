@@ -404,10 +404,38 @@ function lfRenderProducts() {
   lfHelpUpdate();
 }
 
+/** Ťuknutie na stranu: najbližší rozpoznaný produkt (v jeho ohraničení s rezervou, inak nič). */
+function lfTapProduct(at) {
+  const list = lf.products[lfMarkKey()];
+  if (!Array.isArray(list) || !list.length) return;
+  const slack = 0.06; // ohraničenia od AI bývajú posunuté
+  let best = null;
+  let bestDist = Infinity;
+  list.forEach((p) => {
+    const [x1, y1, x2, y2] = p.box;
+    if (at[0] < x1 - slack || at[0] > x2 + slack || at[1] < y1 - slack || at[1] > y2 + slack) return;
+    const d = Math.hypot(at[0] - (x1 + x2) / 2, at[1] - (y1 + y2) / 2);
+    if (d < bestDist) {
+      best = p;
+      bestDist = d;
+    }
+  });
+  if (best) lfPickProduct(best, at);
+}
+
 /** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
-async function lfPickProduct(product) {
-  const [x1, y1, x2, y2] = product.box;
-  const pad = 0.006;
+async function lfPickProduct(product, at) {
+  let [x1, y1, x2, y2] = product.box;
+  // AI ohraničenie len odhaduje (býva posunuté) – pri ťuknutí na produkt ho vycentruj na prst.
+  if (at) {
+    const w = x2 - x1;
+    const h = y2 - y1;
+    x1 = Math.min(1 - w, Math.max(0, at[0] - w / 2));
+    y1 = Math.min(1 - h, Math.max(0, at[1] - h / 2));
+    x2 = x1 + w;
+    y2 = y1 + h;
+  }
+  const pad = at ? 0.006 : 0.02; // pri „+“ radšej väčší výrez, nech produkt nechýba
   const b = { x: Math.max(0, x1 - pad), y: Math.max(0, y1 - pad), x2: Math.min(1, x2 + pad), y2: Math.min(1, y2 + pad) };
   const mark = { pts: [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]], ok: false };
   const key = lfMarkKey();
@@ -570,9 +598,10 @@ async function lfFinishMark(pts) {
     lfStep(pts[pts.length - 1][0] < pts[0][0] ? 1 : -1);
     return;
   }
-  // Ťuknutie alebo čiarka – nie krúžok.
+  // Ťuknutie alebo čiarka – nie krúžok. Ťuknutie na produkt ho vyberie (ako „+“).
   if ((b.x2 - b.x) * wrap.clientWidth < 24 || (b.y2 - b.y) * wrap.clientHeight < 24) {
     lfDrawMarks();
+    if ((b.x2 - b.x) * wrap.clientWidth < 16 && (b.y2 - b.y) * wrap.clientHeight < 16) lfTapProduct(pts[0]);
     return;
   }
   const mark = { pts, ok: false };

@@ -1121,20 +1121,40 @@ function taskCard(c, mode) {
 
 const CARD_ITEMS = 12;
 
-/** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu. */
+/** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu.
+ * Položky z letáka (s obrázkom) sú veľké dlaždice vedľa seba (posúvajú sa do strany),
+ * ostatné sú pod nimi ako zoznam. */
 function cardChecklist(c) {
   const items = c.items || [];
   if (!items.length) return '';
-  const more = items.length - CARD_ITEMS;
+  const pictures = items.filter((i) => i.image);
+  const plain = items.filter((i) => !i.image);
+  const more = plain.length - CARD_ITEMS;
+  const tiles = pictures.length
+    ? '<div class="card-tiles">' +
+      pictures
+        .map(
+          (i) =>
+            '<button type="button" class="tile' + (i.done ? ' done' : '') + '" data-card-item="' + esc(i.id) +
+            '" data-task="' + esc(c.id) + '"><span class="ms tile-check">' + (i.done ? 'check_box' : 'check_box_outline_blank') +
+            '</span><span class="tile-zoom" data-preview="' + esc(i.image) + '"><span class="ms">zoom_in</span></span>' +
+            '<img src="' + esc(i.image) + '" alt="" loading="lazy">' +
+            '<span class="tile-text">' + esc(i.text) + '</span>' +
+            '<span class="tile-meta">' + qtyHtml(i) + '</span></button>'
+        )
+        .join('') +
+      '</div>'
+    : '';
   return (
     '<div class="card-checklist">' +
-    items
+    tiles +
+    plain
       .slice(0, CARD_ITEMS)
       .map(
         (i) =>
           '<button type="button" class="check-item compact' + (i.done ? ' done' : '') + '" data-card-item="' + esc(i.id) +
           '" data-task="' + esc(c.id) + '"><span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') +
-          '</span>' + thumbHtml(i) + '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
+          '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
       )
       .join('') +
     (more > 0 ? '<div class="hint card-more">+ ďalšie ' + more + ' – ťukni na kartu</div>' : '') +
@@ -1299,7 +1319,8 @@ function bindDetailEvents() {
   view.querySelectorAll('[data-card-item]').forEach((el) => {
     el.onclick = (e) => {
       e.stopPropagation();
-      if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
+      const zoom = e.target.closest('[data-preview]');
+      if (zoom) return showImagePreview(zoom.dataset.preview);
       const c = state.detail.cinnosti.find((x) => x.id === el.dataset.task);
       if (c) toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
     };

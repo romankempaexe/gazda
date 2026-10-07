@@ -33,7 +33,23 @@ const toMember = (r) => ({
   nickname: r.nickname || '', // prezývka (prázdna, kým sa neprihlási a nezadá ju)
 });
 const toPriestor = (r) => ({ id: r.id, householdId: r.household_id, name: r.name, createdAt: r.created_at });
-const toItem = (r) => ({ id: r.id, text: r.text, qty: r.qty || '', done: Boolean(r.done) });
+const toItem = (r) => ({
+  id: r.id,
+  text: r.text,
+  qty: r.qty || '',
+  done: Boolean(r.done),
+  ...(r.has_image && { image: '/api/item-image/' + r.id }), // miniatúra (napr. z letáka)
+});
+
+// Položky aj s príznakom, či majú miniatúru.
+const ITEMS_SQL = `SELECT p.*, (i.item_id IS NOT NULL) AS has_image
+  FROM polozky p LEFT JOIN item_images i ON i.item_id = p.id`;
+
+// Miniatúry, ktorých položka už neexistuje (pridáva sa do dávok, ktoré mažú položky).
+const IMAGES_CLEANUP_SQL =
+  'DELETE FROM item_images WHERE NOT EXISTS (SELECT 1 FROM polozky p WHERE p.id = item_images.item_id)';
+const IMAGE_RE = /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+=*$/;
+export const MAX_IMAGE_LENGTH = 200_000;
 const toCinnost = (r, items = []) => ({
   id: r.id,
   householdId: r.household_id,
@@ -82,7 +98,7 @@ async function findCinnost(c, cinnostId) {
 async function loadCinnost(c, id) {
   const [task, items] = await c.db.batch([
     c.db.prepare('SELECT * FROM cinnosti WHERE id = ?').bind(id),
-    c.db.prepare('SELECT * FROM polozky WHERE cinnost_id = ? ORDER BY position, rowid').bind(id),
+    c.db.prepare(ITEMS_SQL + ' WHERE p.cinnost_id = ? ORDER BY p.position, p.rowid').bind(id),
   ]);
   return toCinnost(task.results[0], items.results.map(toItem));
 }
@@ -155,6 +171,7 @@ export async function deleteHousehold(c, householdId) {
   const del = (table, column = 'household_id') => c.db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(householdId);
   await c.db.batch([
     del('polozky'),
+    del('item_images'),
     del('obchody'),
     del('produkty'),
     del('cinnosti'),
@@ -187,7 +204,7 @@ export async function getHouseholdData(c, householdId) {
     q(MEMBERS_SQL + ' WHERE m.household_id = ? ORDER BY m.rowid'),
     q('SELECT * FROM priestory WHERE household_id = ? ORDER BY rowid'),
     q('SELECT * FROM cinnosti WHERE household_id = ? ORDER BY rowid'),
-    q('SELECT * FROM polozky WHERE household_id = ? ORDER BY position, rowid'),
+    q(ITEMS_SQL + ' WHERE p.household_id = ? ORDER BY p.position, p.rowid'),
     q('SELECT name FROM obchody WHERE household_id = ?'),
     q('SELECT name FROM produkty WHERE household_id = ? ORDER BY uses DESC, last_used DESC LIMIT 500'),
     // Zapamätaj naposledy otvorenú domácnosť (pri ďalšom spustení sa otvorí rovno ona).
@@ -326,7 +343,8 @@ async function syncItemsStatements(c, cinnost, items) {
     statements.push(
       c.db
         .prepare('DELETE FROM polozky WHERE cinnost_id = ? AND id NOT IN (SELECT value FROM json_each(?))')
-        .bind(cinnost.id, JSON.stringify(keep))
+        .bind(cinnost.id, JSON.stringify(keep)),
+      c.db.prepare(IMAGES_CLEANUP_SQL)
     );
   }
   if (changed.length) {
@@ -412,26 +430,35 @@ export async function updateCinnost(c, cinnostId, data) {
 }
 
 /** Pridá položku do checklistu činnosti (môže ktokoľvek z domácnosti). */
-export async function addItem(c, cinnostId, text, qty) {
+export async function addItem(c, cinnostId, text, qty, image) {
   ({ text, qty } = splitQty(text, qty));
   if (!text) throw new AppError('Zadaj položku.');
+  image = image ? String(image) : '';
+  if (image && (image.length > MAX_IMAGE_LENGTH || !IMAGE_RE.test(image))) throw new AppError('Neplatný obrázok položky.');
   const cinnost = await findCinnost(c, cinnostId);
   const stats = await c.db
     .prepare('SELECT COUNT(*) AS n, COALESCE(MAX(position), 0) AS last FROM polozky WHERE cinnost_id = ?')
     .bind(cinnost.id)
     .first();
   if (stats.n >= MAX_ITEMS) throw new AppError('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
-  const item = { id: uuid(), text, qty, done: false };
+  const item = toItem({ id: uuid(), text, qty, done: 0, has_image: Boolean(image) });
   await c.db.batch([
     insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, position: stats.last + 1 }]),
     ...rememberShoppingStatements(c, cinnost.household_id, '', [text]),
+    ...(image
+      ? [
+          c.db
+            .prepare('INSERT INTO item_images (item_id, household_id, data, created_at) VALUES (?, ?, ?, ?)')
+            .bind(item.id, cinnost.household_id, image, nowIso()),
+        ]
+      : []),
   ]);
   return item;
 }
 
 /** Odškrtne / zruší odškrtnutie položky. */
 export async function toggleItem(c, itemId, done) {
-  const item = await c.db.prepare('SELECT * FROM polozky WHERE id = ?').bind(String(itemId ?? '')).first();
+  const item = await c.db.prepare(ITEMS_SQL + ' WHERE p.id = ?').bind(String(itemId ?? '')).first();
   if (!item) throw new AppError('Položka neexistuje (možno ju medzičasom niekto vymazal).', 404);
   await requireMember(c, item.household_id);
   await c.db.prepare('UPDATE polozky SET done = ? WHERE id = ?').bind(done ? 1 : 0, item.id).run();
@@ -443,6 +470,7 @@ export async function deleteCinnost(c, cinnostId) {
   await c.db.batch([
     c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
     c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
+    c.db.prepare(IMAGES_CLEANUP_SQL),
   ]);
   return { deleted: true };
 }
@@ -460,6 +488,7 @@ export async function completeCinnost(c, cinnostId) {
   const next = nextDueDateAfter(cinnost.due_date, cinnost.periodicity, cinnost.repeat_interval || 1, c.today);
   await c.db.batch([
     c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ? AND done = 1').bind(cinnost.id),
+    c.db.prepare(IMAGES_CLEANUP_SQL),
     c.db.prepare('UPDATE cinnosti SET due_date = ? WHERE id = ?').bind(next, cinnost.id),
   ]);
   return { deleted: false, cinnost: await loadCinnost(c, cinnost.id) };
@@ -500,3 +529,21 @@ export async function testPush(c) {
   return { sent };
 }
 
+
+// ---- Miniatúry položiek ------------------------------------------------------------
+
+/** GET /api/item-image/<id> – miniatúra položky (len pre členov domácnosti). */
+export async function itemImage(c, itemId) {
+  const row = await c.db
+    .prepare(
+      `SELECT i.data FROM item_images i JOIN members m ON m.household_id = i.household_id AND m.email = ?
+       WHERE i.item_id = ?`
+    )
+    .bind(c.email, String(itemId ?? ''))
+    .first();
+  if (!row) throw new AppError('Obrázok neexistuje.', 404);
+  const [, type, b64] = row.data.match(/^data:([^;]+);base64,(.*)$/);
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  // Obrázok položky sa nemení (nová miniatúra = nová položka), smie sa držať dlho.
+  return new Response(bytes, { headers: { 'content-type': type, 'cache-control': 'private, max-age=31536000, immutable' } });
+}

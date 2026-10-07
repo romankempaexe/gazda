@@ -1134,7 +1134,7 @@ function cardChecklist(c) {
         (i) =>
           '<button type="button" class="check-item compact' + (i.done ? ' done' : '') + '" data-card-item="' + esc(i.id) +
           '" data-task="' + esc(c.id) + '"><span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') +
-          '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
+          '</span>' + thumbHtml(i) + '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
       )
       .join('') +
     (more > 0 ? '<div class="hint card-more">+ ďalšie ' + more + ' – ťukni na kartu</div>' : '') +
@@ -1259,7 +1259,8 @@ function renderPlanovanie() {
   }
 
   html +=
-    '<div class="fab-bar"><button class="btn" id="addTaskBtn">' +
+    '<div class="fab-bar"><button class="btn tonal" id="leafletsBtn"><span class="ms">newspaper</span>Letáky</button>' +
+    '<button class="btn" id="addTaskBtn">' +
     '<span class="ms">add</span>Pridať činnosť</button></div>';
   return html;
 }
@@ -1298,6 +1299,7 @@ function bindDetailEvents() {
   view.querySelectorAll('[data-card-item]').forEach((el) => {
     el.onclick = (e) => {
       e.stopPropagation();
+      if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
       const c = state.detail.cinnosti.find((x) => x.id === el.dataset.task);
       if (c) toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
     };
@@ -1306,6 +1308,7 @@ function bindDetailEvents() {
     el.onclick = () => showTaskDetail(el.dataset.openTask);
   });
   if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
+  if ($('leafletsBtn')) $('leafletsBtn').onclick = () => openLeaflets();
 }
 
 async function completeTask(id, button) {
@@ -1542,6 +1545,11 @@ const splitQty = (() => {
   return splitQty_;
 })();
 
+/** Miniatúra položky (napr. zakrúžkovaná v letáku); ťuknutím sa zväčší. */
+function thumbHtml(i) {
+  return i.image ? '<img class="check-thumb" src="' + esc(i.image) + '" alt="" loading="lazy" data-preview="' + esc(i.image) + '">' : '';
+}
+
 function qtyHtml(i) {
   return i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '';
 }
@@ -1573,8 +1581,9 @@ function showTaskDetail(id) {
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
       '<div class="suggest hidden" id="itemSuggest"></div></div>' +
       '<div class="actions">' +
-      '<button type="button" class="btn text" id="edit" style="margin-right:auto"><span class="ms">edit</span>Upraviť</button>' +
-      '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+      '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
+      (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
+      '<button type="button" class="btn text" id="cancel" style="margin-left:auto">Zavrieť</button>' +
       '<button type="button" class="btn" id="done"><span class="ms">check</span>Hotové</button></div>',
     (root) => {
       const listEl = root.querySelector('#checklist');
@@ -1591,14 +1600,14 @@ function showTaskDetail(id) {
               .map(
                 (i) =>
                   '<button type="button" class="check-item' + (i.done ? ' done' : '') + '" data-item="' + esc(i.id) + '">' +
-                  '<span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' +
+                  '<span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' + thumbHtml(i) +
                   '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
               )
               .join('')
           : '<div class="hint">Zatiaľ žiadne položky.</div>';
         root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
         listEl.querySelectorAll('[data-item]').forEach((b) => {
-          b.onclick = () => toggle(b.dataset.item);
+          b.onclick = (e) => (e.target.dataset.preview ? showImagePreview(e.target.dataset.preview) : toggle(b.dataset.item));
         });
       };
 
@@ -1636,6 +1645,12 @@ function showTaskDetail(id) {
       root.querySelector('#itemAdd').onclick = () => add(input.value);
       root.querySelector('#cancel').onclick = closeModal;
       root.querySelector('#edit').onclick = () => showCinnostForm(c.priestorId, c);
+      if (shopping) {
+        root.querySelector('#leaflets').onclick = () => {
+          closeModal(true);
+          openLeaflets({ taskId: c.id });
+        };
+      }
       root.querySelector('#done').onclick = (e) => {
         closeModal();
         completeTask(c.id, e.currentTarget);
@@ -1662,6 +1677,7 @@ let tempIds = 0;
 /** Lokálna podoba činnosti zo zadaných údajov, kým ju server neuloží. */
 function optimisticTask(data, previous) {
   const done = new Map(((previous && previous.items) || []).map((i) => [i.id, i.done]));
+  const images = new Map(((previous && previous.items) || []).map((i) => [i.id, i.image]));
   const kind = data.kind === 'nakup' ? 'nakup' : '';
   return {
     ...(previous || { id: 'tmp-' + ++tempIds, householdId: state.detail.household.id }),
@@ -1677,7 +1693,12 @@ function optimisticTask(data, previous) {
     kind,
     store: kind ? String(data.store || '').trim() : '',
     items: data.items
-      .map((i) => ({ id: i.id || 'tmp-' + ++tempIds, ...splitQty(i.text, i.qty), done: Boolean(i.id && done.get(i.id)) }))
+      .map((i) => ({
+        id: i.id || 'tmp-' + ++tempIds,
+        ...splitQty(i.text, i.qty),
+        done: Boolean(i.id && done.get(i.id)),
+        ...(i.id && images.get(i.id) && { image: images.get(i.id) }),
+      }))
       .filter((i) => i.text),
     pending: true,
   };
@@ -1709,10 +1730,11 @@ function showCinnostForm(priestorId, existing, opts) {
   if (draft) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
     const done = new Map((v.items || []).map((i) => [i.id, i.done]));
-    v = { ...v, ...draft, items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)) })) };
+    const images = new Map((v.items || []).map((i) => [i.id, i.image]));
+    v = { ...v, ...draft, items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)), image: i.id && images.get(i.id) })) };
   }
   // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
-  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done }));
+  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image }));
   const members = state.detail.members.map((m) => m.email).sort();
   // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
   if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
@@ -1813,7 +1835,7 @@ function showCinnostForm(priestorId, existing, opts) {
           .map(
             (i, idx) =>
               '<div class="check-item edit' + (i.done ? ' done' : '') + '"><span class="ms">' +
-              (i.done ? 'check_box' : 'check_box_outline_blank') + '</span><span class="check-text">' + esc(i.text) +
+              (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' + thumbHtml(i) + '<span class="check-text">' + esc(i.text) +
               '</span>' + stepperHtml('data-qty="' + idx + '"', i.qty) +
               '<button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
               '<span class="ms">close</span></button></div>'

@@ -17,7 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
-import { debugLidl } from './leaflets.js';
+import { getLeaflet, getLeaflets, leafletImage } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -40,6 +40,8 @@ const METHODS = {
   unsubscribePush: api.unsubscribePush,
   testPush: api.testPush,
   createImportCode,
+  getLeaflets,
+  getLeaflet,
 };
 
 const MAX_BODY = 256 * 1024;
@@ -66,9 +68,13 @@ async function handleApi(request, env, url, ctx) {
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return json({ ok: true, ...(await health(env)) });
     }
-    // Dočasná diagnostika zdroja letákov (verejné údaje Lidlu, nič z Gazdy).
-    if (url.pathname === '/api/leaflets/debug' && request.method === 'GET') {
-      return json(await debugLidl());
+    // Obrázky (prehliadač ich načíta cez <img>, preto GET): miniatúry položiek a stránky letákov.
+    if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
+      const c = await context(request, env, url, ctx);
+      return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
+    }
+    if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
+      return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
     }
     // Nastavenie pre tlačidlo „Prihlásiť sa cez Google“ (Client ID je verejný).
     if (url.pathname === '/api/auth/config' && request.method === 'GET') {
@@ -101,20 +107,26 @@ async function handleApi(request, env, url, ctx) {
 
     const args = body.args ?? [];
     if (!Array.isArray(args)) throw new AppError('Neplatná požiadavka.');
-    const c = {
-      db: env.DB,
-      email: await authenticate(env.DB, request),
-      today: env.TODAY || todayYmd(), // TODAY len v testoch
-      origin: url.origin,
-      // Upozornenia sa posielajú až po odoslaní odpovede (nezdržia aplikáciu).
-      waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
-    };
+    const c = await context(request, env, url, ctx);
     return json({ result: await method(c, ...args) });
   } catch (err) {
     if (err instanceof AppError) return json({ error: err.message, ...(err.code && { code: err.code }) }, err.status);
     console.error(err);
     return json({ error: 'Chyba servera. Skús to znova.' }, 500);
   }
+}
+
+/** Kontext prihláseného používateľa pre funkcie API (neprihlásený → chyba 401). */
+async function context(request, env, url, ctx) {
+  return {
+    db: env.DB,
+    email: await authenticate(env.DB, request),
+    today: env.TODAY || todayYmd(), // TODAY len v testoch
+    origin: url.origin,
+    // Upozornenia sa posielajú až po odoslaní odpovede (nezdržia aplikáciu).
+    waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
+    fetch: env.TEST_FETCH, // v testoch náhrada za Lidl; inak globálny fetch
+  };
 }
 
 async function readJson(request, max) {

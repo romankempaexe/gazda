@@ -20,8 +20,10 @@ push notifikácie priamo z aplikácie.
 | `src/google.js` | Overenie Google ID tokenu (podpis RS256, Client ID, platnosť, overený e-mail) |
 | `src/notifications.js` | Upozornenia: nová pridelená úloha, ranný prehľad (cron), odbery |
 | `src/import.js` | Prenos dát zo starej Gazdy (jednorazový kód, čistenie, hromadný zápis) |
+| `src/leaflets.js` | Letáky Lidl: zoznam a stránky letákov (pamäť v D1), obrázky cez náš server |
 | `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
 | `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
+| `public/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie → miniatúra do nákupu |
 | `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
 | `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
@@ -38,7 +40,11 @@ používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
-`subscribePush`, `unsubscribePush`, `testPush`. `GET /api/health` overí databázu.
+`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets`, `getLeaflet`.
+`GET /api/health` overí databázu.
+
+`addItem(cinnostId, text, qty, image)` – voliteľná miniatúra ako `data:image/jpeg;base64,…`
+(najviac 200 kB); položka ju potom má v `image` (`/api/item-image/<id>`, len pre členov).
 
 Prenos: `createImportCode` (prihlásený) a `POST /api/import` `{"code", "data"}`
 (volá stará Gazda, overí sa kódom; telo do 5 MB).
@@ -76,6 +82,21 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
 - **Automatická obnova:** otvorená domácnosť sa každých 20 s (a po návrate do
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
+
+## Letáky Lidl
+
+V Plánovaní tlačidlo **Letáky** (alebo **Leták** v detaile nákupu) otvorí aktuálne
+letáky Lidl. Strany sa listujú prstom; **Krúžkovať** otvorí stranu, na ktorej sa
+prstom zakrúžkuje tovar. Zakrúžkované miesto sa vystrihne ako malý obrázok (JPEG,
+~10–20 kB) a po potvrdení (názov, počet, ktorý nákup – alebo nový „Nákup Lidl“)
+pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
+
+Zdroj nie je oficiálne API: server prečíta zoznam letákov z lidl.sk a stránky
+z `endpoints.leaflets.schwarz` (rovnako ako web Lidlu), výsledok drží v tabuľke
+`config` a obnoví ho najviac raz za 6 hodín (pri výpadku ukáže posledný známy).
+Obrázky strán idú cez `GET /api/leaflets/image?p=…` (len z `imgproxy.leaflets.schwarz`,
+len pre prihlásených), aby sa z nich v prehliadači dalo strihať. Ak Lidl zmení
+svoj web, prestane fungovať len táto časť.
 
 ## Upozornenia (push notifikácie)
 

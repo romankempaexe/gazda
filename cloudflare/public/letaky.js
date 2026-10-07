@@ -13,7 +13,6 @@ const lf = {
   draw: true,
   target: null, // id nákupu, do ktorého sa pridáva
   marks: {}, // zakrúžkované miesta: "slug#strana" -> [{ pts, ok }]
-  products: {}, // rozpoznané produkty: "slug#strana" -> [{ name, price, box, added }] | 'loading' | { error }
 };
 
 // Obchody s letákmi (rovnaké id ako na serveri, src/leaflets.js STORES).
@@ -104,8 +103,7 @@ function closeLeaflets() {
 
 /** Krok späť: strana → strany → zoznam letákov → zatvoriť. */
 function lfBack() {
-  if (lf.mode === 'page') lfRenderStrip();
-  else if (lf.mode === 'strip') lfRenderList();
+  if (lf.mode === 'page') lfRenderList();
   else closeLeaflets();
 }
 
@@ -173,68 +171,12 @@ async function openFlyer(slug) {
     }
     lf.page = 0;
   }
-  lfRenderStrip();
+  lfOpenPage();
 }
 
 // ---- Listovanie (strany vedľa seba, prstom do strán) ---------------------------
 
-function lfRenderStrip() {
-  lf.mode = 'strip';
-  const f = lf.flyer;
-  const pages = f.pages
-    .map((p, i) => '<div class="lf-page" data-i="' + i + '"><img alt="Strana ' + p.n + '" draggable="false"></div>')
-    .join('');
-  lfFrame(
-    f.title || f.name || 'Leták ' + lfStoreName(lf.store),
-    lfValidity(f),
-    '<div class="lf-strip" id="lfStrip">' + pages + '</div>',
-    '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
-      '<span class="lf-count" id="lfCount"></span>' +
-      '<button class="icon-btn" id="lfNext" title="Ďalšia"><span class="ms">chevron_right</span></button>' +
-      '<button class="btn" id="lfCircle"><span class="ms">add_shopping_cart</span>Vybrať tovar</button>'
-  );
-  const strip = $('lfStrip');
-  const go = (i) => strip.scrollTo({ left: i * strip.clientWidth, behavior: 'smooth' });
-  $('lfPrev').onclick = () => go(Math.max(0, lf.page - 1));
-  $('lfNext').onclick = () => go(Math.min(f.pages.length - 1, lf.page + 1));
-  $('lfCircle').onclick = () => lfOpenPage();
-  strip.querySelectorAll('.lf-page').forEach((el) => {
-    el.onclick = () => lfOpenPage();
-  });
-  let ticking = false;
-  strip.addEventListener('scroll', () => {
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => {
-      ticking = false;
-      const i = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth));
-      if (i !== lf.page) {
-        lf.page = Math.max(0, Math.min(f.pages.length - 1, i));
-        lfStripUpdate();
-      }
-    });
-  });
-  strip.scrollLeft = lf.page * strip.clientWidth;
-  lfStripUpdate();
-}
 
-let lfDwell = null;
-
-/** Načíta obrázky len okolo aktuálnej strany (leták má aj 100 strán). */
-function lfStripUpdate() {
-  const f = lf.flyer;
-  // Keď človek na strane chvíľu ostane, produkty sa začnú hľadať už teraz (pri listovaní nie).
-  clearTimeout(lfDwell);
-  const index = lf.page;
-  lfDwell = setTimeout(() => lf.mode === 'strip' && lf.page === index && lfFetchProducts(index), 1200);
-  $('lfCount').textContent = lf.page + 1 + ' / ' + f.pages.length;
-  $('lfPrev').disabled = lf.page === 0;
-  $('lfNext').disabled = lf.page === f.pages.length - 1;
-  for (let i = lf.page - 1; i <= lf.page + 2; i++) {
-    const img = lf.root.querySelector('.lf-page[data-i="' + i + '"] img');
-    if (img && !img.src) img.src = f.pages[i].image;
-  }
-}
 
 // ---- Jedna strana: priblíženie a krúžkovanie --------------------------------------
 
@@ -252,7 +194,7 @@ function lfOpenPage(dir) {
     f.title || f.name || 'Leták ' + lfStoreName(lf.store),
     'Strana ' + p.n + ' / ' + f.pages.length,
     '<div class="lf-scroll" id="lfScroll"><div class="lf-wrap" id="lfWrap">' +
-      '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas><div class="lf-hot" id="lfHot"></div></div></div>' +
+      '<img id="lfImg" alt="" draggable="false"><canvas id="lfCanvas"></canvas></div></div>' +
       '<div class="lf-help" id="lfHelp"></div>',
     '<button class="icon-btn" id="lfPrev" title="Predchádzajúca"><span class="ms">chevron_left</span></button>' +
       '<button class="icon-btn" id="lfZoomOut" title="Oddialiť"><span class="ms">remove</span></button>' +
@@ -285,7 +227,7 @@ function lfOpenPage(dir) {
   lfModeUpdate();
   lfBindDrawing();
   lfLayoutPage();
-  lfLoadProducts();
+  lfPreloadImages(lf.page);
 }
 
 /** Ďalšia (d = 1) alebo predchádzajúca (d = -1) strana v režime výberu tovaru. */
@@ -308,65 +250,12 @@ function lfModeUpdate() {
 /** Nápoveda dole podľa režimu a stavu rozpoznávania produktov. */
 function lfHelpUpdate() {
   const help = $('lfHelp');
-  if (!help) return;
-  // Žiadny návod cez stranu (zavadzal) – len kým sa hľadajú produkty.
-  const loading = lf.products[lfMarkKey()] === 'loading';
-  help.textContent = loading ? 'Hľadám produkty…' : '';
-  help.classList.toggle('loading', loading);
-  help.classList.toggle('hidden', !loading);
+  if (help) help.classList.add('hidden'); // bez návodu cez stranu
 }
 
 // ---- Rozpoznané produkty: tlačidlo + pri každom ---------------------------------------
 
-const lfPending = {}; // rozbehnuté rozpoznávanie: kľúč strany -> Promise
 
-/**
- * Rozpozná produkty na strane (index) – raz; súbežné volania čakajú na to isté.
- * background = príprava vopred: server ju pri minutom dennom limite odmietne (null).
- */
-async function lfFetchProducts(index, background) {
-  const flyer = lf.flyer;
-  if (!flyer || index < 0 || index >= flyer.pages.length) return;
-  const key = flyer.slug + '#' + index;
-  if (Array.isArray(lf.products[key])) return;
-  if (lfPending[key]) {
-    await lfPending[key];
-    if (Array.isArray(lf.products[key]) || background) return;
-  }
-  if (!lfPending[key]) {
-    lf.products[key] = 'loading';
-    lfPending[key] = apiQuiet('analyzeLeafletPage', flyer.slug, index, Boolean(background))
-      .then((list) => {
-        if (list) lf.products[key] = list;
-        else delete lf.products[key]; // na pozadí odmietnuté – rozpozná sa až pri otvorení
-      })
-      .catch((err) => {
-        lf.products[key] = { error: isLoginRequired(err) ? '' : errorMessage(err) };
-        // chybu ukáž len pri otvorenej strane, nie pri príprave ďalších na pozadí
-        if (!background && lf.products[key].error && lf.mode === 'page' && lfMarkKey() === key) toast(lf.products[key].error, true);
-      })
-      .finally(() => {
-        delete lfPending[key];
-        if (lf.mode === 'page' && lfMarkKey() === key) lfRenderProducts();
-      });
-  }
-  return lfPending[key];
-}
-
-/** Strana otvorená na výber tovaru: jej produkty a vopred aj ďalšej strany. */
-async function lfLoadProducts() {
-  const index = lf.page;
-  const loading = lfFetchProducts(index);
-  lfRenderProducts();
-  lfPreloadImages(index);
-  await loading;
-  // Kým si človek vyberá, pripravia sa ďalšie strany (postupne, po jednej).
-  // Zvyšok letáka rozpoznáva server sám (cron), takže pri listovaní sú + väčšinou hneď.
-  for (let i = index + 1; i <= index + 3; i++) {
-    if (lf.mode !== 'page' || lf.page !== index) return;
-    await lfFetchProducts(i, true);
-  }
-}
 
 /** Obrázky nasledujúcich strán sa stiahnu vopred, aby sa listovalo bez čakania. */
 function lfPreloadImages(index) {
@@ -378,32 +267,6 @@ function lfPreloadImages(index) {
   }
 }
 
-function lfRenderProducts() {
-  const hot = $('lfHot');
-  if (!hot) return;
-  const list = lf.products[lfMarkKey()];
-  hot.innerHTML = Array.isArray(list)
-    ? list
-        .map((p, i) => {
-          const [x1, y1, x2, y2] = p.box;
-          return (
-            '<button class="lf-plus' + (p.added ? ' added' : '') + '" data-product="' + i + '" style="left:' +
-            ((x1 + x2) / 2) * 100 + '%;top:' + ((y1 + y2) / 2) * 100 + '%" title="' + esc(p.name) + '">' +
-            '<span class="ms">' + (p.added ? 'check' : 'add') + '</span></button>'
-          );
-        })
-        .join('')
-    : '';
-  hot.querySelectorAll('[data-product]').forEach((b) => {
-    b.onpointerdown = (e) => e.stopPropagation(); // nezačne krúžok
-    b.onclick = (e) => {
-      e.stopPropagation();
-      const p = list[Number(b.dataset.product)];
-      lfIdentifyAt([(p.box[0] + p.box[2]) / 2, (p.box[1] + p.box[3]) / 2], p);
-    };
-  });
-  lfHelpUpdate();
-}
 
 let lfIdentifying = false;
 
@@ -411,9 +274,8 @@ let lfIdentifying = false;
  * Ťuknutie na produkt (alebo na „+“): výrez okolo prsta pošle AI, ktorá povie, aký produkt je
  * v jeho strede – názov, cenu a presné ohraničenie. Ohraničenia z rozpoznania celej strany sú
  * len odhad (bývajú posunuté), toto sedí na to, kam človek ťukol.
- * hint = produkt pod „+“ (náhrada, keby AI zlyhala).
  */
-async function lfIdentifyAt(at, hint) {
+async function lfIdentifyAt(at) {
   if (lfIdentifying) return;
   const img = $('lfImg');
   const key = lfMarkKey();
@@ -446,39 +308,19 @@ async function lfIdentifyAt(at, hint) {
     lfDrawMarks();
   }
   if (lf.mode !== 'page' || lfMarkKey() !== key) return; // medzičasom iná strana
-  if (found && hint) found.ref = hint; // po pridaní sa „+“ zmení na fajku
   if (found && found.box) {
     const [bx1, by1, bx2, by2] = found.box;
     const W = region.x2 - region.x;
     const H = region.y2 - region.y;
     lfPickProduct(found, null, [region.x + bx1 * W, region.y + by1 * H, region.x + bx2 * W, region.y + by2 * H]);
-  } else if (found) {
-    lfPickProduct(found, at, hint ? hint.box : [at[0] - 0.15, at[1] - 0.1, at[0] + 0.15, at[1] + 0.1]);
-  } else if (failed || hint) {
-    // AI nevie – aspoň najbližší produkt z rozpoznania celej strany
-    if (hint) lfPickProduct(hint);
-    else lfTapProduct(at);
+  } else if (found || failed) {
+    // bez presného ohraničenia (alebo AI zlyhala): výrez okolo prsta, názov sa dá dopísať
+    lfPickProduct(found || { name: '', price: '' }, at, [at[0] - 0.15, at[1] - 0.1, at[0] + 0.15, at[1] + 0.1]);
   } else {
     toast('Tu som produkt nenašiel – skús ťuknúť priamo na obrázok tovaru alebo ho zakrúžkuj.');
   }
 }
 
-/** Ťuknutie na stranu: najbližší rozpoznaný produkt (v jeho ohraničení s rezervou, inak nič). */
-function lfTapProduct(at) {
-  const list = lf.products[lfMarkKey()];
-  if (!Array.isArray(list) || !list.length) return;
-  // Ohraničenia od AI bývajú posunuté – vyhráva produkt, ktorého ohraničenie je ťuknutiu najbližšie
-  // (0 = ťuknutie je vnútri), a to len do rozumnej vzdialenosti.
-  const gap = (p) => {
-    const [x1, y1, x2, y2] = p.box;
-    const dx = Math.max(x1 - at[0], 0, at[0] - x2);
-    const dy = Math.max(y1 - at[1], 0, at[1] - y2);
-    return Math.hypot(dx, dy);
-  };
-  const center = (p) => Math.hypot(at[0] - (p.box[0] + p.box[2]) / 2, at[1] - (p.box[1] + p.box[3]) / 2);
-  const best = list.slice().sort((a, b) => gap(a) - gap(b) || center(a) - center(b))[0];
-  if (best && gap(best) <= 0.12) lfPickProduct(best, at);
-}
 
 /** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
 async function lfPickProduct(product, at, bounds) {
@@ -626,7 +468,7 @@ function lfBindDrawing() {
   });
   // Pri priblížení (posúvanie) plátno ťuknutia nedostáva – ťuknutie na produkt chytí obrázok.
   $('lfWrap').addEventListener('click', (e) => {
-    if (lf.draw || e.target.closest('.lf-plus')) return;
+    if (lf.draw) return;
     const r = $('lfWrap').getBoundingClientRect();
     lfIdentifyAt([(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]);
   });
@@ -816,7 +658,6 @@ function lfConfirm(thumb, mark, key, product) {
           added = true;
           mark.ok = true;
           if (product) product.added = true;
-          if (product && product.ref) product.ref.added = true;
           saveSnapshot();
           closeModal(true);
         } catch (err) {
@@ -840,7 +681,6 @@ function lfConfirm(thumb, mark, key, product) {
           if (list.includes(mark)) list.splice(list.indexOf(mark), 1);
         }
         lfDrawMarks();
-        lfRenderProducts();
       },
     }
   );

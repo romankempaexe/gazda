@@ -103,26 +103,17 @@ prstom zakrúžkuje tovar. Zakrúžkované miesto sa vystrihne ako malý obrázo
 ~10–20 kB) a po potvrdení (názov, počet, ktorý nákup – alebo nový „Nákup Lidl“)
 pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
 
-**Rozpoznanie produktov:** pri otvorení strany server pošle obrázok strany do
-Workers AI (model `@cf/meta/llama-4-scout-17b-16e-instruct`, binding `AI`), ktorý
-vráti produkty s názvom, cenou a ohraničením. Na každom produkte je tlačidlo **+**:
-označí celý produkt, vystrihne ho a ponúkne pridať s predvyplneným názvom a cenou.
-Každá strana sa rozpoznáva len raz (výsledok je v `config` pod `products:<leták>:<strana>`
-pre všetkých). Cron (každých 15 min) rozpozná vopred po 4 strany aktuálnych letákov
-a aplikácia pri prezeraní pripraví ďalšie 3 strany, takže „+“ sú väčšinou hneď.
+**Výber tovaru:** leták sa otvorí rovno na strane; strany sa listujú ťahom do strany.
+**Ťuknutie na produkt:** aplikácia vystrihne okolie prsta (≈ 45 % šírky strany) a pošle ho
+`identifyLeafletProduct` – AI (Workers AI, `@cf/meta/llama-4-scout-17b-16e-instruct`)
+povie, aký produkt je v strede výrezu, s cenou a presným ohraničením; otvorí sa okno
+s predvyplneným názvom, počtom a cenou. Stojí ≈ 40 „neurónov“ z bezplatných 10 000 denne
+(súčet v `config` pod `ai_neurons`, nad limit Workers Free nič neúčtuje, len odmietne).
+Uzavretým ťahom sa dá tovar aj zakrúžkovať. Rozpoznanie celých strán vopred
+(`analyzeLeafletPage`, `preanalyzeLeaflets`) ostalo na serveri, ale aplikácia ani cron
+ho už nepoužívajú – polohy z celej strany boli príliš nepresné.
 
-Je to zadarmo: Workers AI na pláne Workers Free dáva 10 000 „neurónov“ denne a nad
-limit nič neúčtuje (len odmietne). Strana stojí ~80, celý leták so 100 stranami
-~8 000 – a to len raz za jeho platnosť. Príprava vopred si berie najviac 7 000 denne
-(súčet v `config` pod `ai_neurons`), zvyšok ostáva na strany otvorené hneď; čo sa
-nestihne, dorobí sa ďalší deň. Po vyčerpaní limitu ostáva krúžkovanie.
-
-**Ťuknutie na produkt** (alebo na „+“): ohraničenia z rozpoznania celej strany sú len
-odhad modelu (bývajú posunuté), preto aplikácia vystrihne okolie prsta (≈ 45 % šírky
-strany) a pošle ho `identifyLeafletProduct` – AI povie, aký produkt je v strede výrezu,
-s cenou a presným ohraničením (≈ 40 neurónov, počíta sa do denného limitu).
-
-V režime výberu tovaru prst na celej strane krúžkuje (uzavretý ťah) alebo listuje
+Prst na celej strane ťuká (výber produktu), krúžkuje (uzavretý ťah) alebo listuje
 (vodorovný ťah do strany); po priblížení sa prepína medzi posúvaním a krúžkovaním. Položky majú cenu
 (`price`, migrácia 0006) a v detaile nákupu sa ukáže odhad sumy.
 

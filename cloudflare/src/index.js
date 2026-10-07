@@ -17,7 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
-import { analyzeLeafletPage, getLeaflet, identifyLeafletProduct, getLeaflets, leafletImage, preanalyzeLeaflets } from './leaflets.js';
+import { analyzeLeafletPage, getLeaflet, identifyLeafletProduct, getLeaflets, leafletImage } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -64,9 +64,6 @@ export default {
     ctx.waitUntil(
       scheduledTick(env.DB, new Date(event.scheduledTime)).catch((err) => console.error('Ranný prehľad: ' + err))
     );
-    // Letáky: produkty na stranách sa rozpoznajú vopred, aby boli „+“ hneď pripravené.
-    const c = { db: env.DB, today: env.TODAY || todayYmd(), ai: env.AI };
-    ctx.waitUntil(preanalyzeLeaflets(c).catch((err) => console.error('Letáky vopred: ' + err)));
   },
 };
 

@@ -127,9 +127,9 @@ function lfRenderStrip() {
   const go = (i) => strip.scrollTo({ left: i * strip.clientWidth, behavior: 'smooth' });
   $('lfPrev').onclick = () => go(Math.max(0, lf.page - 1));
   $('lfNext').onclick = () => go(Math.min(f.pages.length - 1, lf.page + 1));
-  $('lfCircle').onclick = () => lfOpenPage(true);
+  $('lfCircle').onclick = () => lfOpenPage();
   strip.querySelectorAll('.lf-page').forEach((el) => {
-    el.onclick = () => lfOpenPage(false);
+    el.onclick = () => lfOpenPage();
   });
   let ticking = false;
   strip.addEventListener('scroll', () => {
@@ -168,10 +168,14 @@ function lfStripUpdate() {
 
 // ---- Jedna strana: priblíženie a krúžkovanie --------------------------------------
 
-function lfOpenPage(draw) {
+/**
+ * Strana na výber tovaru: + pri rozpoznaných produktoch, krúžkovanie prstom a ťahanie
+ * do strany na ďalšiu/predchádzajúcu stranu. dir = odkiaľ strana prichádza (animácia).
+ */
+function lfOpenPage(dir) {
   lf.mode = 'page';
-  lf.draw = draw;
-  lf.zoom = draw ? 1 : 2;
+  lf.draw = true;
+  lf.zoom = 1;
   const f = lf.flyer;
   const p = f.pages[lf.page];
   lfFrame(
@@ -197,14 +201,11 @@ function lfOpenPage(draw) {
     };
     big.src = p.zoom;
   }
-  const step = (d) => {
-    lf.page = Math.max(0, Math.min(f.pages.length - 1, lf.page + d));
-    lfOpenPage(lf.draw);
-  };
+  if (dir) $('lfWrap').classList.add(dir > 0 ? 'from-right' : 'from-left');
   $('lfPrev').disabled = lf.page === 0;
   $('lfNext').disabled = lf.page === f.pages.length - 1;
-  $('lfPrev').onclick = () => step(-1);
-  $('lfNext').onclick = () => step(1);
+  $('lfPrev').onclick = () => lfStep(-1);
+  $('lfNext').onclick = () => lfStep(1);
   $('lfZoomIn').onclick = () => lfSetZoom(lf.zoom + 1);
   $('lfZoomOut').onclick = () => lfSetZoom(lf.zoom - 1);
   $('lfMode').onclick = () => {
@@ -217,8 +218,18 @@ function lfOpenPage(draw) {
   lfLoadProducts();
 }
 
+/** Ďalšia (d = 1) alebo predchádzajúca (d = -1) strana v režime výberu tovaru. */
+function lfStep(d) {
+  const next = lf.page + d;
+  if (next < 0 || next >= lf.flyer.pages.length) return;
+  lf.page = next;
+  lfOpenPage(d);
+}
+
 function lfModeUpdate() {
   const btn = $('lfMode');
+  // Celá strana na obrazovke: prst krúžkuje alebo listuje. Pri priblížení sa dá prepnúť na posúvanie.
+  btn.classList.toggle('hidden', lf.zoom <= 1);
   btn.innerHTML = lf.draw ? '<span class="ms">pan_tool</span>Posúvať' : '<span class="ms">gesture</span>Krúžkovať';
   $('lfWrap').classList.toggle('drawing', lf.draw);
   lfHelpUpdate();
@@ -232,9 +243,10 @@ function lfHelpUpdate() {
   let text;
   if (found === 'loading') text = 'Hľadám produkty na strane… (prvýkrát to trvá pár sekúnd)';
   else if (found && found.error) text = found.error;
-  else if (Array.isArray(found) && found.length) text = lf.draw ? 'Ťukni na + pri produkte, alebo tovar zakrúžkuj prstom.' : 'Ťukni na + pri produkte. Posúvaj prstom.';
-  else if (Array.isArray(found)) text = 'Produkty sa nenašli – zakrúžkuj tovar prstom.';
-  else text = lf.draw ? 'Zakrúžkuj prstom tovar – pridá sa do nákupu aj s obrázkom.' : 'Posúvaj prstom, priblíž tlačidlom +.';
+  else if (!lf.draw) text = 'Posúvaj prstom. Na krúžkovanie ťukni Krúžkovať.';
+  else if (Array.isArray(found) && found.length) text = 'Ťukni na + pri produkte, iný tovar zakrúžkuj. Ťahom do strany listuješ.';
+  else if (Array.isArray(found)) text = 'Produkty sa nenašli – tovar zakrúžkuj prstom. Ťahom do strany listuješ.';
+  else text = 'Zakrúžkuj tovar prstom. Ťahom do strany listuješ.';
   help.textContent = text;
   help.classList.toggle('loading', found === 'loading');
 }
@@ -243,17 +255,25 @@ function lfHelpUpdate() {
 
 const lfPending = {}; // rozbehnuté rozpoznávanie: kľúč strany -> Promise
 
-/** Rozpozná produkty na strane (index) – raz; súbežné volania čakajú na to isté. */
-function lfFetchProducts(index) {
+/**
+ * Rozpozná produkty na strane (index) – raz; súbežné volania čakajú na to isté.
+ * background = príprava vopred: server ju pri minutom dennom limite odmietne (null).
+ */
+async function lfFetchProducts(index, background) {
   const flyer = lf.flyer;
-  if (!flyer || index < 0 || index >= flyer.pages.length) return Promise.resolve();
+  if (!flyer || index < 0 || index >= flyer.pages.length) return;
   const key = flyer.slug + '#' + index;
-  if (Array.isArray(lf.products[key])) return Promise.resolve();
+  if (Array.isArray(lf.products[key])) return;
+  if (lfPending[key]) {
+    await lfPending[key];
+    if (Array.isArray(lf.products[key]) || background) return;
+  }
   if (!lfPending[key]) {
     lf.products[key] = 'loading';
-    lfPending[key] = apiQuiet('analyzeLeafletPage', flyer.slug, index)
+    lfPending[key] = apiQuiet('analyzeLeafletPage', flyer.slug, index, Boolean(background))
       .then((list) => {
-        lf.products[key] = list;
+        if (list) lf.products[key] = list;
+        else delete lf.products[key]; // na pozadí odmietnuté – rozpozná sa až pri otvorení
       })
       .catch((err) => {
         lf.products[key] = { error: isLoginRequired(err) ? '' : errorMessage(err) };
@@ -271,8 +291,24 @@ async function lfLoadProducts() {
   const index = lf.page;
   const loading = lfFetchProducts(index);
   lfRenderProducts();
+  lfPreloadImages(index);
   await loading;
-  lfFetchProducts(index + 1); // kým si človek vyberá, ďalšia strana sa pripraví
+  // Kým si človek vyberá, pripravia sa ďalšie strany (postupne, po jednej).
+  // Zvyšok letáka rozpoznáva server sám (cron), takže pri listovaní sú + väčšinou hneď.
+  for (let i = index + 1; i <= index + 3; i++) {
+    if (lf.mode !== 'page' || lf.page !== index) return;
+    await lfFetchProducts(i, true);
+  }
+}
+
+/** Obrázky nasledujúcich strán sa stiahnu vopred, aby sa listovalo bez čakania. */
+function lfPreloadImages(index) {
+  for (let i = index - 1; i <= index + 2; i++) {
+    const p = lf.flyer.pages[i];
+    if (!p || i === index) continue;
+    new Image().src = p.image;
+    if (i === index + 1 && p.zoom) new Image().src = p.zoom;
+  }
 }
 
 function lfRenderProducts() {
@@ -326,6 +362,11 @@ function lfSetZoom(z) {
   const scroll = $('lfScroll');
   const z2 = Math.max(1, Math.min(4, z));
   if (z2 === lf.zoom) return;
+  // Priblížené sa najprv posúva, pri celej strane sa krúžkuje a listuje.
+  if (lf.zoom === 1 || z2 === 1) {
+    lf.draw = z2 === 1;
+    lfModeUpdate();
+  }
   // Priblíž okolo stredu toho, čo je práve vidieť.
   const cx = (scroll.scrollLeft + scroll.clientWidth / 2) / scroll.scrollWidth;
   const cy = (scroll.scrollTop + scroll.clientHeight / 2) / scroll.scrollHeight;
@@ -420,6 +461,27 @@ function lfBindDrawing() {
   });
 }
 
+/**
+ * Ťah do strany (listovanie) vs. krúžok: vodorovný, dosť dlhý a neuzavretý ťah.
+ * Krúžok končí blízko začiatku, ťah ďaleko od neho. Len pri celej strane (bez priblíženia).
+ */
+function lfIsSwipe(pts, wrap) {
+  if (lf.zoom > 1 || pts.length < 2) return false;
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+  const [x0, y0] = pts[0];
+  const [x1, y1] = pts[pts.length - 1];
+  const dx = (x1 - x0) * W;
+  const dy = (y1 - y0) * H;
+  let minY = 1, maxY = 0;
+  pts.forEach(([, y]) => {
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  });
+  const height = (maxY - minY) * H;
+  return Math.abs(dx) > Math.max(50, W * 0.15) && Math.abs(dy) < Math.abs(dx) * 0.5 && height < Math.abs(dx) * 0.6;
+}
+
 /** Ohraničenie zakrúžkovaného miesta (0–1) s malým okrajom. */
 function lfBounds(pts) {
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
@@ -436,6 +498,11 @@ function lfBounds(pts) {
 async function lfFinishMark(pts) {
   const b = lfBounds(pts);
   const wrap = $('lfWrap');
+  if (lfIsSwipe(pts, wrap)) {
+    lfDrawMarks();
+    lfStep(pts[pts.length - 1][0] < pts[0][0] ? 1 : -1);
+    return;
+  }
   // Ťuknutie alebo čiarka – nie krúžok.
   if ((b.x2 - b.x) * wrap.clientWidth < 24 || (b.y2 - b.y) * wrap.clientHeight < 24) {
     lfDrawMarks();

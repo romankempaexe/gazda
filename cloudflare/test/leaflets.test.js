@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
-import { parseProducts } from '../src/leaflets.js';
+import { parseProducts, preanalyzeLeaflets } from '../src/leaflets.js';
 import { cleanPrice } from '../src/api.js';
 
 let t, roman, jana, cudzi, hid, nakupId;
@@ -13,7 +13,7 @@ const fakeAi = {
   async run(model, input) {
     aiCalls.push({ model, input });
     if (aiAnswer instanceof Error) throw aiAnswer;
-    return { response: aiAnswer };
+    return { response: aiAnswer, usage: { neurons: 75.5 } };
   },
 };
 
@@ -287,4 +287,36 @@ test('cena položky: uloží sa vyčistená a zostane pri úprave činnosti', as
     items: [{ id: item.id, text: 'Mascarpone', qty: '2' }, { id: plain.id, text: 'Chlieb' }],
   });
   assert.deepEqual(saved.items.map((i) => [i.text, i.qty, i.price]), [['Mascarpone', '2 ks', '2.49'], ['Chlieb', '', undefined]]);
+});
+
+test('produkty v letáku: príprava vopred (cron) v rámci denného limitu', async () => {
+  const c = { db: t.env.DB, today: '2026-10-07', ai: fakeAi, fetch: fakeFetch };
+  const budget = async () => JSON.parse((await t.env.DB.prepare("SELECT value FROM config WHERE key = 'ai_neurons'").first()).value);
+  await t.env.DB.prepare("DELETE FROM config WHERE key LIKE 'products:%' OR key = 'ai_neurons'").run();
+  aiAnswer = '[{"name":"Syr","price":1.5,"box":[0.1,0.1,0.4,0.3]}]';
+  const before = aiCalls.length;
+  // letáky majú spolu 3 strany (2 + 1); po 2 na beh
+  assert.equal(await preanalyzeLeaflets(c, 2), 2);
+  assert.equal(await preanalyzeLeaflets(c, 2), 1);
+  assert.equal(await preanalyzeLeaflets(c, 2), 0);
+  assert.equal(aiCalls.length, before + 3);
+  const b = await budget();
+  assert.equal(b.neurons, 3 * 75.5);
+  assert.equal(b.day, new Date().toISOString().slice(0, 10));
+  // otvorenie strany už AI nevolá
+  assert.equal((await roman.api.analyzeLeafletPage('ponuka-platna-od-08-10-2026', 0))[0].name, 'Syr');
+  assert.equal(aiCalls.length, before + 3);
+
+  // limit na prípravu vopred minutý: na pozadí nič, otvorenú stranu rozpozná aj tak
+  await t.env.DB.prepare("DELETE FROM config WHERE key LIKE 'products:%'").run();
+  await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.neurons', 7000) WHERE key = 'ai_neurons'").run();
+  assert.equal(await preanalyzeLeaflets(c, 2), 0);
+  assert.equal(await roman.api.analyzeLeafletPage('ponuka-platna-od-08-10-2026', 0, true), null);
+  assert.equal(aiCalls.length, before + 3);
+  assert.equal((await roman.api.analyzeLeafletPage('ponuka-platna-od-08-10-2026', 0))[0].name, 'Syr');
+  assert.equal(aiCalls.length, before + 4);
+  // včerajší súčet sa nepočíta
+  await t.env.DB.prepare("UPDATE config SET value = json_set(value, '$.day', '2000-01-01') WHERE key = 'ai_neurons'").run();
+  assert.equal(await preanalyzeLeaflets(c, 5), 2);
+  assert.equal((await budget()).neurons, 2 * 75.5);
 });

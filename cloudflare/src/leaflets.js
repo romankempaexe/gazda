@@ -192,6 +192,11 @@ export async function leafletImage(c, path) {
 export const PRODUCTS_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 const PRODUCTS_KEY = 'products:';
 const RETRY_EMPTY_MS = 30 * 60 * 1000;
+// Workers AI zadarmo: 10 000 „neurónov“ denne (UTC), strana ~80. Na prípravu vopred
+// ide najviac 7 000 – zvyšok ostáva na strany, ktoré si niekto otvorí hneď.
+const NEURONS_PER_PAGE = 80;
+const BACKGROUND_NEURONS = 7000;
+const BUDGET_KEY = 'ai_neurons';
 const PRODUCTS_VERSION = 2; // zvýšiť pri zmene čítania odpovede – staré výsledky sa rozpoznajú znova
 const PRODUCTS_PROMPT =
   'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page ' +
@@ -287,7 +292,7 @@ function toBase64(bytes) {
  * Produkty na strane letáka (index strany od 0). Rozpozná ich AI pri prvom otvorení
  * strany kýmkoľvek a výsledok sa uloží – ďalší ich dostanú hneď a bez spotreby limitu.
  */
-export async function analyzeLeafletPage(c, slug, pageIndex) {
+export async function analyzeLeafletPage(c, slug, pageIndex, background) {
   slug = String(slug ?? '');
   const flyer = await readConfig(c, FLYER_KEY + slug);
   const page = flyer && flyer.pages[Number(pageIndex)];
@@ -299,6 +304,8 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
     return cached.products;
   }
   if (!c.ai) throw new AppError('Rozpoznávanie produktov nie je dostupné.', 503);
+  // Príprava strán vopred (na pozadí) smie minúť len časť denného bezplatného limitu.
+  if (background && (await neuronsToday(c)) >= BACKGROUND_NEURONS) return null;
 
   const res = await fetcher(c)(IMAGE_ORIGIN + page.image, { headers: { ...HEADERS, accept: 'image/jpeg' } });
   if (!res.ok) throw new AppError('Stranu letáka sa nepodarilo načítať.', 502);
@@ -319,6 +326,7 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
     }
     throw new AppError('Produkty sa teraz nepodarilo rozpoznať. Tovar môžeš zakrúžkovať prstom.', 502);
   }
+  await addNeurons(c, Number(answer && answer.usage && answer.usage.neurons) || NEURONS_PER_PAGE);
   const response = answer && answer.response;
   // Obrázok strany je zmenšený na najviac 1200 × 1200 px – v tých pixeloch model súradnice vidí.
   const fit = Math.min(1, 1200 / Math.max(page.w || 1, page.h || 1));
@@ -340,4 +348,65 @@ export async function analyzeLeafletPage(c, slug, pageIndex) {
     )
     .run();
   return products;
+}
+
+const utcDay = () => new Date().toISOString().slice(0, 10);
+
+/** Koľko neurónov Workers AI sme dnes (UTC) minuli. */
+async function neuronsToday(c) {
+  const b = await readConfig(c, BUDGET_KEY);
+  return b && b.day === utcDay() ? b.neurons : 0;
+}
+
+async function addNeurons(c, neurons) {
+  const day = utcDay();
+  await c.db
+    .prepare(
+      `INSERT INTO config (key, value) VALUES (?, json_object('day', ?, 'neurons', ?))
+       ON CONFLICT (key) DO UPDATE SET value = CASE WHEN json_extract(config.value, '$.day') = ?
+         THEN json_set(config.value, '$.neurons', json_extract(config.value, '$.neurons') + ?)
+         ELSE excluded.value END`
+    )
+    .bind(BUDGET_KEY, day, neurons, day, neurons)
+    .run();
+}
+
+/**
+ * Cron: postupne rozpozná produkty na stranách aktuálnych letákov, ktoré ešte nikto
+ * neotvoril (najviac `max` strán naraz, v rámci limitu na prípravu vopred).
+ * Vráti počet rozpoznaných strán.
+ */
+export async function preanalyzeLeaflets(c, max = 4) {
+  if (!c.ai) return 0;
+  const list = await getLeaflets(c);
+  const { results } = await c.db
+    .prepare(
+      `SELECT key, json_extract(value, '$.v') AS v, json_array_length(value, '$.products') AS n,
+              json_extract(value, '$.at') AS at FROM config WHERE key LIKE 'products:%'`
+    )
+    .all();
+  const done = new Set(
+    results
+      .filter((r) => r.v === PRODUCTS_VERSION && (r.n > 0 || Date.now() - Date.parse(r.at) < RETRY_EMPTY_MS))
+      .map((r) => r.key)
+  );
+  let count = 0;
+  for (const f of list) {
+    const flyer = await readConfig(c, FLYER_KEY + f.slug);
+    if (!flyer) continue;
+    for (let i = 0; i < flyer.pages.length && count < max; i++) {
+      if (done.has(PRODUCTS_KEY + f.slug + ':' + flyer.pages[i].n)) continue;
+      let result;
+      try {
+        result = await analyzeLeafletPage(c, f.slug, i, true);
+      } catch (err) {
+        if (err.status === 429) return count; // denný limit Cloudflare je vyčerpaný
+        result = []; // chybná strana nezablokuje ostatné, skúsi sa pri ďalšom behu
+      }
+      if (result === null) return count; // denný limit na prípravu vopred je minutý
+      count++;
+    }
+    if (count >= max) break;
+  }
+  return count;
 }

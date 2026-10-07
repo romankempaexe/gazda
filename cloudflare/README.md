@@ -96,8 +96,17 @@ Workers AI (model `@cf/meta/llama-4-scout-17b-16e-instruct`, binding `AI`), ktor
 vráti produkty s názvom, cenou a ohraničením. Na každom produkte je tlačidlo **+**:
 označí celý produkt, vystrihne ho a ponúkne pridať s predvyplneným názvom a cenou.
 Každá strana sa rozpoznáva len raz (výsledok je v `config` pod `products:<leták>:<strana>`
-pre všetkých). Jedna strana stojí ~80 „neurónov“ z bezplatných 10 000 denne
-(≈ 120 strán za deň); po vyčerpaní limitu ostáva krúžkovanie. Položky majú cenu
+pre všetkých). Cron (každých 15 min) rozpozná vopred po 4 strany aktuálnych letákov
+a aplikácia pri prezeraní pripraví ďalšie 3 strany, takže „+“ sú väčšinou hneď.
+
+Je to zadarmo: Workers AI na pláne Workers Free dáva 10 000 „neurónov“ denne a nad
+limit nič neúčtuje (len odmietne). Strana stojí ~80, celý leták so 100 stranami
+~8 000 – a to len raz za jeho platnosť. Príprava vopred si berie najviac 7 000 denne
+(súčet v `config` pod `ai_neurons`), zvyšok ostáva na strany otvorené hneď; čo sa
+nestihne, dorobí sa ďalší deň. Po vyčerpaní limitu ostáva krúžkovanie.
+
+V režime výberu tovaru prst na celej strane krúžkuje (uzavretý ťah) alebo listuje
+(vodorovný ťah do strany); po priblížení sa prepína medzi posúvaním a krúžkovaním. Položky majú cenu
 (`price`, migrácia 0006) a v detaile nákupu sa ukáže odhad sumy.
 
 Zdroj nie je oficiálne API: server prečíta zoznam letákov z lidl.sk a stránky

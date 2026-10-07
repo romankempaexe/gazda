@@ -724,7 +724,7 @@ body.with-tabs .fab-bar {
 .check-text {
   flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word; /* zalomiť medzi slovami („Mascarpone 500 g“, nie „Mascarpon e“) */
 }
 
 .icon-btn.small {
@@ -1448,8 +1448,8 @@ body.with-tabs .toast {
 
 /* ------------------------------------------------- Miniatúry položiek */
 .check-thumb {
-  width: 44px;
-  height: 44px;
+  width: 72px;
+  height: 72px;
   flex: none;
   object-fit: contain;
   border-radius: 10px;
@@ -1459,9 +1459,9 @@ body.with-tabs .toast {
 }
 
 .check-item.compact .check-thumb {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
 }
 
 .check-item.done .check-thumb {
@@ -1791,5 +1791,67 @@ body.lf-open {
 @keyframes lf-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+.check-item.edit .check-thumb {
+  width: 44px;
+  height: 44px;
+}
+
+/* Počet v okne (napr. pridanie z letáka): stepper na celú šírku, väčšie tlačidlá − / + */
+.field .stepper {
+  width: 100%;
+}
+
+.field .stepper .step {
+  width: 46px;
+  height: 46px;
+  flex: none;
+}
+
+.field .stepper .step .ms {
+  font-size: 24px;
+}
+
+.field .stepper input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 46px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.field .stepper input:focus {
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Listovanie ťahom: strana prichádza zo strany */
+.lf-wrap.from-right {
+  animation: lf-in-right 0.22s ease-out both;
+}
+
+.lf-wrap.from-left {
+  animation: lf-in-left 0.22s ease-out both;
+}
+
+@keyframes lf-in-right {
+  from {
+    transform: translateX(40%);
+    opacity: 0;
+  }
+}
+
+@keyframes lf-in-left {
+  from {
+    transform: translateX(-40%);
+    opacity: 0;
   }
 }

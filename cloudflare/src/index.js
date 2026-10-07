@@ -17,6 +17,7 @@ import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { createImportCode, importData } from './import.js';
+import { debugLidl } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -64,6 +65,10 @@ async function handleApi(request, env, url, ctx) {
   try {
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return json({ ok: true, ...(await health(env)) });
+    }
+    // Dočasná diagnostika zdroja letákov (verejné údaje Lidlu, nič z Gazdy).
+    if (url.pathname === '/api/leaflets/debug' && request.method === 'GET') {
+      return json(await debugLidl());
     }
     // Nastavenie pre tlačidlo „Prihlásiť sa cez Google“ (Client ID je verejný).
     if (url.pathname === '/api/auth/config' && request.method === 'GET') {

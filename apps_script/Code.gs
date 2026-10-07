@@ -253,6 +253,65 @@ function regenerateMyLink(token) {
   return { email, token: newToken, link: personalLink_(newToken) };
 }
 
+// Adresa novej Gazdy na Cloudflare (predvyplní sa v okne prenosu).
+const NEW_APP_URL = 'https://gazda.kempa.workers.dev';
+
+/**
+ * Prenesie všetky dáta do novej Gazdy na Cloudflare. Spustiť to smie len vlastník
+ * (ten, pod ktorého účtom Gazda beží); kód vytvorí nová Gazda (Môj účet).
+ */
+function migrateToCloudflare(token, targetUrl, code) {
+  const email = authenticate_(token);
+  const owner = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!owner || email !== owner) {
+    throw new Error('Prenos môže spustiť len vlastník Gazdy (' + (owner || 'účet, pod ktorým beží') + ').');
+  }
+  targetUrl = String(targetUrl || '').trim().replace(/\/+$/, '');
+  if (!/^https:\/\/[^\s\/?#]+$/.test(targetUrl)) {
+    throw new Error('Zadaj adresu novej Gazdy, napr. ' + NEW_APP_URL);
+  }
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 8) throw new Error('Kód má 8 znakov – nájdeš ho v novej Gazde v Môj účet.');
+
+  const pick = (name, fields) =>
+    readTable_(name).map((row) => {
+      const out = {};
+      fields.forEach((f) => (out[f] = row[f]));
+      return out;
+    });
+  const data = {
+    version: 1,
+    households: pick('households', ['id', 'name', 'createdByEmail', 'createdAt']),
+    members: pick('members', ['householdId', 'email', 'role', 'addedAt']),
+    priestory: pick('priestory', ['id', 'householdId', 'name', 'createdAt']),
+    cinnosti: pick('cinnosti', [
+      'id', 'householdId', 'priestorId', 'name', 'description', 'assignedTo', 'icon', 'color',
+      'dueDate', 'periodicity', 'repeatInterval', 'createdAt', 'kind', 'store',
+    ]),
+    polozky: pick('polozky', ['id', 'cinnostId', 'householdId', 'text', 'done', 'position', 'createdAt', 'createdBy', 'qty']),
+    obchody: pick('obchody', ['householdId', 'name', 'createdAt']),
+    produkty: pick('produkty', ['householdId', 'name', 'uses', 'lastUsed']),
+    users: pick('users', ['email', 'lastHouseholdId', 'createdAt']),
+  };
+
+  const res = UrlFetchApp.fetch(targetUrl + '/api/import', {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ code, data }),
+    muteHttpExceptions: true,
+  });
+  let body = null;
+  try {
+    body = JSON.parse(res.getContentText());
+  } catch (e) {
+    // spadne do chyby nižšie
+  }
+  if (!body || body.error) {
+    throw new Error((body && body.error) || 'Nová Gazda neodpovedá správne (HTTP ' + res.getResponseCode() + '). Skontroluj adresu.');
+  }
+  return { counts: body.result, url: targetUrl };
+}
+
 function deleteHousehold(token, householdId) {
   authenticate_(token);
   const member = requireMember_(householdId);

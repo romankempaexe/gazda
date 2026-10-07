@@ -42,14 +42,36 @@ export async function rememberOrigin(db, origin) {
 // ---- Odoslanie ---------------------------------------------------------------
 
 /**
+ * Všetko potrebné na odoslanie (kľúče, adresa, odbery) – načíta sa raz, aby počet
+ * dotazov nerástol s počtom ľudí (D1 free: 50 dotazov na spustenie).
+ */
+async function pushContext(db, emails) {
+  const list = JSON.stringify(emails);
+  const [subs, origin] = await db.batch([
+    db.prepare('SELECT * FROM push_subscriptions WHERE email IN (SELECT value FROM json_each(?))').bind(list),
+    db.prepare("SELECT value FROM config WHERE key = 'origin'"),
+  ]);
+  const byEmail = new Map();
+  for (const sub of subs.results) {
+    if (!byEmail.has(sub.email)) byEmail.set(sub.email, []);
+    byEmail.get(sub.email).push(sub);
+  }
+  return {
+    byEmail,
+    vapid: subs.results.length ? await vapidKeys(db) : null,
+    subject: (origin.results[0] && origin.results[0].value) || 'mailto:gazda@example.com',
+  };
+}
+
+/**
  * Pošle správu na všetky zariadenia používateľa. Neplatné odbery (404/410) zmaže.
  * message = { title, body, tag, url }
  */
-export async function sendToUser(db, email, message) {
-  const { results: subs } = await db.prepare('SELECT * FROM push_subscriptions WHERE email = ?').bind(email).all();
+export async function sendToUser(db, email, message, context) {
+  const ctx = context || (await pushContext(db, [email]));
+  const subs = ctx.byEmail.get(email) || [];
   if (!subs.length) return 0;
-  const vapid = await vapidKeys(db);
-  const subject = (await getConfig(db, 'origin')) || 'mailto:gazda@example.com';
+  const { vapid, subject } = ctx;
   const payload = JSON.stringify({ ...message, body: truncate(message.body || '', MAX_BODY) });
   let sent = 0;
   for (const s of subs) {
@@ -184,6 +206,7 @@ export async function sendMorningDigest(db, today) {
     byUser.get(c.assigned_to)[c.due_date === today ? 'today' : 'overdue'].push(c);
   }
 
+  const ctx = await pushContext(db, [...byUser.keys()]);
   let sent = 0;
   for (const [email, tasks] of byUser) {
     if (tasks.today.length) {
@@ -192,7 +215,7 @@ export async function sendMorningDigest(db, today) {
         body: tasks.today.map((c) => '• ' + c.name + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-today',
         url: '/',
-      });
+      }, ctx);
     }
     if (tasks.overdue.length) {
       sent += await sendToUser(db, email, {
@@ -200,7 +223,7 @@ export async function sendMorningDigest(db, today) {
         body: tasks.overdue.map((c) => '• ' + c.name + ' – od ' + formatShortDate(c.due_date) + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-overdue',
         url: '/',
-      });
+      }, ctx);
     }
   }
   return sent;

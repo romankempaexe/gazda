@@ -4,6 +4,10 @@ Webová verzia aplikácie Gazda (plánovanie domácich prác), ktorá beží ako
 **Google Apps Script web app** a dáta ukladá do **Google tabuľky**.
 Nepotrebuje Firebase ani Flutter.
 
+> **Gazda sa sťahuje na Cloudflare** (`cloudflare/`): prihlásenie Google účtom, push
+> notifikácie. Dáta prenesieš v starej Gazde cez **Môj účet → Preniesť do novej Gazdy**
+> (kód vytvoríš v novej Gazde) – postup v `cloudflare/README.md`.
+
 ## Súbory
 
 | Súbor | Obsah |

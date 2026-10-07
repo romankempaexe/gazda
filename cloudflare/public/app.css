@@ -144,14 +144,20 @@ button:active:not(:disabled) {
 .brand {
   width: 34px;
   height: 34px;
-  border-radius: 11px;
-  background: var(--primary-gradient);
+  border-radius: 9px;
+  overflow: hidden;
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 10px rgba(22, 163, 74, 0.35);
   flex-shrink: 0;
+}
+
+.brand img {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .brand .ms {
@@ -1375,4 +1381,65 @@ body.with-tabs .toast {
 .empty.login .hint {
   max-width: 320px;
   margin: 0 auto;
+}
+
+/* Prenos zo starej Gazdy */
+.import-code {
+  font: 700 30px/1.2 ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 16px;
+  margin: 8px 0 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--primary-strong);
+  user-select: all;
+}
+
+.steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+/* Logo na prihlasovacej obrazovke */
+.empty .login-logo {
+  width: 96px;
+  height: 96px;
+  display: block;
+  margin: 0 auto 18px;
+  filter: drop-shadow(0 10px 18px rgba(21, 128, 61, 0.3));
+}
+
+/* Ponuka inštalácie aplikácie */
+.install-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.install-banner img {
+  width: 42px;
+  height: 42px;
+  flex: none;
+}
+
+.install-banner .text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.install-banner .text b {
+  display: block;
+  font-size: 15px;
+  color: var(--text);
 }

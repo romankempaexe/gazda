@@ -605,7 +605,7 @@ export async function identifyLeafletProduct(c, image) {
   try {
     answer = await c.ai.run(PRODUCTS_MODEL, {
       messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: image } }, { type: 'text', text: IDENTIFY_PROMPT }] }],
-      max_tokens: 400,
+      max_tokens: 200, // krátka odpoveď = rýchlejšie
       temperature: 0,
     });
   } catch (err) {

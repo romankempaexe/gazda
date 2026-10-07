@@ -290,67 +290,29 @@ async function lfIdentifyAt(at) {
   const x = Math.min(1 - rw, Math.max(0, at[0] - rw / 2));
   const y = Math.min(1 - rh, Math.max(0, at[1] - rh / 2));
   const region = { x, y, x2: x + rw, y2: y + rh };
-  lfIdentifying = true;
-  const pulse = { pts: [], at, busy: true };
-  lf.pulse = pulse;
-  lfDrawMarks();
-  let found = null;
-  let failed = false;
+  let crop;
   try {
-    const crop = await lfCrop(img, region, 640, 0.85, 230000);
-    found = await api('identifyLeafletProduct', crop);
-  } catch (err) {
-    failed = true;
-    if (!isLoginRequired(err)) toast(errorMessage(err), true);
-  } finally {
-    lfIdentifying = false;
-    lf.pulse = null;
-    lfDrawMarks();
-  }
-  if (lf.mode !== 'page' || lfMarkKey() !== key) return; // medzičasom iná strana
-  if (found && found.box) {
-    const [bx1, by1, bx2, by2] = found.box;
-    const W = region.x2 - region.x;
-    const H = region.y2 - region.y;
-    lfPickProduct(found, null, [region.x + bx1 * W, region.y + by1 * H, region.x + bx2 * W, region.y + by2 * H]);
-  } else if (found || failed) {
-    // bez presného ohraničenia (alebo AI zlyhala): výrez okolo prsta, názov sa dá dopísať
-    lfPickProduct(found || { name: '', price: '' }, at, [at[0] - 0.15, at[1] - 0.1, at[0] + 0.15, at[1] + 0.1]);
-  } else {
-    toast('Tu som produkt nenašiel – skús ťuknúť priamo na obrázok tovaru alebo ho zakrúžkuj.');
-  }
-}
-
-
-/** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
-async function lfPickProduct(product, at, bounds) {
-  let [x1, y1, x2, y2] = bounds || product.box;
-  // AI ohraničenie len odhaduje (býva posunuté) – pri ťuknutí na produkt ho vycentruj na prst.
-  if (at && !bounds) {
-    const w = x2 - x1;
-    const h = y2 - y1;
-    x1 = Math.min(1 - w, Math.max(0, at[0] - w / 2));
-    y1 = Math.min(1 - h, Math.max(0, at[1] - h / 2));
-    x2 = x1 + w;
-    y2 = y1 + h;
-  }
-  const pad = at || bounds ? 0.006 : 0.02; // pri „+“ radšej väčší výrez, nech produkt nechýba
-  const b = { x: Math.max(0, x1 - pad), y: Math.max(0, y1 - pad), x2: Math.min(1, x2 + pad), y2: Math.min(1, y2 + pad) };
-  const mark = { pts: [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]], ok: false };
-  const key = lfMarkKey();
-  (lf.marks[key] = lf.marks[key] || []).push(mark);
-  lfDrawMarks();
-  let thumb;
-  try {
-    thumb = await lfCrop($('lfImg'), b);
-  } catch (err) {
-    lf.marks[key].splice(lf.marks[key].indexOf(mark), 1);
-    lfDrawMarks();
+    // menší obrázok = rýchlejšia odpoveď AI; zároveň náhľad v okne
+    crop = await lfCrop(img, region, 512, 0.8, MAX_THUMB_BYTES);
+  } catch (e) {
     toast('Obrázok sa nepodarilo vystrihnúť. Skús to znova.', true);
     return;
   }
-  lfConfirm(thumb, mark, key, product);
+  lfIdentifying = true;
+  lf.pulse = { at };
+  lfDrawMarks();
+  const pending = api('identifyLeafletProduct', crop).finally(() => {
+    lfIdentifying = false;
+    lf.pulse = null;
+    lfDrawMarks();
+  });
+  // Okno sa otvorí hneď s výrezom okolo prsta; názov, cena a ohraničenie sa doplnia, keď AI odpovie.
+  const mark = { pts: [], ok: false };
+  (lf.marks[key] = lf.marks[key] || []).push(mark);
+  lfConfirm(crop, mark, key, { name: '', price: '' }, { pending, region, at, img });
 }
+
+
 
 function lfSetZoom(z) {
   const scroll = $('lfScroll');
@@ -586,7 +548,7 @@ function lfShoppingTasks() {
 /** Cena „2.49“ → „2,49“ (do poľa) */
 const priceInput = (p) => (p ? String(p).replace('.', ',') : '');
 
-function lfConfirm(thumb, mark, key, product) {
+function lfConfirm(thumb, mark, key, product, live) {
   const tasks = lfShoppingTasks();
   const target = tasks.some((c) => c.id === lf.target) ? lf.target : tasks.length ? tasks[0].id : NEW_SHOPPING;
   const options =
@@ -603,8 +565,12 @@ function lfConfirm(thumb, mark, key, product) {
 
   openModal(
     '<h2>Pridať do nákupu</h2>' +
-      '<div class="lf-preview"><img src="' + thumb + '" alt=""></div>' +
-      '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="Napr. mascarpone (nepovinné)" value="' +
+      (live
+        ? '<div class="lf-preview"><div class="lf-pv"><img src="' + thumb + '" alt=""><div class="lf-box hidden" id="lfBox"></div>' +
+          '<div class="lf-spin" id="lfSpin"><span></span>Rozpoznávam…</div></div></div>'
+        : '<div class="lf-preview"><img src="' + thumb + '" alt=""></div>') +
+      '<div class="field"><label>Názov</label><input id="lfName" maxlength="100" autocomplete="off" placeholder="' +
+      (live ? 'Rozpoznávam…' : 'Napr. mascarpone (nepovinné)') + '" value="' +
       esc(product ? product.name : '') + '">' +
       '<div class="suggest hidden" id="lfSuggest"></div></div>' +
       '<div class="row"><div class="field"><label>Počet</label>' + stepperHtml('id="lfQty"', product ? '1' : '') + '</div>' +
@@ -621,6 +587,53 @@ function lfConfirm(thumb, mark, key, product) {
       });
       root.querySelector('#lfCancel').onclick = closeModal;
       const addBtn = root.querySelector('#lfAdd');
+      if (live) {
+        // výsledok AI: doplň názov a cenu (ak ich človek medzičasom nenapísal), ukáž ohraničenie
+        const priceEl = root.querySelector('#lfPrice');
+        const finish = async (found) => {
+          if (added || !document.body.contains(name)) return;
+          root.querySelector('#lfSpin').classList.add('hidden');
+          name.placeholder = found ? 'Napr. mascarpone (nepovinné)' : 'Produkt sa nenašiel – dopíš názov';
+          if (!found) return;
+          if (!name.value.trim()) name.value = found.name;
+          if (!priceEl.value.trim() && found.price) priceEl.value = priceInput(found.price);
+          const { region, img } = live;
+          const W = region.x2 - region.x;
+          const H = region.y2 - region.y;
+          let b;
+          if (found.box) {
+            const [bx1, by1, bx2, by2] = found.box;
+            const box = root.querySelector('#lfBox');
+            box.style.left = bx1 * 100 + '%';
+            box.style.top = by1 * 100 + '%';
+            box.style.width = (bx2 - bx1) * 100 + '%';
+            box.style.height = (by2 - by1) * 100 + '%';
+            box.classList.remove('hidden');
+            const pad = 0.006;
+            b = {
+              x: Math.max(0, region.x + bx1 * W - pad),
+              y: Math.max(0, region.y + by1 * H - pad),
+              x2: Math.min(1, region.x + bx2 * W + pad),
+              y2: Math.min(1, region.y + by2 * H + pad),
+            };
+          } else {
+            const [ax, ay] = live.at;
+            b = { x: Math.max(0, ax - 0.15), y: Math.max(0, ay - 0.1), x2: Math.min(1, ax + 0.15), y2: Math.min(1, ay + 0.1) };
+          }
+          // ohraničenie aj na strane letáka
+          mark.pts = [[b.x, b.y], [b.x2, b.y], [b.x2, b.y2], [b.x, b.y2], [b.x, b.y]];
+          lfDrawMarks();
+          try {
+            thumb = await lfCrop(img, b); // miniatúra len samotného produktu
+          } catch (e) {
+            // ostane výrez okolia
+          }
+        };
+        live.pending.then(finish, (err) => {
+          if (!isLoginRequired(err)) toast(errorMessage(err), true);
+          finish(null);
+        });
+      }
       const submit = async () => {
         addBtn.disabled = true;
         const storeName = lfStoreName(lf.store);

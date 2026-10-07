@@ -410,3 +410,29 @@ export async function preanalyzeLeaflets(c, max = 4) {
   }
   return count;
 }
+
+/** DOČASNÁ diagnostika: odkiaľ sa dajú brať letáky iných obchodov. */
+export async function debugStores() {
+  const pages = [
+    'https://www.kaufland.sk/letak.html',
+    'https://www.billa.sk/akciovy-letak',
+    'https://tesco.sk/akciove-ponuky/letaky-a-katalogy/',
+    'https://www.penny.sk/letaky',
+    'https://www.coop.sk/letaky',
+    'https://www.terno.sk/letaky/',
+    'https://www.kimbino.sk/',
+  ];
+  const LINK = /(?:https?:)?\/\/[^"'\s<>)]*?(?:publitas|issuu|leaflet|flyer|letak|let%C3%A1k|katalog|\.pdf|yumpu|view\.|prospekt|offerista|bonial|kimbino)[^"'\s<>)]*/gi;
+  return Promise.all(
+    pages.map(async (url) => {
+      try {
+        const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
+        const text = await res.text();
+        const links = [...new Set([...text.matchAll(LINK)].map((m) => m[0]))].slice(0, 14);
+        return { url, status: res.status, final: res.url, length: text.length, schwarz: /leaflets\.schwarz|flyer_identifier/.test(text), links };
+      } catch (err) {
+        return { url, error: String(err).slice(0, 200) };
+      }
+    })
+  );
+}

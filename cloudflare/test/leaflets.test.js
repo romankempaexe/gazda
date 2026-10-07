@@ -155,11 +155,16 @@ test('miniatúry položiek: uloženie, zobrazenie členom a zmazanie s položkou
   const count = async () => (await t.env.DB.prepare('SELECT COUNT(*) AS n FROM item_images').first()).n;
   assert.equal(await count(), 0);
 
-  // odškrtnuté položky po „Hotové“ a celá činnosť
+  // po „Hotové“ obrázok ostane pre históriu; zmazaná činnosť (bez histórie) ho zmaže
   const second = await roman.api.addItem(nakupId, 'Prosecco', '', PIXEL);
   await roman.api.toggleItem(second.id, true);
-  await roman.api.completeCinnost(nakupId); // jednorazová → vymaže sa celá
-  assert.equal(await count(), 0);
+  await roman.api.completeCinnost(nakupId); // jednorazová → vymaže sa celá, ostane v histórii
+  assert.equal(await count(), 1);
+  const other = await roman.api.addCinnost(hid, { name: 'Iný', kind: 'nakup', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk' });
+  await roman.api.addItem(other.id, 'Syr', '', PIXEL);
+  assert.equal(await count(), 2);
+  await roman.api.deleteCinnost(other.id);
+  assert.equal(await count(), 1);
 });
 
 test('produkty v letáku: odpoveď AI sa vyčistí (zlomky, tisíciny, pixely, odrezaná odpoveď)', () => {

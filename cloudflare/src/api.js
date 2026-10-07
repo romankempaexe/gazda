@@ -38,6 +38,7 @@ const toItem = (r) => ({
   text: r.text,
   qty: r.qty || '',
   done: Boolean(r.done),
+  ...(r.missing && !r.done && { missing: true }), // v obchode nemali
   ...(r.has_image && { image: '/api/item-image/' + r.id }), // miniatúra (napr. z letáka)
   ...(r.price && { price: r.price }), // cena v eurách, napr. „2.49“
 });
@@ -54,8 +55,11 @@ const ITEMS_SQL = `SELECT p.*, (i.item_id IS NOT NULL) AS has_image
   FROM polozky p LEFT JOIN item_images i ON i.item_id = p.id`;
 
 // Miniatúry, ktorých položka už neexistuje (pridáva sa do dávok, ktoré mažú položky).
-const IMAGES_CLEANUP_SQL =
-  'DELETE FROM item_images WHERE NOT EXISTS (SELECT 1 FROM polozky p WHERE p.id = item_images.item_id)';
+// Miniatúry položiek v histórii ostávajú (história ukazuje, čo sa nakúpilo).
+const IMAGES_CLEANUP_SQL = `DELETE FROM item_images
+  WHERE NOT EXISTS (SELECT 1 FROM polozky p WHERE p.id = item_images.item_id)
+  AND NOT EXISTS (SELECT 1 FROM historia h, json_each(h.items) j
+                  WHERE h.household_id = item_images.household_id AND json_extract(j.value, '$.id') = item_images.item_id)`;
 const IMAGE_RE = /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+=*$/;
 export const MAX_IMAGE_LENGTH = 200_000;
 const toCinnost = (r, items = []) => ({
@@ -180,6 +184,7 @@ export async function deleteHousehold(c, householdId) {
   await c.db.batch([
     del('polozky'),
     del('item_images'),
+    del('historia'),
     del('obchody'),
     del('produkty'),
     del('cinnosti'),
@@ -470,8 +475,17 @@ export async function toggleItem(c, itemId, done) {
   const item = await c.db.prepare(ITEMS_SQL + ' WHERE p.id = ?').bind(String(itemId ?? '')).first();
   if (!item) throw new AppError('Položka neexistuje (možno ju medzičasom niekto vymazal).', 404);
   await requireMember(c, item.household_id);
-  await c.db.prepare('UPDATE polozky SET done = ? WHERE id = ?').bind(done ? 1 : 0, item.id).run();
-  return toItem({ ...item, done: done ? 1 : 0 });
+  await c.db.prepare('UPDATE polozky SET done = ?, missing = 0 WHERE id = ?').bind(done ? 1 : 0, item.id).run();
+  return toItem({ ...item, done: done ? 1 : 0, missing: 0 });
+}
+
+/** Položka nákupu, ktorú v obchode nemali (alebo zrušenie toho). */
+export async function setItemMissing(c, itemId, missing) {
+  const item = await c.db.prepare(ITEMS_SQL + ' WHERE p.id = ?').bind(String(itemId ?? '')).first();
+  if (!item) throw new AppError('Položka neexistuje (možno ju medzičasom niekto vymazal).', 404);
+  await requireMember(c, item.household_id);
+  await c.db.prepare('UPDATE polozky SET missing = ?, done = 0 WHERE id = ?').bind(missing ? 1 : 0, item.id).run();
+  return toItem({ ...item, done: 0, missing: missing ? 1 : 0 });
 }
 
 export async function deleteCinnost(c, cinnostId) {
@@ -491,16 +505,96 @@ export async function deleteCinnost(c, cinnostId) {
  */
 export async function completeCinnost(c, cinnostId) {
   const cinnost = await findCinnost(c, cinnostId);
+  const history = await historyStatement(c, cinnost);
   if (!PERIODICITIES.includes(cinnost.periodicity) || cinnost.periodicity === 'none') {
-    return deleteCinnost(c, cinnostId);
+    await c.db.batch([
+      history,
+      c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
+      c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
+      c.db.prepare(IMAGES_CLEANUP_SQL),
+    ]);
+    return { deleted: true };
   }
   const next = nextDueDateAfter(cinnost.due_date, cinnost.periodicity, cinnost.repeat_interval || 1, c.today);
   await c.db.batch([
+    history,
     c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ? AND done = 1').bind(cinnost.id),
+    // čo nemali, ostáva na zozname na budúci nákup
+    c.db.prepare('UPDATE polozky SET missing = 0 WHERE cinnost_id = ? AND missing = 1').bind(cinnost.id),
     c.db.prepare(IMAGES_CLEANUP_SQL),
     c.db.prepare('UPDATE cinnosti SET due_date = ? WHERE id = ?').bind(next, cinnost.id),
   ]);
   return { deleted: false, cinnost: await loadCinnost(c, cinnost.id) };
+}
+
+/** Príkaz, ktorý zapíše dokončenú činnosť do histórie (aj s položkami a ich stavom). */
+async function historyStatement(c, cinnost) {
+  const [items, priestor] = await c.db.batch([
+    c.db.prepare(ITEMS_SQL + ' WHERE p.cinnost_id = ? ORDER BY p.position, p.rowid').bind(cinnost.id),
+    c.db.prepare('SELECT name FROM priestory WHERE id = ?').bind(cinnost.priestor_id),
+  ]);
+  const list = items.results.map((i) => ({
+    id: i.id,
+    text: i.text,
+    qty: i.qty || '',
+    price: i.price || '',
+    state: i.done ? 'done' : i.missing ? 'missing' : 'open',
+    img: Boolean(i.has_image),
+  }));
+  return c.db
+    .prepare(
+      `INSERT INTO historia (id, household_id, cinnost_id, name, kind, store, icon, color, priestor, due_date,
+                             completed_by, completed_at, items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      uuid(),
+      cinnost.household_id,
+      cinnost.id,
+      cinnost.name,
+      cinnost.kind || '',
+      cinnost.store || '',
+      cinnost.icon || 'home',
+      cinnost.color || '#4CAF50',
+      priestor.results[0] ? priestor.results[0].name : '',
+      cinnost.due_date,
+      c.email,
+      nowIso(),
+      JSON.stringify(list)
+    );
+}
+
+const HISTORY_PAGE = 40;
+
+/** História domácnosti od najnovších; before = completedAt posledného načítaného záznamu. */
+export async function getHistory(c, householdId, before) {
+  await requireMember(c, householdId);
+  const { results } = await c.db
+    .prepare('SELECT * FROM historia WHERE household_id = ? AND completed_at < ? ORDER BY completed_at DESC LIMIT ?')
+    .bind(householdId, String(before || '9999'), HISTORY_PAGE + 1)
+    .all();
+  return {
+    entries: results.slice(0, HISTORY_PAGE).map((r) => ({
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      store: r.store,
+      icon: r.icon,
+      color: r.color,
+      priestor: r.priestor,
+      dueDate: r.due_date,
+      completedBy: r.completed_by,
+      completedAt: r.completed_at,
+      items: JSON.parse(r.items || '[]').map((i) => ({
+        text: i.text,
+        qty: i.qty,
+        ...(i.price && { price: i.price }),
+        state: i.state,
+        ...(i.img && { image: '/api/item-image/' + i.id }),
+      })),
+    })),
+    more: results.length > HISTORY_PAGE,
+  };
 }
 
 // ---- Push notifikácie ------------------------------------------------------------

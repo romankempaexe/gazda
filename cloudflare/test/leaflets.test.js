@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
-import { parseProducts, preanalyzeLeaflets, parseKimbinoStore, parseKimbinoFlyer } from '../src/leaflets.js';
+import { imageSize, parseProducts, preanalyzeLeaflets, parseKimbinoStore, parseKimbinoFlyer } from '../src/leaflets.js';
 import { cleanPrice } from '../src/api.js';
 
 let t, roman, jana, cudzi, hid, nakupId;
@@ -214,9 +214,19 @@ test('produkty v letáku: odpoveď AI sa vyčistí (zlomky, tisíciny, pixely, o
     { name: 'Bez ceny', price: '', box: [0.1, 0.6, 0.3, 0.8] },
     { name: 'Zlá cena', price: '', box: [0.4, 0.6, 0.6, 0.8] },
   ]);
-  // tisíciny
-  assert.deepEqual(parseProducts('[{"name":"Prosecco","price":2.99,"box":[300,100,600,400]}]', 707, 1200), [
+  // tisíciny (siahajú za šírku obrázka 707 px)
+  assert.deepEqual(parseProducts('[{"name":"Prosecco","price":2.99,"box":[300,100,600,400]},{"name":"Syr","price":1,"box":[660,700,980,950]}]', 707, 1200), [
     { name: 'Prosecco', price: '2.99', box: [0.3, 0.1, 0.6, 0.4] },
+    { name: 'Syr', price: '1.00', box: [0.66, 0.7, 0.98, 0.95] },
+  ]);
+  // pixely obrázka 707 × 1200, všetko pod 1000 – nesmú sa čítať ako tisíciny (posun doľava)
+  assert.deepEqual(parseProducts('[{"name":"A","price":1,"box":[10,100,350,400]},{"name":"B","price":1,"box":[360,600,700,950]}]', 707, 1200), [
+    { name: 'A', price: '1.00', box: [0.014, 0.083, 0.495, 0.333] },
+    { name: 'B', price: '1.00', box: [0.509, 0.5, 0.99, 0.792] },
+  ]);
+  // veľký obrázok (1240 px): tisíciny sa nepomýlia s pixelmi
+  assert.deepEqual(parseProducts('[{"name":"C","price":1,"box":[500,500,990,980]}]', 1240, 1754), [
+    { name: 'C', price: '1.00', box: [0.5, 0.5, 0.99, 0.98] },
   ]);
   // pixely obrázka, ktorý model videl (707 × 1200)
   assert.deepEqual(
@@ -404,4 +414,24 @@ test('letáky ďalších obchodov (Kimbino): zoznam, strany s platnosťou, obrá
   await roman.api.getLeaflets();
   assert.equal((await roman.api.getLeaflet('k-tesco-6132237')).pages.length, 3);
   assert.ok(await t.env.DB.prepare("SELECT 1 FROM config WHERE key = 'products:k-tesco-6132237:2'").first());
+});
+
+test('veľkosť obrázka z hlavičky (JPEG, PNG, WebP)', () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0, 0, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x04, 0xb0, 0x02, 0xc3, 0x03, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(imageSize(jpeg), { w: 707, h: 1200 });
+  const png = new Uint8Array(32);
+  png.set([0x89, 0x50, 0x4e, 0x47], 0);
+  png.set([0, 0, 0x04, 0xd8, 0, 0, 0x06, 0xda], 16);
+  assert.deepEqual(imageSize(png), { w: 1240, h: 1754 });
+  const webp = new Uint8Array(40);
+  webp.set([...Buffer.from('RIFF')], 0);
+  webp.set([...Buffer.from('WEBPVP8X')], 8);
+  webp.set([0xd7, 0x04, 0x00, 0xd9, 0x06, 0x00], 24); // 1240 - 1, 1754 - 1
+  assert.deepEqual(imageSize(webp), { w: 1240, h: 1754 });
+  const vp8 = new Uint8Array(40);
+  vp8.set([...Buffer.from('RIFF')], 0);
+  vp8.set([...Buffer.from('WEBPVP8 ')], 8);
+  vp8.set([0xc3, 0x02, 0xb0, 0x04], 26);
+  assert.deepEqual(imageSize(vp8), { w: 707, h: 1200 });
+  assert.equal(imageSize(new Uint8Array([1, 2, 3])), null);
 });

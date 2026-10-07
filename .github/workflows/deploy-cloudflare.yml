@@ -101,5 +101,11 @@ jobs:
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
+            if [ "$TARGET_ENV" = "preview" ]; then
+              sleep 15
+              echo "--- letáky: súradnice produktov (diagnostika) ---"
+              curl -s -m 120 "$url/api/leaflets/debug" | head -c 12000 || true
+              echo
+            fi
           fi
 

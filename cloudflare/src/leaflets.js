@@ -377,9 +377,9 @@ const RETRY_EMPTY_MS = 30 * 60 * 1000;
 const NEURONS_PER_PAGE = 80;
 const BACKGROUND_NEURONS = 7000;
 const BUDGET_KEY = 'ai_neurons';
-const PRODUCTS_VERSION = 2; // zvýšiť pri zmene čítania odpovede – staré výsledky sa rozpoznajú znova
+const PRODUCTS_VERSION = 3; // zvýšiť pri zmene čítania odpovede – staré výsledky sa rozpoznajú znova
 const PRODUCTS_PROMPT =
-  'This is one page of a Slovak Lidl supermarket leaflet. Find every advertised product offer on the page ' +
+  'This is one page of a Slovak supermarket leaflet. Find every advertised product offer on the page ' +
   '(ignore logos, headlines, opening hours and coupons). For each offer return its product name exactly as printed ' +
   '(Slovak, including the pack size if printed, e.g. "Mascarpone 500 g"), the main offer price in EUR as a number, ' +
   'and a bounding box that tightly covers the whole offer - the product photo, its name and its price tag - ' +
@@ -436,10 +436,20 @@ export function parseProducts(raw, w, h) {
   if (data && !Array.isArray(data)) data = data.products || data.offers || data.items || null;
   if (!Array.isArray(data)) return [];
   const boxOf = (p) => (Array.isArray(p.box) ? p.box : Array.isArray(p.bbox) ? p.bbox : Array.isArray(p.bounding_box) ? p.bounding_box : null);
-  // Mierka súradníc pre celú odpoveď: zlomky (0–1), tisíciny, alebo pixely obrázka, ktorý model videl (w × h).
-  const all = data.flatMap((p) => (p && typeof p === 'object' && boxOf(p) ? boxOf(p).map(Number) : [])).filter(Number.isFinite);
-  const max = all.length ? Math.max(...all) : 0;
-  const scale = max <= 1.5 ? null : max > 1000 && w && h ? 'px' : 'k';
+  // Mierka súradníc pre celú odpoveď: zlomky (0–1), tisíciny, alebo pixely obrázka (w × h).
+  const boxes = data.map((p) => (p && typeof p === 'object' && boxOf(p) ? boxOf(p).map(Number) : [])).filter((b) => b.length === 4 && b.every(Number.isFinite));
+  const maxX = Math.max(0, ...boxes.flatMap((b) => [b[0], b[2]]));
+  const maxY = Math.max(0, ...boxes.flatMap((b) => [b[1], b[3]]));
+  const max = Math.max(maxX, maxY);
+  let scale = null;
+  if (max > 1.5) {
+    const fitsPx = Boolean(w && h) && maxX <= w * 1.05 && maxY <= h * 1.05;
+    const fitsK = max <= 1020;
+    // Obe sedia (napr. pixely obrázka 707 × 1200 pod 1000): produkty pokrývajú skoro celú stranu,
+    // takže vyhráva výklad, pri ktorom siahajú bližšie k jej okraju.
+    if (fitsPx && fitsK) scale = Math.abs(1 - Math.max(maxX / w, maxY / h)) <= Math.abs(1 - max / 1000) ? 'px' : 'k';
+    else scale = fitsPx ? 'px' : 'k';
+  }
   const out = [];
   for (const p of data) {
     if (!p || typeof p !== 'object') continue;
@@ -460,6 +470,36 @@ export function parseProducts(raw, w, h) {
     if (!out.some((o) => o.name === item.name && o.box.join() === item.box.join())) out.push(item);
   }
   return out.slice(0, 40);
+}
+
+/** Šírka a výška obrázka z hlavičky JPEG / PNG / WebP (bez dekódovania), inak null. */
+export function imageSize(b) {
+  const u16 = (i) => (b[i] << 8) | b[i + 1];
+  const le16 = (i) => b[i] | (b[i + 1] << 8);
+  const le24 = (i) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16);
+  if (b.length > 24 && b[0] === 0x89 && b[1] === 0x50) {
+    return { w: (b[16] << 24) | (b[17] << 16) | u16(18), h: (b[20] << 24) | (b[21] << 16) | u16(22) };
+  }
+  if (b.length > 30 && b[0] === 0x52 && b[1] === 0x49 && b[8] === 0x57 && b[9] === 0x45) {
+    const chunk = String.fromCharCode(b[12], b[13], b[14], b[15]);
+    if (chunk === 'VP8 ') return { w: le16(26) & 0x3fff, h: le16(28) & 0x3fff };
+    if (chunk === 'VP8L') {
+      const bits = b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] << 24);
+      return { w: (bits & 0x3fff) + 1, h: ((bits >> 14) & 0x3fff) + 1 };
+    }
+    if (chunk === 'VP8X') return { w: le24(24) + 1, h: le24(27) + 1 };
+    return null;
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) return null;
+      const marker = b[i + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { w: u16(i + 7), h: u16(i + 5) };
+      i += 2 + u16(i + 2);
+    }
+  }
+  return null;
 }
 
 function toBase64(bytes) {
@@ -490,12 +530,16 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
   const res = await fetcher(c)(absImage(page.image), { headers: { ...HEADERS, accept: 'image/jpeg' } });
   if (!res.ok) throw new AppError('Stranu letáka sa nepodarilo načítať.', 502);
   const type = (res.headers.get('content-type') || 'image/jpeg').split(';')[0];
-  const dataUrl = 'data:' + type + ';base64,' + toBase64(new Uint8Array(await res.arrayBuffer()));
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const dataUrl = 'data:' + type + ';base64,' + toBase64(bytes);
+  // Skutočná veľkosť obrázka (z hlavičky) – podľa nej sa prepočítajú súradnice v pixeloch.
+  const fit = Math.min(1, 1200 / Math.max(page.w || 1, page.h || 1));
+  const size = imageSize(bytes) || { w: Math.round((page.w || 0) * fit), h: Math.round((page.h || 0) * fit) };
   let answer;
   const started = Date.now();
   try {
     answer = await c.ai.run(PRODUCTS_MODEL, {
-      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: PRODUCTS_PROMPT }] }],
+      messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: PRODUCTS_PROMPT + (size.w ? ' (The image is ' + size.w + ' x ' + size.h + ' pixels.)' : '') }] }],
       max_tokens: 4000,
       temperature: 0,
     });
@@ -508,9 +552,7 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
   }
   await addNeurons(c, Number(answer && answer.usage && answer.usage.neurons) || NEURONS_PER_PAGE);
   const response = answer && answer.response;
-  // Obrázok strany je zmenšený na najviac 1200 × 1200 px – v tých pixeloch model súradnice vidí.
-  const fit = Math.min(1, 1200 / Math.max(page.w || 1, page.h || 1));
-  const products = parseProducts(response, Math.round((page.w || 0) * fit), Math.round((page.h || 0) * fit));
+  const products = parseProducts(response, size.w, size.h);
   const raw = typeof response === 'string' ? response : JSON.stringify(response ?? null);
   await c.db
     .prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
@@ -523,7 +565,7 @@ export async function analyzeLeafletPage(c, slug, pageIndex, background) {
         at: new Date().toISOString(),
         ms: Date.now() - started,
         // pri prázdnom výsledku si necháme odpoveď modelu na rozbor
-        ...(!products.length && { raw: raw.slice(0, 3000) }),
+        raw: raw.slice(0, 1500), // DOČASNE vždy (diagnostika)
       })
     )
     .run();
@@ -594,4 +636,26 @@ export async function preanalyzeLeaflets(c, max = 4) {
     if (count >= max) break;
   }
   return count;
+}
+
+/** DOČASNÁ diagnostika (preview): surová odpoveď AI a veľkosť obrázka pre pár strán. */
+export async function debugBoxes(c) {
+  const out = [];
+  for (const [store, index] of [['lidl', 1], ['lidl', 3], ['tesco', 1]]) {
+    try {
+      const list = await getLeaflets(c, store);
+      const flyer = await getLeaflet(c, list[0].slug);
+      const page = (await readConfig(c, FLYER_KEY + list[0].slug)).pages[index];
+      const bytes = new Uint8Array(await (await fetcher(c)(absImage(page.image), { headers: { ...HEADERS, accept: 'image/jpeg' } })).arrayBuffer());
+      await c.db.prepare('DELETE FROM config WHERE key = ?').bind(PRODUCTS_KEY + list[0].slug + ':' + page.n).run();
+      const t = Date.now();
+      const products = await analyzeLeafletPage(c, list[0].slug, index);
+      const stored = await readConfig(c, PRODUCTS_KEY + list[0].slug + ':' + page.n);
+      out.push({ store, page: page.n, pages: flyer.pages.length, size: imageSize(bytes), meta: { w: page.w, h: page.h }, ms: Date.now() - t,
+        products: products.slice(0, 6).map((p) => p.name.slice(0, 30) + ' ' + p.box.join(',')), raw: stored && stored.raw });
+    } catch (err) {
+      out.push({ store, error: String(err.message || err) });
+    }
+  }
+  return out;
 }

@@ -638,3 +638,20 @@ export async function preanalyzeLeaflets(c, max = 4) {
   }
   return count;
 }
+
+/** DOČASNÁ diagnostika (preview): adresy obrázkov strán a rozpoznané ohraničenia na kontrolu. */
+export async function debugPages(c) {
+  const out = [];
+  for (const [store, index] of [['lidl', 1], ['lidl', 3], ['tesco', 1]]) {
+    try {
+      const list = await getLeaflets(c, store);
+      await getLeaflet(c, list[0].slug);
+      const page = (await readConfig(c, FLYER_KEY + list[0].slug)).pages[index];
+      const products = await analyzeLeafletPage(c, list[0].slug, index);
+      out.push({ store, page: page.n, image: absImage(page.image), products });
+    } catch (err) {
+      out.push({ store, error: String(err.message || err) });
+    }
+  }
+  return out;
+}

@@ -408,19 +408,17 @@ function lfRenderProducts() {
 function lfTapProduct(at) {
   const list = lf.products[lfMarkKey()];
   if (!Array.isArray(list) || !list.length) return;
-  const slack = 0.06; // ohraničenia od AI bývajú posunuté
-  let best = null;
-  let bestDist = Infinity;
-  list.forEach((p) => {
+  // Ohraničenia od AI bývajú posunuté – vyhráva produkt, ktorého ohraničenie je ťuknutiu najbližšie
+  // (0 = ťuknutie je vnútri), a to len do rozumnej vzdialenosti.
+  const gap = (p) => {
     const [x1, y1, x2, y2] = p.box;
-    if (at[0] < x1 - slack || at[0] > x2 + slack || at[1] < y1 - slack || at[1] > y2 + slack) return;
-    const d = Math.hypot(at[0] - (x1 + x2) / 2, at[1] - (y1 + y2) / 2);
-    if (d < bestDist) {
-      best = p;
-      bestDist = d;
-    }
-  });
-  if (best) lfPickProduct(best, at);
+    const dx = Math.max(x1 - at[0], 0, at[0] - x2);
+    const dy = Math.max(y1 - at[1], 0, at[1] - y2);
+    return Math.hypot(dx, dy);
+  };
+  const center = (p) => Math.hypot(at[0] - (p.box[0] + p.box[2]) / 2, at[1] - (p.box[1] + p.box[3]) / 2);
+  const best = list.slice().sort((a, b) => gap(a) - gap(b) || center(a) - center(b))[0];
+  if (best && gap(best) <= 0.12) lfPickProduct(best, at);
 }
 
 /** Ťuknutie na + : označí celý produkt a ponúkne ho pridať s názvom a cenou. */
@@ -553,6 +551,12 @@ function lfBindDrawing() {
   canvas.addEventListener('pointercancel', () => {
     pts = null;
     lfDrawMarks();
+  });
+  // Pri priblížení (posúvanie) plátno ťuknutia nedostáva – ťuknutie na produkt chytí obrázok.
+  $('lfWrap').addEventListener('click', (e) => {
+    if (lf.draw || e.target.closest('.lf-plus')) return;
+    const r = $('lfWrap').getBoundingClientRect();
+    lfTapProduct([(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]);
   });
 }
 

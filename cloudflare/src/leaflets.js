@@ -411,47 +411,45 @@ export async function preanalyzeLeaflets(c, max = 4) {
   return count;
 }
 
-/** DOČASNÁ diagnostika: štruktúra Kimbina, Coopu a Billy. */
+/** DOČASNÁ diagnostika: obrázky strán letákov na Kimbine a v Bille. */
 export async function debugStores() {
   const get = async (url) => {
     const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
     return { status: res.status, final: res.url, text: await res.text() };
   };
-  const around = (text, re, n = 3, w = 500) =>
-    [...text.matchAll(re)].slice(0, n).map((m) => text.slice(Math.max(0, m.index - 150), m.index + w).replace(/\s+/g, ' '));
   const uniq = (text, re, n = 40) => [...new Set([...text.matchAll(re)].map((m) => m[1] || m[0]))].slice(0, n);
+  const nuxtStrings = (html) => {
+    const m = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) return [];
+    try {
+      return JSON.parse(m[1]).filter((v) => typeof v === 'string');
+    } catch {
+      return ['parse error'];
+    }
+  };
   const out = {};
   try {
     const home = await get('https://www.kimbino.sk/');
-    out.kimbinoStores = uniq(home.text, /href="https:\/\/www\.kimbino\.sk\/([a-z0-9-]+)\/"/g, 60);
-    const tesco = await get('https://www.kimbino.sk/tesco/');
-    out.tesco = { status: tesco.status, final: tesco.final, length: tesco.text.length,
-      links: uniq(tesco.text, /href="(https:\/\/www\.kimbino\.sk\/tesco\/[^"]+)"/g, 15),
-      scripts: uniq(tesco.text, /<script[^>]+id="([^"]+)"/g, 10),
-      cdn: around(tesco.text, /leafletscdn/g, 2, 300) };
-    const leafletUrl = out.tesco.links.find((l) => /\d/.test(l));
-    if (leafletUrl) {
-      const lf = await get(leafletUrl);
-      out.tescoLeaflet = { url: leafletUrl, status: lf.status, length: lf.text.length,
-        cdnCount: (lf.text.match(/leafletscdn/g) || []).length,
-        cdn: around(lf.text, /leafletscdn/g, 3, 300),
-        json: around(lf.text, /"(?:pages|images|pageCount|valid_?(?:from|to)|validFrom|validTo)"\s*:/g, 4, 400),
-        links: uniq(lf.text, /href="(https:\/\/www\.kimbino\.sk\/tesco\/[^"]+)"/g, 10) };
-    }
+    out.kimbinoStores = uniq(home.text, /href="\/([a-z0-9-]+)\/"/g, 80);
+    const lf = await get('https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/');
+    const strs = nuxtStrings(lf.text);
+    out.nuxtCount = strs.length;
+    out.images = strs.filter((v) => /\.(jpe?g|webp|png)|leafletscdn|\/page/i.test(v)).slice(0, 25);
+    out.dates = strs.filter((v) => /^\d{4}-\d{2}-\d{2}/.test(v)).slice(0, 10);
+    out.keys = [...new Set(lf.text.match(/\\?"[a-z_]{3,30}\\?":/g) || [])].slice(0, 120).join(' ');
+    out.apis = uniq(lf.text, /((?:https?:)?\/\/[a-z0-9.-]+\/api\/[^"'\s<>\\]+)/gi, 15);
+    const page2 = await get('https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/2/');
+    out.page2 = { status: page2.status, images: nuxtStrings(page2.text).filter((v) => /\.(jpe?g|webp|png)|leafletscdn/i.test(v)).slice(0, 8) };
+    out.ogImage = uniq(lf.text, /<meta[^>]+property="og:image"[^>]+content="([^"]+)"/g, 3);
   } catch (err) {
     out.kimbinoError = String(err);
   }
   try {
-    const coop = await get('https://www.coop.sk/letaky/tempo-40-2026');
-    out.coop = { status: coop.status, length: coop.text.length,
-      files: uniq(coop.text, /((?:https?:)?\/\/[^"'\s<>]+?\.(?:pdf|jpe?g|png|webp))/gi, 20),
-      doc: around(coop.text, /document/g, 3, 400) };
-  } catch (err) {
-    out.coopError = String(err);
-  }
-  try {
-    const billa = await get('https://www.billa.sk/');
-    out.billa = { status: billa.status, links: uniq(billa.text, /href="([^"]*let[aá]k[^"]*)"/gi, 15) };
+    const billa = await get('https://www.billa.sk/letaky-a-akcie/letaky');
+    out.billa = { status: billa.status, length: billa.text.length,
+      links: uniq(billa.text, /href="([^"]*(?:letak|publitas|view|pdf)[^"]*)"/gi, 20),
+      iframes: uniq(billa.text, /<iframe[^>]+src="([^"]+)"/gi, 10),
+      files: uniq(billa.text, /((?:https?:)?\/\/[^"'\s<>]+?\.(?:pdf|jpe?g|png|webp))/gi, 10) };
   } catch (err) {
     out.billaError = String(err);
   }

@@ -20,8 +20,10 @@ push notifikácie priamo z aplikácie.
 | `src/google.js` | Overenie Google ID tokenu (podpis RS256, Client ID, platnosť, overený e-mail) |
 | `src/notifications.js` | Upozornenia: nová pridelená úloha, ranný prehľad (cron), odbery |
 | `src/import.js` | Prenos dát zo starej Gazdy (jednorazový kód, čistenie, hromadný zápis) |
+| `src/leaflets.js` | Letáky Lidl: zoznam a stránky letákov (pamäť v D1), obrázky cez náš server |
 | `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
 | `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
+| `public/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie → miniatúra do nákupu |
 | `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
 | `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
@@ -38,7 +40,12 @@ používateľa"}` (neprihlásený: HTTP 401 a `"code": "LOGIN_REQUIRED"`).
 Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
-`subscribePush`, `unsubscribePush`, `testPush`. `GET /api/health` overí databázu.
+`subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets(store)`, `getLeaflet`, `analyzeLeafletPage`,
+`identifyLeafletProduct`, `setItemMissing`, `getHistory`.
+`GET /api/health` overí databázu.
+
+`addItem(cinnostId, text, qty, image, price)` – voliteľná cena („2,49“) a miniatúra ako `data:image/jpeg;base64,…`
+(najviac 200 kB); položka ju potom má v `image` (`/api/item-image/<id>`, len pre členov).
 
 Prenos: `createImportCode` (prihlásený) a `POST /api/import` `{"code", "data"}`
 (volá stará Gazda, overí sa kódom; telo do 5 MB).
@@ -76,6 +83,54 @@ jedným `batch` – D1 ich vykoná ako jednu transakciu.
 - **Automatická obnova:** otvorená domácnosť sa každých 20 s (a po návrate do
   aplikácie) potichu obnoví, takže zmeny od ostatných sa ukážu samé.
 - **Bez internetu** sa Gazda otvorí z pamäte telefónu s poslednými údajmi.
+
+## Letáky (Lidl, Tesco, Kaufland, Billa, Coop Jednota, Terno, Fresh, Kraj, Metro)
+
+Lidl sa číta priamo (nižšie). Ostatné obchody z agregátora **kimbino.sk**: stránka
+obchodu (`/tesco/`) → odkazy na aktuálne letáky, stránka letáka → adresy obrázkov
+strán z dát Nuxt (`__NUXT_DATA__`, server `eu.kimbicdn.com`) a platnosť. Zoznam
+obchodu je v `config` pod `kstore:<obchod>`, letáky pod `leaflet:k-<obchod>-<id>`.
+Obrázky idú tiež cez `/api/leaflets/image` (povolené len `imgproxy.leaflets.schwarz`
+a `eu.kimbicdn.com`). V prehliadači letákov sa obchod vyberá hore; pri nákupe do
+konkrétneho obchodu sa otvoria rovno jeho letáky. Weby Kauflandu a Tesca roboty
+z Cloudflare blokujú, preto Kimbino. Rozpoznanie produktov a „+“ fungujú rovnako.
+
+### Lidl
+
+Po vytvorení nákupu sa aplikácia spýta, či otvoriť letáky; inak tlačidlo **Leták**
+v detaile nákupu. Strany sa listujú prstom; **Krúžkovať** otvorí stranu, na ktorej sa
+prstom zakrúžkuje tovar. Zakrúžkované miesto sa vystrihne ako malý obrázok (JPEG,
+~10–20 kB) a po potvrdení (názov, počet, ktorý nákup – alebo nový „Nákup Lidl“)
+pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
+
+**Výber tovaru:** leták sa otvorí rovno na strane; strany sa listujú ťahom do strany.
+**Ťuknutie na produkt:** aplikácia vystrihne okolie prsta (≈ 45 % šírky strany) a pošle ho
+`identifyLeafletProduct` – AI (Workers AI, `@cf/meta/llama-4-scout-17b-16e-instruct`)
+povie, aký produkt je v strede výrezu, s cenou a presným ohraničením; otvorí sa okno
+s predvyplneným názvom, počtom a cenou. Stojí ≈ 40 „neurónov“ z bezplatných 10 000 denne
+(súčet v `config` pod `ai_neurons`, nad limit Workers Free nič neúčtuje, len odmietne).
+Uzavretým ťahom sa dá tovar aj zakrúžkovať. Rozpoznanie celých strán vopred
+(`analyzeLeafletPage`, `preanalyzeLeaflets`) ostalo na serveri, ale aplikácia ani cron
+ho už nepoužívajú – polohy z celej strany boli príliš nepresné.
+
+Prst na celej strane ťuká (výber produktu), krúžkuje (uzavretý ťah) alebo listuje
+(vodorovný ťah do strany); po priblížení sa prepína medzi posúvaním a krúžkovaním. Položky majú cenu
+(`price`, migrácia 0006) a v detaile nákupu sa ukáže odhad sumy.
+
+Zdroj nie je oficiálne API: server prečíta zoznam letákov z lidl.sk a stránky
+z `endpoints.leaflets.schwarz` (rovnako ako web Lidlu), výsledok drží v tabuľke
+`config` a obnoví ho najviac raz za 6 hodín (pri výpadku ukáže posledný známy).
+Obrázky strán idú cez `GET /api/leaflets/image?p=…` (len z `imgproxy.leaflets.schwarz`,
+len pre prihlásených), aby sa z nich v prehliadači dalo strihať. Ak Lidl zmení
+svoj web, prestane fungovať len táto časť.
+
+## Nákup: „Nemali“ a história
+
+Pri položke nákupu je tlačidlo **Nemali** (oranžová, počíta sa ako vybavená).
+**Hotové** zapíše činnosť do tabuľky `historia` – kto a kedy, a každú položku so
+stavom (kúpené / nemali / nekúpené), cenou a obrázkom (obrázky v histórii sa nemažú).
+Pri opakovanom nákupe kúpené položky zmiznú a čo nemali, ostane na budúce.
+Karta **História** ich ukazuje po dňoch.
 
 ## Upozornenia (push notifikácie)
 
@@ -186,3 +241,4 @@ npm run dev       # lokálny server na http://localhost:8787
 Pred `npm run dev` treba lokálne aplikovať migrácie:
 `npx wrangler d1 migrations apply DB --local --env=""` a do súboru `.dev.vars`
 dať `GOOGLE_CLIENT_ID="…"` (a do Google Cloud pridať origin `http://localhost:8787`).
+Lokálne beží bez Workers AI (`--local`), rozpoznávanie produktov v letákoch tam nefunguje.

@@ -619,6 +619,7 @@ function openModal(html, onMount, opts) {
   modalPersistent = Boolean(opts.persistent);
   $('modalContent').innerHTML = html;
   $('modal').classList.remove('hidden');
+  modalOpenedAt = Date.now();
   if (onMount) onMount($('modalContent'));
   if (opts.focus !== false) {
     const sel = typeof opts.focus === 'string' ? opts.focus : 'input, textarea, select';
@@ -638,8 +639,11 @@ function closeModal(force) {
   $('modalContent').innerHTML = '';
 }
 
+// Okno otvorené dotykom (napr. ťuknutím na produkt v letáku): prehliadač po dotyku pošle
+// ešte „klik“ na to isté miesto – ten by trafil pozadie a okno hneď zavrel.
+let modalOpenedAt = 0;
 $('modal').addEventListener('click', (e) => {
-  if (e.target === $('modal')) closeModal();
+  if (e.target === $('modal') && Date.now() - modalOpenedAt > 500) closeModal();
 });
 
 // Tlačidlá − / + pri počte (fungujú v každom okne s .stepper).
@@ -1041,8 +1045,13 @@ function renderDetail(opts) {
   badge.classList.toggle('hidden', !overdueCount);
 
   const onlyMine = state.tab === 'rozpis';
-  let html = renderCalendar(onlyMine);
-  html += onlyMine ? renderRozpis() : renderPlanovanie();
+  let html;
+  if (state.tab === 'historia') {
+    html = renderHistoria();
+  } else {
+    html = renderCalendar(onlyMine);
+    html += onlyMine ? renderRozpis() : renderPlanovanie();
+  }
   $('view').innerHTML = installBannerHtml() + html;
   bindInstallBanner();
   // Tiché prekreslenie (po uložení) bez animácie kariet, aby nepreblikli.
@@ -1093,6 +1102,7 @@ function taskCard(c, mode) {
         '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
     );
   }
+  if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
   if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
@@ -1121,20 +1131,49 @@ function taskCard(c, mode) {
 
 const CARD_ITEMS = 12;
 
-/** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu. */
+/** Odhad sumy nákupu v karte (za ešte nekúpené položky s cenou); bez cien je prázdny. */
+function totalTag(c) {
+  const total = itemsTotal(c);
+  return (
+    '<span class="tag tag-price" data-total="' + esc(c.id) + '"' + (total === null ? ' hidden' : '') +
+    '><span class="ms">payments</span><span>~' + (total === null ? '' : esc(formatPrice(total))) + '</span></span>'
+  );
+}
+
+/** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu.
+ * Položky z letáka (s obrázkom) sú veľké dlaždice vedľa seba (posúvajú sa do strany),
+ * ostatné sú pod nimi ako zoznam. */
 function cardChecklist(c) {
   const items = c.items || [];
   if (!items.length) return '';
-  const more = items.length - CARD_ITEMS;
+  const pictures = items.filter((i) => i.image);
+  const plain = items.filter((i) => !i.image);
+  const more = plain.length - CARD_ITEMS;
+  const tiles = pictures.length
+    ? '<div class="card-tiles">' +
+      pictures
+        .map(
+          (i) =>
+            '<button type="button" class="tile' + itemClass(i) + '" data-card-item="' + esc(i.id) +
+            '" data-task="' + esc(c.id) + '"><span class="ms tile-check">' + itemIcon(i) +
+            '</span><span class="tile-zoom" data-preview="' + esc(i.image) + '"><span class="ms">zoom_in</span></span>' +
+            '<img src="' + esc(i.image) + '" alt="" loading="lazy">' +
+            '<span class="tile-text">' + esc(i.text) + '</span>' +
+            '<span class="tile-meta">' + qtyHtml(i) + missHtml(c, i) + '</span></button>'
+        )
+        .join('') +
+      '</div>'
+    : '';
   return (
     '<div class="card-checklist">' +
-    items
+    tiles +
+    plain
       .slice(0, CARD_ITEMS)
       .map(
         (i) =>
-          '<button type="button" class="check-item compact' + (i.done ? ' done' : '') + '" data-card-item="' + esc(i.id) +
-          '" data-task="' + esc(c.id) + '"><span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') +
-          '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
+          '<button type="button" class="check-item compact' + itemClass(i) + '" data-card-item="' + esc(i.id) +
+          '" data-task="' + esc(c.id) + '"><span class="ms">' + itemIcon(i) +
+          '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>'
       )
       .join('') +
     (more > 0 ? '<div class="hint card-more">+ ďalšie ' + more + ' – ťukni na kartu</div>' : '') +
@@ -1147,33 +1186,67 @@ function refreshTaskCards(c) {
   const p = itemProgress(c);
   const all = p.total > 0 && p.done === p.total;
   const view = $('view');
-  (c.items || []).forEach((i) => {
-    view.querySelectorAll('[data-card-item="' + i.id + '"]').forEach((el) => {
-      el.classList.toggle('done', i.done);
-      el.querySelector('.ms').textContent = i.done ? 'check_box' : 'check_box_outline_blank';
-    });
+  view.querySelectorAll('[data-open-task="' + c.id + '"] .card-checklist').forEach((old) => {
+    const tiles = old.querySelector('.card-tiles');
+    const scroll = tiles ? tiles.scrollLeft : 0;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = cardChecklist(c);
+    const fresh = tmp.firstElementChild;
+    old.replaceWith(fresh);
+    if (fresh.querySelector('.card-tiles')) fresh.querySelector('.card-tiles').scrollLeft = scroll;
+    bindCardItems(fresh);
   });
   view.querySelectorAll('[data-progress="' + c.id + '"]').forEach((el) => {
     el.classList.toggle('tag-ok', all);
     el.lastChild.textContent = p.done + '/' + p.total;
   });
   view.querySelectorAll('[data-complete="' + c.id + '"]').forEach((el) => el.classList.toggle('pulse', all));
+  const total = itemsTotal(c);
+  view.querySelectorAll('[data-total="' + c.id + '"]').forEach((el) => {
+    el.hidden = total === null;
+    el.lastChild.textContent = total === null ? '' : '~' + formatPrice(total);
+  });
 }
 
 /** Odškrtne položku hneď na obrazovke a uloží na pozadí (pri chybe vráti späť). */
 async function toggleChecklistItem(c, itemId, refresh) {
   const item = (c.items || []).find((i) => i.id === itemId);
   if (!item) return;
+  const before = { done: item.done, missing: item.missing };
   item.done = !item.done;
+  delete item.missing;
   refresh();
   const p = itemProgress(c);
-  if (p.total && p.done === p.total) toast('Všetko odškrtnuté – ťukni Hotové');
+  if (p.total && p.done === p.total) toast('Všetko vybavené – ťukni Hotové');
   try {
     const saved = await api('toggleItem', itemId, item.done);
     item.done = saved.done;
     saveSnapshot();
   } catch (err) {
-    item.done = !item.done;
+    Object.assign(item, before);
+    refresh();
+    showError(err);
+  }
+}
+
+/** Položka nákupu „nemali“ (alebo zrušenie) – hneď na obrazovke, uloží sa na pozadí. */
+async function toggleMissingItem(c, itemId, refresh) {
+  const item = (c.items || []).find((i) => i.id === itemId);
+  if (!item) return;
+  const before = { done: item.done, missing: item.missing };
+  const missing = !item.missing;
+  item.done = false;
+  if (missing) item.missing = true;
+  else delete item.missing;
+  refresh();
+  const p = itemProgress(c);
+  if (p.total && p.done === p.total) toast('Všetko vybavené – ťukni Hotové');
+  try {
+    await api('setItemMissing', itemId, missing);
+    saveSnapshot();
+  } catch (err) {
+    Object.assign(item, before);
+    if (!before.missing) delete item.missing;
     refresh();
     showError(err);
   }
@@ -1226,6 +1299,102 @@ function renderRozpis() {
   return html;
 }
 
+// -------------------------------------------------------------------------
+// História – čo sa v domácnosti urobilo a nakúpilo
+// -------------------------------------------------------------------------
+
+/** Obsah karty História (z pamäte; pri prvom otvorení sa načíta zo servera). */
+function renderHistoria() {
+  const id = state.detail.household.id;
+  const h = state.history;
+  if (!h || h.householdId !== id) {
+    if (!h || !h.loading) setTimeout(() => loadHistory(false), 0);
+    return '<div class="center muted">Načítavam históriu…</div>';
+  }
+  if (!h.entries.length) {
+    return (
+      '<div class="empty"><span class="ms">history</span><h2>História</h2>' +
+      '<div>Keď dáš činnosť za hotovú, uloží sa sem – aj čo sa nakúpilo a čo nemali.</div></div>'
+    );
+  }
+  let html = '';
+  let day = '';
+  h.entries.forEach((e) => {
+    const d = new Date(e.completedAt);
+    const ymdLocal = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (ymdLocal !== day) {
+      day = ymdLocal;
+      html += '<div class="section-title">' + formatDateLong(day) + '</div>';
+    }
+    html += historyCard(e, d);
+  });
+  if (h.more) html += '<div class="center"><button class="btn tonal" id="historyMore">Načítať staršie</button></div>';
+  return html;
+}
+
+function historyCard(e, d) {
+  const tag = (icon, text, cls) =>
+    '<span class="tag' + (cls ? ' ' + cls : '') + '"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
+  const info = [tag('person', shortName(e.completedBy) + ' · ' + pad(d.getHours()) + ':' + pad(d.getMinutes()))];
+  if (e.kind === 'nakup') info.push(tag('shopping_cart', e.store || 'Nákup'));
+  if (e.priestor) info.push(tag('location_on', e.priestor));
+  const bought = e.items.filter((i) => i.state === 'done');
+  const total = itemsTotal({ items: bought });
+  if (total !== null) info.push(tag('payments', '~' + formatPrice(total), 'tag-ok'));
+  const missing = e.items.filter((i) => i.state === 'missing').length;
+  if (missing) info.push(tag('remove_shopping_cart', 'nemali ' + missing, 'tag-warn'));
+
+  const stateIcon = (i) => (i.state === 'done' ? 'check' : i.state === 'missing' ? 'remove_shopping_cart' : 'check_box_outline_blank');
+  const stateClass = (i) => ' st-' + i.state;
+  const pictures = e.items.filter((i) => i.image);
+  const plain = e.items.filter((i) => !i.image);
+  const tiles = pictures.length
+    ? '<div class="card-tiles">' +
+      pictures
+        .map(
+          (i) =>
+            '<div class="tile' + stateClass(i) + '" data-preview="' + esc(i.image) + '"><span class="ms tile-check">' + stateIcon(i) +
+            '</span><img src="' + esc(i.image) + '" alt="" loading="lazy"><span class="tile-text">' + esc(i.text) +
+            '</span><span class="tile-meta">' + qtyHtml(i) + (i.state === 'missing' ? '<span class="miss-btn on"><span>nemali</span></span>' : '') +
+            '</span></div>'
+        )
+        .join('') +
+      '</div>'
+    : '';
+  const rows = plain
+    .map(
+      (i) =>
+        '<div class="hist-row' + stateClass(i) + '"><span class="ms">' + stateIcon(i) + '</span><span class="check-text">' + esc(i.text) +
+        '</span>' + qtyHtml(i) + (i.state === 'missing' ? '<span class="miss-btn on"><span>nemali</span></span>' : '') + '</div>'
+    )
+    .join('');
+  return (
+    '<div class="card hist-card' + (e.items.length ? ' has-list' : '') + '">' +
+    '<span class="ms task-icon" style="background:' + esc(e.color) + '">' + iconName(e.icon) + '</span>' +
+    '<div class="card-body"><div class="card-title">' + esc(e.name) + '</div><div class="meta">' + info.join('') + '</div></div>' +
+    (e.items.length ? '<div class="card-checklist">' + tiles + rows + '</div>' : '') +
+    '</div>'
+  );
+}
+
+/** Načíta históriu (more = ďalšia, staršia stránka). */
+async function loadHistory(more) {
+  const id = state.detail && state.detail.household.id;
+  if (!id) return;
+  const h = state.history && state.history.householdId === id ? state.history : null;
+  if (!more) state.history = { householdId: '', loading: true };
+  try {
+    const before = more && h && h.entries.length ? h.entries[h.entries.length - 1].completedAt : '';
+    const res = await (more ? api : apiQuiet)('getHistory', id, before);
+    if (!state.detail || state.detail.household.id !== id) return;
+    state.history = { householdId: id, entries: (more && h ? h.entries : []).concat(res.entries), more: res.more };
+  } catch (err) {
+    if (!more) state.history = { householdId: id, entries: [], more: false };
+    if (!isLoginRequired(err)) showError(err);
+  }
+  if (state.tab === 'historia') renderDetail({ quiet: true });
+}
+
 function renderPlanovanie() {
   const all = tasksForDate(state.selectedDate, false);
   const users = [...new Set(all.map((c) => c.assignedTo))].sort();
@@ -1275,7 +1444,11 @@ function bindDetailEvents() {
   view.querySelectorAll('[data-month]').forEach((el) => {
     el.onclick = () => changeMonth(Number(el.dataset.month));
   });
-  $('todayBtn').onclick = () => goToToday();
+  if ($('todayBtn')) $('todayBtn').onclick = () => goToToday();
+  if ($('historyMore')) $('historyMore').onclick = () => loadHistory(true);
+  view.querySelectorAll('.hist-card [data-preview]').forEach((el) => {
+    el.onclick = () => showImagePreview(el.dataset.preview);
+  });
 
   view.querySelectorAll('[data-user]').forEach((el) => {
     el.onclick = () => {
@@ -1295,31 +1468,41 @@ function bindDetailEvents() {
       showEditCinnost(el.dataset.editTask);
     };
   });
-  view.querySelectorAll('[data-card-item]').forEach((el) => {
-    el.onclick = (e) => {
-      e.stopPropagation();
-      const c = state.detail.cinnosti.find((x) => x.id === el.dataset.task);
-      if (c) toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
-    };
-  });
+  bindCardItems(view);
   view.querySelectorAll('[data-open-task]').forEach((el) => {
     el.onclick = () => showTaskDetail(el.dataset.openTask);
   });
   if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
 }
 
+/** Ťuknutie na položku v karte: odškrtnúť, „nemali“, alebo zväčšiť obrázok. */
+function bindCardItems(scope) {
+  scope.querySelectorAll('[data-card-item]').forEach((el) => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const zoom = e.target.closest('[data-preview]');
+      if (zoom) return showImagePreview(zoom.dataset.preview);
+      const c = state.detail.cinnosti.find((x) => x.id === el.dataset.task);
+      if (!c) return;
+      if (e.target.closest('[data-miss]')) return toggleMissingItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
+      toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
+    };
+  });
+}
+
 async function completeTask(id, button) {
   button.disabled = true;
   try {
     const res = await api('completeCinnost', id);
+    state.history = null; // v histórii pribudol záznam
     const list = state.detail.cinnosti;
     const index = list.findIndex((c) => c.id === id);
     if (res.deleted) {
       if (index !== -1) list.splice(index, 1);
-      toast('Úloha bola vymazaná');
+      toast('Hotovo – uložené v Histórii');
     } else {
       if (index !== -1) list[index] = res.cinnost;
-      toast('Úloha presunutá na ' + formatDate(res.cinnost.dueDate));
+      toast('Hotovo – ďalší termín ' + formatDate(res.cinnost.dueDate));
     }
     renderDetail();
   } catch (err) {
@@ -1542,14 +1725,58 @@ const splitQty = (() => {
   return splitQty_;
 })();
 
+/** Miniatúra položky (napr. zakrúžkovaná v letáku); ťuknutím sa zväčší. */
+function thumbHtml(i) {
+  return i.image ? '<img class="check-thumb" src="' + esc(i.image) + '" alt="" loading="lazy" data-preview="' + esc(i.image) + '">' : '';
+}
+
 function qtyHtml(i) {
-  return i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '';
+  return (
+    (i.price ? '<span class="check-price">' + esc(formatPrice(i.price)) + '</span>' : '') +
+    (i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '')
+  );
+}
+
+/** „2.49“ → „2,49 €“ */
+function formatPrice(p) {
+  return Number(p).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+/** Odhad sumy za neodškrtnuté položky s cenou (počet v kusoch/baleniach sa násobí). */
+function itemsTotal(c) {
+  let sum = 0;
+  let any = false;
+  (c.items || []).forEach((i) => {
+    if (!i.price || i.done || i.missing) return;
+    any = true;
+    const m = String(i.qty || '').match(/^(\d+(?:,\d+)?) (ks|bal\.)$/);
+    sum += Number(i.price) * (m ? Number(m[1].replace(',', '.')) : 1);
+  });
+  return any ? sum : null;
 }
 
 function itemProgress(c) {
   const items = c.items || [];
-  return { done: items.filter((i) => i.done).length, total: items.length };
+  // „nemali“ je tiež vybavené – nákup sa dá dať za hotový
+  return { done: items.filter((i) => i.done || i.missing).length, total: items.length };
 }
+
+/** Ikona stavu položky: odškrtnutá, nemali, alebo ešte nie. */
+function itemIcon(i) {
+  return i.done ? 'check_box' : i.missing ? 'remove_shopping_cart' : 'check_box_outline_blank';
+}
+
+/** Tlačidlo „Nemali“ pri položke nákupu (vnútri riadku – rozlíši sa podľa data-miss). */
+function missHtml(c, i) {
+  if (c.kind !== 'nakup') return '';
+  return (
+    '<span class="miss-btn' + (i.missing ? ' on' : '') + '" data-miss="' + esc(i.id) + '" title="' +
+    (i.missing ? 'Zrušiť – predsa mali' : 'Nemali') + '"><span class="ms">remove_shopping_cart</span>' +
+    (i.missing ? '<span>nemali</span>' : '') + '</span>'
+  );
+}
+
+const itemClass = (i) => (i.done ? ' done' : i.missing ? ' missing' : '');
 
 function showTaskDetail(id) {
   const c = state.detail.cinnosti.find((x) => x.id === id);
@@ -1573,8 +1800,9 @@ function showTaskDetail(id) {
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
       '<div class="suggest hidden" id="itemSuggest"></div></div>' +
       '<div class="actions">' +
-      '<button type="button" class="btn text" id="edit" style="margin-right:auto"><span class="ms">edit</span>Upraviť</button>' +
-      '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+      '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
+      (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
+      '<button type="button" class="btn text" id="cancel" style="margin-left:auto">Zavrieť</button>' +
       '<button type="button" class="btn" id="done"><span class="ms">check</span>Hotové</button></div>',
     (root) => {
       const listEl = root.querySelector('#checklist');
@@ -1583,22 +1811,29 @@ function showTaskDetail(id) {
       const renderList = () => {
         const items = c.items || [];
         const p = itemProgress(c);
+        const total = itemsTotal(c);
         root.querySelector('#checkLabel').textContent =
-          (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '');
-        const sorted = items.filter((i) => !i.done).concat(items.filter((i) => i.done));
+          (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '') +
+          (total !== null ? ' · spolu ~' + formatPrice(total) : '');
+        const open = (i) => !i.done && !i.missing;
+        const sorted = items.filter(open).concat(items.filter((i) => i.missing), items.filter((i) => i.done));
         listEl.innerHTML = sorted.length
           ? sorted
               .map(
                 (i) =>
-                  '<button type="button" class="check-item' + (i.done ? ' done' : '') + '" data-item="' + esc(i.id) + '">' +
-                  '<span class="ms">' + (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' +
-                  '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + '</button>'
+                  '<button type="button" class="check-item' + itemClass(i) + '" data-item="' + esc(i.id) + '">' +
+                  '<span class="ms">' + itemIcon(i) + '</span>' + thumbHtml(i) +
+                  '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>'
               )
               .join('')
           : '<div class="hint">Zatiaľ žiadne položky.</div>';
         root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
         listEl.querySelectorAll('[data-item]').forEach((b) => {
-          b.onclick = () => toggle(b.dataset.item);
+          b.onclick = (e) => {
+            if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
+            if (e.target.closest('[data-miss]')) return toggleMissingItem(c, b.dataset.item, renderList);
+            toggle(b.dataset.item);
+          };
         });
       };
 
@@ -1636,6 +1871,12 @@ function showTaskDetail(id) {
       root.querySelector('#itemAdd').onclick = () => add(input.value);
       root.querySelector('#cancel').onclick = closeModal;
       root.querySelector('#edit').onclick = () => showCinnostForm(c.priestorId, c);
+      if (shopping) {
+        root.querySelector('#leaflets').onclick = () => {
+          closeModal(true);
+          openLeaflets({ taskId: c.id });
+        };
+      }
       root.querySelector('#done').onclick = (e) => {
         closeModal();
         completeTask(c.id, e.currentTarget);
@@ -1662,6 +1903,8 @@ let tempIds = 0;
 /** Lokálna podoba činnosti zo zadaných údajov, kým ju server neuloží. */
 function optimisticTask(data, previous) {
   const done = new Map(((previous && previous.items) || []).map((i) => [i.id, i.done]));
+  const images = new Map(((previous && previous.items) || []).map((i) => [i.id, i.image]));
+  const prices = new Map(((previous && previous.items) || []).map((i) => [i.id, i.price]));
   const kind = data.kind === 'nakup' ? 'nakup' : '';
   return {
     ...(previous || { id: 'tmp-' + ++tempIds, householdId: state.detail.household.id }),
@@ -1677,10 +1920,34 @@ function optimisticTask(data, previous) {
     kind,
     store: kind ? String(data.store || '').trim() : '',
     items: data.items
-      .map((i) => ({ id: i.id || 'tmp-' + ++tempIds, ...splitQty(i.text, i.qty), done: Boolean(i.id && done.get(i.id)) }))
+      .map((i) => ({
+        id: i.id || 'tmp-' + ++tempIds,
+        ...splitQty(i.text, i.qty),
+        done: Boolean(i.id && done.get(i.id)),
+        ...(i.id && images.get(i.id) && { image: images.get(i.id) }),
+        ...(i.id && prices.get(i.id) && { price: prices.get(i.id) }),
+      }))
       .filter((i) => i.text),
     pending: true,
   };
+}
+
+/** Po vytvorení nákupu: ponúkni letáky, z ktorých sa tovar pridá rovno do neho. */
+function offerLeaflets(c) {
+  openModal(
+    '<h2>Otvoriť letáky?</h2>' +
+      '<div class="subtitle">Pozri si akcie v letákoch a tovar pridaj rovno do nákupu „' + esc(c.name) + '“.</div>' +
+      '<div class="actions"><button type="button" class="btn text" id="no">Teraz nie</button>' +
+      '<button type="button" class="btn" id="yes"><span class="ms">newspaper</span>Otvoriť letáky</button></div>',
+    (root) => {
+      root.querySelector('#no').onclick = closeModal;
+      root.querySelector('#yes').onclick = () => {
+        closeModal(true);
+        openLeaflets({ taskId: c.id, store: c.store });
+      };
+    },
+    { focus: false }
+  );
 }
 
 function showEditCinnost(id) {
@@ -1709,10 +1976,16 @@ function showCinnostForm(priestorId, existing, opts) {
   if (draft) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
     const done = new Map((v.items || []).map((i) => [i.id, i.done]));
-    v = { ...v, ...draft, items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)) })) };
+    const images = new Map((v.items || []).map((i) => [i.id, i.image]));
+    const prices = new Map((v.items || []).map((i) => [i.id, i.price]));
+    v = {
+      ...v,
+      ...draft,
+      items: draft.items.map((i) => ({ ...i, done: Boolean(i.id && done.get(i.id)), image: i.id && images.get(i.id), price: i.id && prices.get(i.id) })),
+    };
   }
   // Pracovná kópia checklistu (formulár mení len texty a poradie, nie odškrtnutie).
-  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done }));
+  let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image, price: i.price }));
   const members = state.detail.members.map((m) => m.email).sort();
   // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
   if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
@@ -1769,7 +2042,8 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div>' +
+      '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button></div>' +
       '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
       priestorSelect +
       '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
@@ -1777,8 +2051,8 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
       '<div class="field hidden" id="intervalField"><label id="intervalLabel">Každých X</label>' +
       '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '"><div class="hint" id="intervalHint"></div></div></div>' +
-      '<div class="field"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
-      '<div class="field"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
+      '<div class="field" id="iconField"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
+      '<div class="field" id="colorField"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
       '<div class="actions">' +
       (edit ? '<button type="button" class="btn text danger-text" id="delete" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' : '') +
       '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
@@ -1793,8 +2067,14 @@ function showCinnostForm(priestorId, existing, opts) {
       const shopping = form.isShopping;
       const storeInput = form.store;
       const itemInput = root.querySelector('#itemInput');
+      // Nákup: len názov, položky (a leták), popis, komu a kedy – bez obchodu, priestoru, ikony a farby.
       const applyKind = () => {
-        root.querySelector('#storeField').classList.toggle('hidden', !shopping.checked);
+        const shop = shopping.checked;
+        root.querySelector('#storeField').classList.add('hidden');
+        root.querySelector('#priestorField').classList.toggle('hidden', shop || !choosePriestor);
+        root.querySelector('#iconField').classList.toggle('hidden', shop);
+        root.querySelector('#colorField').classList.toggle('hidden', shop);
+        root.querySelector('#formLeaflets').classList.toggle('hidden', !shop);
         root.querySelector('#itemsLabel').textContent = shopping.checked ? 'Nakúpiť' : 'Checklist';
         itemInput.placeholder = shopping.checked ? 'Pridať produkt…' : 'Pridať položku…';
         if (shopping.checked && icon === 'home') selectIcon('shopping');
@@ -1813,7 +2093,7 @@ function showCinnostForm(priestorId, existing, opts) {
           .map(
             (i, idx) =>
               '<div class="check-item edit' + (i.done ? ' done' : '') + '"><span class="ms">' +
-              (i.done ? 'check_box' : 'check_box_outline_blank') + '</span><span class="check-text">' + esc(i.text) +
+              (i.done ? 'check_box' : 'check_box_outline_blank') + '</span>' + thumbHtml(i) + '<span class="check-text">' + esc(i.text) +
               '</span>' + stepperHtml('data-qty="' + idx + '"', i.qty) +
               '<button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť">' +
               '<span class="ms">close</span></button></div>'
@@ -1884,6 +2164,13 @@ function showCinnostForm(priestorId, existing, opts) {
       }
       if (edit) setTimeout(() => document.activeElement && document.activeElement.blur(), 0);
 
+      // Leták: činnosť sa uloží a hneď sa otvoria letáky, z ktorých sa tovar pridá do nej.
+      let leafletsAfterSave = false;
+      root.querySelector('#formLeaflets').onclick = () => {
+        leafletsAfterSave = true;
+        form.requestSubmit();
+      };
+
       form.onsubmit = async (e) => {
         e.preventDefault();
         if (!form.isShopping.checked && !form.priestorId.value) {
@@ -1893,17 +2180,18 @@ function showCinnostForm(priestorId, existing, opts) {
         }
         const submit = form.querySelector('button:not([type])');
         submit.disabled = true;
+        const isShop = form.isShopping.checked;
         const data = {
-          priestorId: form.priestorId.value,
+          priestorId: isShop ? '' : form.priestorId.value,
           name: form.name.value,
           description: form.description.value,
           assignedTo: form.assignedTo.value,
           dueDate: form.dueDate.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
-          icon,
+          icon: isShop ? 'shopping' : icon,
           color,
-          kind: form.isShopping.checked ? 'nakup' : '',
+          kind: isShop ? 'nakup' : '',
           store: form.isShopping.checked ? form.store.value : '',
           // Text v poli, ktorý ešte nebol pridaný Enterom, tiež pridaj.
           items: items
@@ -1928,6 +2216,8 @@ function showCinnostForm(priestorId, existing, opts) {
           rememberLocally(c);
           renderDetail({ quiet: true });
           toast(edit ? 'Zmeny uložené' : 'Činnosť „' + c.name + '“ bola vytvorená');
+          if (leafletsAfterSave) openLeaflets({ taskId: c.id, store: c.store });
+          else if (!edit && c.kind === 'nakup') offerLeaflets(c);
         } catch (err) {
           const index = state.detail.cinnosti.indexOf(optimistic);
           if (index !== -1) {
@@ -2212,6 +2502,7 @@ $('backBtn').onclick = () => {
 document.querySelectorAll('#tabs .tab').forEach((t) => {
   t.onclick = () => {
     state.tab = t.dataset.tab;
+    if (state.tab === 'historia') state.history = null; // vždy čerstvá (dokončiť mohol aj niekto iný)
     renderDetail();
   };
 });

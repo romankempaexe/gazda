@@ -21,12 +21,18 @@
       "migrations_dir": "migrations"
     }
   ],
+  "ai": {
+    "binding": "AI"
+  },
   "observability": {
     "enabled": true
   },
   "env": {
     "preview": {
       "name": "gazda-preview",
+      "ai": {
+        "binding": "AI"
+      },
       "d1_databases": [
         {
           "binding": "DB",

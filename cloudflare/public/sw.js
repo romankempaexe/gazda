@@ -4,8 +4,8 @@
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'gazda-v2';
-const SHELL = ['/', '/app.css', '/app.js', '/produkty.js', '/icons/icon.svg', '/icons/icon-192.png', '/icons/badge-96.png'];
+const CACHE = 'gazda-v3';
+const SHELL = ['/', '/app.css', '/app.js', '/produkty.js', '/letaky.js', '/icons/icon.svg', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

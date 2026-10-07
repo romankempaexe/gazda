@@ -1102,6 +1102,7 @@ function taskCard(c, mode) {
         '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
     );
   }
+  if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
   if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
@@ -1129,6 +1130,15 @@ function taskCard(c, mode) {
 }
 
 const CARD_ITEMS = 12;
+
+/** Odhad sumy nákupu v karte (za ešte nekúpené položky s cenou); bez cien je prázdny. */
+function totalTag(c) {
+  const total = itemsTotal(c);
+  return (
+    '<span class="tag tag-price" data-total="' + esc(c.id) + '"' + (total === null ? ' hidden' : '') +
+    '><span class="ms">payments</span><span>~' + (total === null ? '' : esc(formatPrice(total))) + '</span></span>'
+  );
+}
 
 /** Checklist priamo v karte – položky sa dajú odškrtnúť bez otvárania detailu.
  * Položky z letáka (s obrázkom) sú veľké dlaždice vedľa seba (posúvajú sa do strany),
@@ -1191,6 +1201,11 @@ function refreshTaskCards(c) {
     el.lastChild.textContent = p.done + '/' + p.total;
   });
   view.querySelectorAll('[data-complete="' + c.id + '"]').forEach((el) => el.classList.toggle('pulse', all));
+  const total = itemsTotal(c);
+  view.querySelectorAll('[data-total="' + c.id + '"]').forEach((el) => {
+    el.hidden = total === null;
+    el.lastChild.textContent = total === null ? '' : '~' + formatPrice(total);
+  });
 }
 
 /** Odškrtne položku hneď na obrazovke a uloží na pozadí (pri chybe vráti späť). */
@@ -1732,7 +1747,7 @@ function itemsTotal(c) {
   let sum = 0;
   let any = false;
   (c.items || []).forEach((i) => {
-    if (!i.price || i.done) return;
+    if (!i.price || i.done || i.missing) return;
     any = true;
     const m = String(i.qty || '').match(/^(\d+(?:,\d+)?) (ks|bal\.)$/);
     sum += Number(i.price) * (m ? Number(m[1].replace(',', '.')) : 1);

@@ -1722,7 +1722,22 @@ body.lf-open {
   font-variant-numeric: tabular-nums;
 }
 
-.check-item.done .check-price {
+.tag-price {
+  color: var(--accent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-price[hidden] {
+  display: none;
+}
+
+.tile .check-price {
+  font-size: 14px;
+}
+
+.check-item.done .check-price,
+.tile.done .check-price {
   color: var(--muted);
 }
 

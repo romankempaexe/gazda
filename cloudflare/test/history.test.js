@@ -101,3 +101,55 @@ test('história: aj bežná činnosť, stránkovanie a zmazanie s domácnosťou'
   assert.equal(left.n, 0);
   assert.equal((await t.env.DB.prepare('SELECT COUNT(*) AS n FROM item_images').first()).n, 0);
 });
+
+// vlastná domácnosť – predošlý test tú pôvodnú zmazal
+const chata = async () => (await roman.api.createHousehold('Chata', 'jana@gmail.com')).households.find((h) => h.name === 'Chata').id;
+
+test('vrátenie z histórie: jednorazová činnosť sa vráti so všetkým, aj s obrázkom', async () => {
+  const hid = await chata();
+  const kuchyna = await roman.api.addPriestor(hid, 'Kuchyňa');
+  const task = await roman.api.addCinnost(hid, {
+    name: 'Upratať', priestorId: kuchyna.id, dueDate: '2026-10-06', assignedTo: '*', description: 'Aj linku', items: ['Riad', 'Podlaha'],
+  });
+  const fotka = await roman.api.addItem(task.id, 'Handra', '1', PIXEL, '');
+  await roman.api.toggleItem(task.items[0].id, true);
+  await jana.api.completeCinnost(task.id);
+  const entry = (await roman.api.getHistory(hid)).entries.find((e) => e.name === 'Upratať');
+  await assert.rejects(cudzi.api.restoreHistory(entry.id), /nemáš prístup/);
+
+  const back = await roman.api.restoreHistory(entry.id);
+  assert.deepEqual(
+    [back.id, back.name, back.priestorId, back.assignedTo, back.description, back.dueDate, back.periodicity],
+    [task.id, 'Upratať', kuchyna.id, '*', 'Aj linku', '2026-10-06', 'none']
+  );
+  assert.deepEqual(back.items.map((i) => [i.text, i.done]), [['Riad', true], ['Podlaha', false], ['Handra', false]]);
+  assert.equal(back.items[2].image, fotka.image);
+  const res = await t.fetch(fotka.image, { headers: { cookie: roman.cookie } });
+  assert.equal(res.status, 200);
+  assert.equal((await roman.api.getHistory(hid)).entries.some((e) => e.id === entry.id), false);
+  await assert.rejects(roman.api.restoreHistory(entry.id), /neexistuje/);
+  // dá sa znova dokončiť
+  assert.deepEqual(await roman.api.completeCinnost(task.id), { deleted: true });
+});
+
+test('vrátenie z histórie: opakovaná činnosť dostane späť termín a kúpené položky', async () => {
+  const hid = await chata();
+  const task = await roman.api.addCinnost(hid, { kind: 'nakup', store: 'Lidl', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk', name: 'Týždenný', periodicity: 'weekly', repeatInterval: 1, items: ['Mlieko', 'Chlieb', 'Maslo'] });
+  const [mlieko, chlieb] = task.items;
+  await roman.api.toggleItem(mlieko.id, true);
+  await roman.api.setItemMissing(chlieb.id, true);
+  await roman.api.completeCinnost(task.id);
+  await roman.api.addItem(task.id, 'Káva', '', '', ''); // pridané po dokončení ostane
+  await roman.api.completeCinnost(task.id);
+  const entries = (await roman.api.getHistory(hid)).entries.filter((e) => e.name === 'Týždenný');
+  assert.equal(entries.length, 2);
+  // staršie sa nedá vrátiť skôr ako novšie
+  await assert.rejects(roman.api.restoreHistory(entries[1].id), /novšie/);
+  await roman.api.restoreHistory(entries[0].id);
+  const back = await roman.api.restoreHistory(entries[1].id);
+  assert.equal(back.dueDate, '2026-10-07');
+  assert.deepEqual(
+    back.items.map((i) => [i.text, i.done, Boolean(i.missing)]),
+    [['Mlieko', true, false], ['Chlieb', false, true], ['Maslo', false, false], ['Káva', false, false]]
+  );
+});

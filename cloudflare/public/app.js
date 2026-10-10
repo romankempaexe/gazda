@@ -1385,6 +1385,7 @@ function historyCard(e, d) {
     '<div class="card hist-card' + (e.items.length ? ' has-list' : '') + '">' +
     '<span class="ms task-icon" style="background:' + esc(e.color) + '">' + iconName(e.icon) + '</span>' +
     '<div class="card-body"><div class="card-title">' + esc(e.name) + '</div><div class="meta">' + info.join('') + '</div></div>' +
+    '<button class="btn tonal small" data-restore="' + esc(e.id) + '" title="Vrátiť medzi činnosti"><span class="ms">undo</span>Vrátiť</button>' +
     (e.items.length ? '<div class="card-checklist">' + tiles + rows + '</div>' : '') +
     '</div>'
   );
@@ -1459,6 +1460,9 @@ function bindDetailEvents() {
   });
   if ($('todayBtn')) $('todayBtn').onclick = () => goToToday();
   if ($('historyMore')) $('historyMore').onclick = () => loadHistory(true);
+  view.querySelectorAll('[data-restore]').forEach((el) => {
+    el.onclick = () => restoreFromHistory(el.dataset.restore);
+  });
   view.querySelectorAll('.hist-card [data-preview]').forEach((el) => {
     el.onclick = () => showImagePreview(el.dataset.preview);
   });
@@ -1522,6 +1526,39 @@ async function completeTask(id, button) {
     button.disabled = false;
     showError(err);
   }
+}
+
+/** Vráti dokončenú činnosť z histórie späť (napr. omylom daná za hotovú). */
+function restoreFromHistory(entryId) {
+  const e = state.history && state.history.entries.find((x) => x.id === entryId);
+  if (!e) return;
+  openModal(
+    '<h2>Vrátiť činnosť?</h2><div class="subtitle">„' + esc(e.name) + '“ sa vráti medzi činnosti s termínom ' +
+      esc(formatDate(e.dueDate)) + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
+      '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
+      '<button class="btn" id="ok"><span class="ms">undo</span>Vrátiť</button></div>',
+    (root) => {
+      root.querySelector('#cancel').onclick = closeModal;
+      const ok = root.querySelector('#ok');
+      ok.onclick = async () => {
+        ok.disabled = true;
+        try {
+          const c = await api('restoreHistory', entryId);
+          const list = state.detail.cinnosti;
+          const index = list.findIndex((x) => x.id === c.id);
+          if (index === -1) list.push(c);
+          else list[index] = c;
+          state.history.entries = state.history.entries.filter((x) => x.id !== entryId);
+          closeModal();
+          renderDetail();
+          toast('„' + c.name + '“ je späť medzi činnosťami');
+        } catch (err) {
+          ok.disabled = false;
+          showError(err);
+        }
+      };
+    }
+  );
 }
 
 function deleteTask(id) {

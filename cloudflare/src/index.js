@@ -35,6 +35,7 @@ const METHODS = {
   toggleItem: api.toggleItem,
   setItemMissing: api.setItemMissing,
   getHistory: api.getHistory,
+  restoreHistory: api.restoreHistory,
   deleteCinnost: api.deleteCinnost,
   completeCinnost: api.completeCinnost,
   getPushKey: api.getPushKey,

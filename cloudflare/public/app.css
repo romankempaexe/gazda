@@ -2265,3 +2265,8 @@ input.lf-pageno::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* Pole na pridanie je nad zoznamom – nové položky pribúdajú hore */
+.field > .checklist {
+  margin-top: 8px;
+}

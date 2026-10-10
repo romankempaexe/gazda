@@ -160,7 +160,7 @@ test('miniatúry položiek: uloženie, zobrazenie členom a zmazanie s položkou
 
   const detail = await jana.api.getHouseholdData(hid);
   const items = detail.cinnosti.find((c) => c.id === nakupId).items;
-  assert.deepEqual(items.map((i) => [i.text, i.qty, Boolean(i.image)]), [['Mascarpone', '2 ks', true], ['Mlieko', '', false]]);
+  assert.deepEqual(items.map((i) => [i.text, i.qty, Boolean(i.image)]), [['Mlieko', '', false], ['Mascarpone', '2 ks', true]]);
   assert.equal((await roman.api.toggleItem(item.id, true)).image, item.image);
 
   const res = await get(item.image, jana);
@@ -177,7 +177,7 @@ test('miniatúry položiek: uloženie, zobrazenie členom a zmazanie s položkou
   const task = (await roman.api.getHouseholdData(hid)).cinnosti.find((c) => c.id === nakupId);
   const keep = { name: task.name, kind: 'nakup', store: 'Lidl', dueDate: task.dueDate, assignedTo: task.assignedTo };
   let saved = await roman.api.updateCinnost(nakupId, { ...keep, items: task.items.map((i) => ({ id: i.id, text: i.text + '!', qty: i.qty })) });
-  assert.equal(saved.items[0].image, item.image);
+  assert.equal(saved.items.find((i) => i.id === item.id).image, item.image);
   saved = await roman.api.updateCinnost(nakupId, { ...keep, items: [{ id: plain.id, text: 'Mlieko' }] });
   assert.equal(saved.items.length, 1);
   const count = async () => (await t.env.DB.prepare('SELECT COUNT(*) AS n FROM item_images').first()).n;

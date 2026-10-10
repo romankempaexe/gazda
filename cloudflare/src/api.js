@@ -453,13 +453,14 @@ export async function addItem(c, cinnostId, text, qty, image, price) {
   if (image && (image.length > MAX_IMAGE_LENGTH || !IMAGE_RE.test(image))) throw new AppError('Neplatný obrázok položky.');
   const cinnost = await findCinnost(c, cinnostId);
   const stats = await c.db
-    .prepare('SELECT COUNT(*) AS n, COALESCE(MAX(position), 0) AS last FROM polozky WHERE cinnost_id = ?')
+    .prepare('SELECT COUNT(*) AS n, COALESCE(MIN(position), 1) AS first FROM polozky WHERE cinnost_id = ?')
     .bind(cinnost.id)
     .first();
   if (stats.n >= MAX_ITEMS) throw new AppError('Činnosť môže mať najviac ' + MAX_ITEMS + ' položiek.');
   const item = toItem({ id: uuid(), text, qty, done: 0, has_image: Boolean(image), price });
   await c.db.batch([
-    insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, price, position: stats.last + 1 }]),
+    // nová položka ide na začiatok zoznamu (netreba posúvať)
+    insertItemsStatement(c, cinnost, [{ id: item.id, text, qty, price, position: stats.first - 1 }]),
     ...rememberShoppingStatements(c, cinnost.household_id, '', [text]),
     ...(image
       ? [

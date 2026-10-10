@@ -1831,12 +1831,12 @@ function showTaskDetail(id) {
     '<h2>' + esc(c.name) + '</h2>' +
       '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
       (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
-      '<div class="field"><label id="checkLabel"></label><div class="checklist" id="checklist"></div>' +
+      '<div class="field"><label id="checkLabel"></label>' +
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" placeholder="' +
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="checklist"></div></div>' +
       '<div class="actions">' +
       '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
       (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
@@ -1887,7 +1887,7 @@ function showTaskDetail(id) {
         suggest.clear();
         try {
           const item = await api('addItem', c.id, text, qty);
-          c.items = (c.items || []).concat([item]);
+          c.items = [item].concat(c.items || []);
           if (!state.detail.products.some((x) => normalizeText(x) === normalizeText(item.text))) {
             state.detail.products.unshift(item.text);
           }
@@ -2081,12 +2081,13 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="field hidden" id="storeField"><label>Obchod</label>' +
       '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
       '<div class="suggest hidden" id="storeSuggest"></div></div>' +
-      '<div class="field"><label id="itemsLabel">Checklist</label><div class="checklist" id="itemList"></div>' +
+      '<div class="field"><label id="itemsLabel">Checklist</label>' +
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
       '<div class="suggest hidden" id="itemSuggest"></div>' +
-      '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button></div>' +
+      '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button>' +
+      '<div class="checklist" id="itemList"></div></div>' +
       '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
       '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
       '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div></div>' +
@@ -2198,7 +2199,7 @@ function showCinnostForm(priestorId, existing, opts) {
         if (!text) return;
         const same = items.find((i) => normalizeText(i.text) === normalizeText(text));
         if (same) same.qty = qty || same.qty;
-        else items.push({ text, qty, done: false });
+        else items.unshift({ text, qty, done: false });
         itemInput.value = '';
         qtyInput.value = '';
         itemSuggest.clear();

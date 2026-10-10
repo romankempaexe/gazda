@@ -131,7 +131,7 @@ test('úprava činnosti: checklist zachová odškrtnutie, zmení počet a poradi
   assert.equal((await jana.api.addItem(c.id, '3 citróny')).qty, '3 ks');
   await rejects(jana.api.addItem(c.id, '  '), /Zadaj položku/);
   c = (await roman.api.getHouseholdData(hid)).cinnosti.find((x) => x.id === c.id);
-  assert.deepEqual(c.items.map((i) => i.text), ['Zemiaky', 'Mlieko', 'Jabĺk', 'Vajcia', 'Citróny']);
+  assert.deepEqual(c.items.map((i) => i.text), ['Citróny', 'Vajcia', 'Zemiaky', 'Mlieko', 'Jabĺk']); // pridané idú na začiatok
 
   await rejects(cudzi.api.updateCinnost(c.id, c), /nemáš prístup/, 403);
   await rejects(roman.api.updateCinnost('nie', c), /Činnosť neexistuje/, 404);

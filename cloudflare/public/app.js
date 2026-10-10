@@ -130,7 +130,7 @@ function canRefreshView() {
 }
 
 // Funkcie, ktoré len čítajú; ostatné menia údaje (pozri mutations nižšie).
-const READ_ONLY = new Set(['getHouseholds', 'getStartData', 'getHouseholdData']);
+const READ_ONLY = new Set(['getHouseholds', 'getStartData', 'getHouseholdData', 'getRev', 'getHistory', 'getLeaflets', 'getLeaflet']);
 let mutations = 0;
 
 /** Zavolá funkciu servera (POST /api/<fn>) s osobným kľúčom. */
@@ -387,6 +387,40 @@ async function copyText(input) {
   }
 }
 
+// ---- Vzhľad: automaticky podľa telefónu, svetlý alebo tmavý ----------------------
+
+const THEME_KEY = 'gazda.theme';
+
+function currentTheme() {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    return t === 'light' || t === 'dark' ? t : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+function applyTheme(theme) {
+  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  const dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#151a17' : '#16a34a');
+}
+
+function setTheme(theme) {
+  try {
+    if (theme === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* bez úložiska platí len do zatvorenia */
+  }
+  applyTheme(theme);
+}
+
+applyTheme(currentTheme());
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(currentTheme()));
+
 function showAccount() {
   openModal(
     '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
@@ -396,6 +430,12 @@ function showAccount() {
         ? '<button type="button" class="btn small" id="install" style="margin:4px 8px 12px 0">' +
           '<span class="ms">add</span>Nainštalovať Gazdu</button>'
         : '') +
+      '<div class="field"><label>Vzhľad</label><div class="chips seg theme-seg">' +
+      [['auto', 'brightness_auto', 'Podľa telefónu'], ['light', 'light_mode', 'Svetlý'], ['dark', 'dark_mode', 'Tmavý']]
+        .map(([v, icon, label]) =>
+          '<button type="button" class="chip' + (currentTheme() === v ? ' active' : '') + '" data-theme-pick="' + v + '"><span class="ms">' + icon + '</span>' + label + '</button>')
+        .join('') +
+      '</div></div>' +
       '<button type="button" class="btn tonal small" id="import" style="margin:4px 0 12px">' +
       '<span class="ms">refresh</span>Preniesť zo starej Gazdy</button>' +
       '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +
@@ -407,6 +447,12 @@ function showAccount() {
       root.querySelector('#logout').onclick = logout;
       root.querySelector('#nick').onclick = () => showNicknameForm(state.nickname, false);
       root.querySelector('#import').onclick = showImportCode;
+      root.querySelectorAll('[data-theme-pick]').forEach((b) => {
+        b.onclick = () => {
+          setTheme(b.dataset.themePick);
+          root.querySelectorAll('[data-theme-pick]').forEach((x) => x.classList.toggle('active', x === b));
+        };
+      });
       const install = root.querySelector('#install');
       if (install) install.onclick = installApp;
     }
@@ -608,7 +654,8 @@ function tasksForDate(date, onlyMine) {
   return state.detail.cinnosti
     .filter((c) => occursOn(c, date))
     .filter((c) => !onlyMine || isMine(c))
-    .sort((x, y) => x.name.localeCompare(y.name, 'sk'));
+    // s časom najprv (podľa času), potom ostatné podľa názvu
+    .sort((x, y) => (x.dueTime || '99').localeCompare(y.dueTime || '99') || x.name.localeCompare(y.name, 'sk'));
 }
 
 function priestorName(id) {
@@ -630,6 +677,7 @@ function openModal(html, onMount, opts) {
   opts = opts || {};
   modalOnClose = opts.onClose || null;
   modalPersistent = Boolean(opts.persistent);
+  state.openTask = null;
   $('modalContent').innerHTML = html;
   $('modal').classList.remove('hidden');
   modalOpenedAt = Date.now();
@@ -1073,6 +1121,49 @@ function renderDetail(opts) {
 
   const selected = $('view').querySelector('.cal-day.selected');
   if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+  runLaunchAction();
+}
+
+// ---- Skratky ikony aplikácie (dlhé podržanie ikony na ploche) --------------------
+
+// /?akcia=nakup – rovno pridávanie do nákupu, /?akcia=nova – nová činnosť
+let launchAction = (() => {
+  try {
+    const action = new URLSearchParams(location.search).get('akcia');
+    if (action) history.replaceState(null, '', location.pathname);
+    return action;
+  } catch {
+    return null;
+  }
+})();
+
+function runLaunchAction() {
+  if (!launchAction || !state.detail || !state.email) return;
+  const action = launchAction;
+  launchAction = null;
+  setTimeout(() => (action === 'nova' ? showKindStep() : quickShop()), 300);
+}
+
+/** Pridávanie do nákupu: najbližší môj (alebo spoločný) nákup, inak nový „Nakúpiť“ na dnes. */
+async function quickShop() {
+  let c = state.detail.cinnosti
+    .filter((x) => x.kind === 'nakup' && !x.pending && (isMine(x) || !x.assignedTo))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  if (!c) {
+    try {
+      c = await api('addCinnost', state.detail.household.id, {
+        name: 'Nakúpiť', kind: 'nakup', icon: 'shopping', dueDate: todayYmd(), assignedTo: state.email, periodicity: 'none', items: [],
+      });
+      state.detail.cinnosti.push(c);
+      renderDetail({ quiet: true });
+    } catch (err) {
+      showError(err);
+      return;
+    }
+  }
+  showTaskDetail(c.id);
+  const input = $('modalContent').querySelector('#itemInput');
+  if (input) input.focus();
 }
 
 function renderCalendar(onlyMine) {
@@ -1115,6 +1206,7 @@ function taskCard(c, mode) {
         '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
     );
   }
+  if (c.dueTime) info.push(tag('alarm', c.dueTime));
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
@@ -1180,17 +1272,25 @@ function cardChecklist(c) {
   return (
     '<div class="card-checklist">' +
     tiles +
-    plain
-      .slice(0, CARD_ITEMS)
-      .map(
-        (i) =>
-          '<button type="button" class="check-item compact' + itemClass(i) + '" data-card-item="' + esc(i.id) +
-          '" data-task="' + esc(c.id) + '"><span class="ms">' + itemIcon(i) +
-          '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>'
-      )
-      .join('') +
+    cardRows(c, plain.slice(0, CARD_ITEMS)) +
     (more > 0 ? '<div class="hint card-more">+ ďalšie ' + more + ' – ťukni na kartu</div>' : '') +
     '</div>'
+  );
+}
+
+function cardRows(c, list) {
+  const row = (i) =>
+    '<button type="button" class="check-item compact' + itemClass(i) + '" data-card-item="' + esc(i.id) +
+    '" data-task="' + esc(c.id) + '"><span class="ms">' + itemIcon(i) +
+    '</span><span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>';
+  if (c.kind !== 'nakup' || !byDeptMode() || list.length < 2) return list.map(row).join('');
+  // nákup: nekúpené podľa oddelení, vybavené na konci
+  const open = list.filter((i) => !i.done && !i.missing);
+  const rest = list.filter((i) => i.done || i.missing);
+  const groups = groupByDept(open);
+  return (
+    groups.map(([d, items]) => (groups.length > 1 ? deptHead(d) : '') + items.map(row).join('')).join('') +
+    rest.map(row).join('')
   );
 }
 
@@ -1385,7 +1485,11 @@ function historyCard(e, d) {
     '<div class="card hist-card' + (e.items.length ? ' has-list' : '') + '">' +
     '<span class="ms task-icon" style="background:' + esc(e.color) + '">' + iconName(e.icon) + '</span>' +
     '<div class="card-body"><div class="card-title">' + esc(e.name) + '</div><div class="meta">' + info.join('') + '</div></div>' +
-    '<button class="btn tonal small" data-restore="' + esc(e.id) + '" title="Vrátiť medzi činnosti"><span class="ms">undo</span>Vrátiť</button>' +
+    '<div class="hist-actions">' +
+    (e.kind === 'nakup' && e.items.length
+      ? '<button class="btn tonal small" data-again="' + esc(e.id) + '" title="Nový nákup s tými istými položkami"><span class="ms">replay</span>Znova</button>'
+      : '') +
+    '<button class="btn text small" data-restore="' + esc(e.id) + '" title="Vrátiť medzi činnosti"><span class="ms">undo</span>Vrátiť</button></div>' +
     (e.items.length ? '<div class="card-checklist">' + tiles + rows + '</div>' : '') +
     '</div>'
   );
@@ -1460,6 +1564,9 @@ function bindDetailEvents() {
   });
   if ($('todayBtn')) $('todayBtn').onclick = () => goToToday();
   if ($('historyMore')) $('historyMore').onclick = () => loadHistory(true);
+  view.querySelectorAll('[data-again]').forEach((el) => {
+    el.onclick = () => shopAgain(el.dataset.again);
+  });
   view.querySelectorAll('[data-restore]').forEach((el) => {
     el.onclick = () => restoreFromHistory(el.dataset.restore);
   });
@@ -1526,6 +1633,112 @@ async function completeTask(id, button) {
     button.disabled = false;
     showError(err);
   }
+}
+
+// ---- Akcie a porovnanie cien (Kimbino) ---------------------------------------
+
+const offersCache = new Map(); // výraz → { data } alebo { loading: Promise }
+
+function offerKey(text) {
+  return normalizeText(text).replace(/\d+([.,]\d+)?\s*(%|ks|kg|g|l|ml|bal\.?|x)?/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Najlacnejšia akcia, ktorá naozaj zodpovedá položke (hlavné slovo v názve ponuky). */
+function bestOffer(text, offers) {
+  const word = normalizeText(text).split(/[^a-z0-9]+/).find((w) => w.length >= 3);
+  if (!word) return null;
+  const stem = word.slice(0, Math.max(3, word.length - 2));
+  return (offers || []).find((o) => normalizeText(o.name).includes(stem)) || null;
+}
+
+function offerLineHtml(i) {
+  const hit = offersCache.get(offerKey(i.text));
+  const o = hit && hit.data && bestOffer(i.text, hit.data.offers);
+  if (!o) return '';
+  return (
+    '<span class="offer-line" data-offer="1"><span class="ms">sell</span>' + esc(o.store) + ' ' + esc(formatPrice(o.price)) +
+    (hit.data.offers.length > 1 ? ' · +' + (hit.data.offers.length - 1) + ' ďalšie' : '') + '</span>'
+  );
+}
+
+/** Akcie pre položky (najviac 15 naraz; výsledky si appka pamätá) – potom prekreslí zoznam. */
+function loadOffersFor(items, rerender) {
+  const missing = items.map((i) => offerKey(i.text)).filter((k) => k && !offersCache.has(k)).slice(0, 15);
+  if (!missing.length) return;
+  const jobs = missing.map((k) => {
+    const job = apiQuiet('getOffers', k)
+      .then((data) => offersCache.set(k, { data }))
+      .catch(() => offersCache.set(k, { data: { offers: [] } }));
+    offersCache.set(k, { loading: job });
+    return job;
+  });
+  Promise.all(jobs).then(() => {
+    if ($('modalContent').querySelector('#checklist')) rerender();
+  });
+}
+
+/** Porovnanie cien: všetky akcie na položku; leták sa dá otvoriť, cena použiť. */
+function showOffers(c, itemId, back) {
+  const item = (c.items || []).find((i) => i.id === itemId);
+  const hit = item && offersCache.get(offerKey(item.text));
+  if (!hit || !hit.data) return;
+  const offers = hit.data.offers;
+  const until = (d) => (d ? 'do ' + formatDateShort(d) : '');
+  openModal(
+    '<h2>' + esc(item.text) + ' v akcii</h2><div class="subtitle">Najlacnejšie prvé · z letákov obchodov (Kimbino)</div>' +
+      '<div class="offers">' +
+      offers
+        .map(
+          (o, idx) =>
+            '<div class="offer">' + (o.img ? '<img src="/api/leaflets/image?p=' + encodeURIComponent(o.img) + '" alt="" loading="lazy">' : '<span class="ms">sell</span>') +
+            '<div class="offer-body"><div class="offer-name">' + esc(o.name) + '</div>' +
+            '<div class="hint">' + esc(o.store) + ' · ' + esc(until(o.validTo)) + '</div></div>' +
+            '<div class="offer-side"><div class="offer-price">' + esc(formatPrice(o.price)) + '</div>' +
+            '<div class="offer-acts">' +
+            (o.flyer ? '<button type="button" class="icon-btn small" data-open="' + idx + '" title="Otvoriť leták"><span class="ms">newspaper</span></button>' : '') +
+            '<button type="button" class="icon-btn small" data-use="' + idx + '" title="Použiť cenu v nákupe"><span class="ms">payments</span></button>' +
+            '</div></div></div>'
+        )
+        .join('') +
+      '</div><div class="actions"><button type="button" class="btn text" id="back"><span class="ms">arrow_back</span>Späť</button></div>',
+    (root) => {
+      root.querySelector('#back').onclick = () => showTaskDetail(c.id);
+      root.querySelectorAll('[data-open]').forEach((b) => {
+        b.onclick = () => {
+          const o = offers[Number(b.dataset.open)];
+          closeModal(true);
+          openLeaflets({ taskId: c.id, flyer: o.flyer, page: o.page });
+        };
+      });
+      root.querySelectorAll('[data-use]').forEach((b) => {
+        b.onclick = async () => {
+          const o = offers[Number(b.dataset.use)];
+          try {
+            const saved = await api('setItemPrice', item.id, o.price);
+            item.price = saved.price;
+            refreshTaskCards(c);
+            toast('Cena ' + formatPrice(o.price) + ' (' + o.store + ') použitá');
+            showTaskDetail(c.id);
+          } catch (err) {
+            showError(err);
+          }
+        };
+      });
+    },
+    { focus: false }
+  );
+}
+
+/** Nový nákup z položiek nákupu v histórii (všetky, aj tie, čo nemali). */
+function shopAgain(entryId) {
+  const e = state.history && state.history.entries.find((x) => x.id === entryId);
+  if (!e) return;
+  showCinnostForm('', null, {
+    shopping: true,
+    assignedTo: state.email,
+    prefill: { name: e.name, items: e.items.map((i) => ({ text: i.text, qty: i.qty || '' })) },
+    mode: 'manual',
+  });
 }
 
 /** Vráti dokončenú činnosť z histórie späť (napr. omylom daná za hotovú). */
@@ -1668,6 +1881,22 @@ function wizStep(w, step, title, question, body, opts) {
   );
 }
 
+// Šablóny domácich činností: názov, checklist, ikona, opakovanie a miestnosť, ktorú ponúknu.
+const SABLONY = [
+  { name: 'Veľké upratovanie', icon: 'clean', room: '', items: ['Povysávať všetky miestnosti', 'Umyť podlahy', 'Utrieť prach', 'Umyť okná a parapety', 'Vyčistiť kúpeľňu a WC', 'Vyčistiť kuchynskú linku a sporák', 'Vyniesť smeti', 'Prezliecť posteľné prádlo'] },
+  { name: 'Týždenné upratovanie', icon: 'clean', room: '', periodicity: 'weekly', items: ['Povysávať', 'Utrieť prach', 'Umyť podlahy', 'Vyčistiť umývadlá', 'Vyniesť smeti'] },
+  { name: 'Upratať kúpeľňu', icon: 'bathtub', room: 'kúpeľ', periodicity: 'weekly', items: ['Vyčistiť vaňu / sprchu', 'Umyť umývadlo a batérie', 'Vyčistiť WC', 'Umyť zrkadlo', 'Vymeniť uteráky', 'Umyť podlahu'] },
+  { name: 'Upratať kuchyňu', icon: 'kitchen', room: 'kuch', periodicity: 'weekly', items: ['Umyť riad / vyložiť umývačku', 'Utrieť linku', 'Vyčistiť sporák', 'Vyčistiť mikrovlnku', 'Vytrieť podlahu', 'Vyniesť smeti'] },
+  { name: 'Vyčistiť chladničku', icon: 'kitchen', room: 'kuch', periodicity: 'monthly', items: ['Vyhodiť prošlé potraviny', 'Umyť poličky', 'Umyť zásuvky', 'Utrieť tesnenie dverí'] },
+  { name: 'Umyť okná', icon: 'window', room: '', items: ['Umyť sklá zvnútra', 'Umyť sklá zvonka', 'Umyť rámy', 'Umyť parapety', 'Vyprať záclony'] },
+  { name: 'Prať bielizeň', icon: 'laundry', room: '', periodicity: 'weekly', items: ['Roztriediť bielizeň', 'Vyprať', 'Zavesiť / sušička', 'Poskladať a odložiť'] },
+  { name: 'Prezliecť postele', icon: 'bed', room: 'spál', periodicity: 'weekly', items: ['Zvliecť obliečky', 'Vyprať', 'Navliecť čisté'] },
+  { name: 'Príprava na návštevu', icon: 'dining', room: '', items: ['Upratať obývačku', 'Vyčistiť WC', 'Pripraviť uteráky', 'Nakúpiť pohostenie', 'Prestrieť stôl'] },
+  { name: 'Kosenie a záhrada', icon: 'grass', room: 'záhrad', periodicity: 'weekly', items: ['Pokosiť trávnik', 'Polievať kvety', 'Vytrhať burinu', 'Pozametať chodník'] },
+  { name: 'Vyniesť smeti', icon: 'trash', room: '', periodicity: 'weekly', items: ['Komunál', 'Plasty', 'Papier', 'Sklo'] },
+  { name: 'Polievanie kvetov', icon: 'plants', room: '', periodicity: 'weekly', items: [] },
+];
+
 function wizName(w) {
   const go = () => {
     const name = $('wizName').value.trim();
@@ -1679,12 +1908,31 @@ function wizName(w) {
     wizRoom(w);
   };
   wizStep(w, 3, 'Domáca činnosť', 'Čo treba urobiť?',
-    '<div class="field"><input id="wizName" maxlength="80" placeholder="napr. Umyť okná" value="' + esc(w.name) + '"></div>',
+    '<div class="field"><input id="wizName" maxlength="80" placeholder="napr. Umyť okná" value="' + esc(w.name) + '"></div>' +
+      '<div class="dept-head">alebo vyber šablónu</div><div class="tpl-grid">' +
+      SABLONY.map(
+        (t, i) =>
+          '<button type="button" class="tpl" data-tpl="' + i + '"><span class="ms">' + ICONS[t.icon] + '</span><span class="tpl-name">' + esc(t.name) +
+          '</span><span class="tpl-sub">' + (t.items.length ? t.items.length + ' krokov' : '') +
+          (t.periodicity ? (t.items.length ? ' · ' : '') + PERIODICITY[t.periodicity].label.toLowerCase() : '') + '</span></button>'
+      ).join('') +
+      '</div>',
     {
       back: () => wizBack(w),
       next: go,
-      focus: '#wizName',
+      focus: false,
       mount: (root) => {
+        root.querySelectorAll('[data-tpl]').forEach((b) => {
+          b.onclick = () => {
+            const t = SABLONY[Number(b.dataset.tpl)];
+            w.name = t.name;
+            w.items = t.items.map((text) => ({ text, qty: '' }));
+            w.icon = t.icon;
+            w.periodicity = t.periodicity || 'none';
+            w.roomHint = t.room;
+            wizRoom(w);
+          };
+        });
         root.querySelector('#wizName').onkeydown = (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
@@ -1697,6 +1945,11 @@ function wizName(w) {
 
 function wizRoom(w) {
   const list = state.detail.priestory.slice().sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  // šablóna navrhne miestnosť (napr. kúpeľňa), ak ju domácnosť má
+  if (!w.priestorId && w.roomHint) {
+    const hint = list.find((p) => normalizeText(p.name).includes(normalizeText(w.roomHint)));
+    if (hint) w.priestorId = hint.id;
+  }
   const pick = (id) => {
     w.priestorId = id;
     wizDescription(w);
@@ -1841,7 +2094,13 @@ function wizFinish(w, mode) {
   showCinnostForm(w.shopping ? '' : w.priestorId, null, {
     shopping: w.shopping,
     assignedTo: w.assignedTo,
-    prefill: { name: w.name, description: w.description, items: w.items.map((i) => ({ text: i.text, qty: i.qty })) },
+    prefill: {
+      name: w.name,
+      description: w.description,
+      items: w.items.map((i) => ({ text: i.text, qty: i.qty })),
+      ...(w.icon && { icon: w.icon }),
+      ...(w.periodicity && { periodicity: w.periodicity }),
+    },
     mode,
   });
 }
@@ -1857,6 +2116,78 @@ const DEFAULT_STORES = ['Lidl', 'Kaufland', 'Tesco', 'Billa', 'Coop Jednota', 'P
 function normalizeText(s) {
   return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
+
+// ---- Oddelenia v obchode -------------------------------------------------------
+
+// Doplnkové začiatky slov, keď položka nie je presne v zozname (napr. „Syr Rajo 45 %“).
+const DEPT_STEMS = [
+  ['Mliečne výrobky a vajcia', ['syr', 'jogurt', 'mliek', 'smotan', 'tvaroh', 'masl', 'kefir', 'vajc', 'bryndz', 'puding']],
+  ['Mäso a ryby', ['kur', 'brav', 'hovadz', 'mor', 'mas', 'sunk', 'salam', 'klobas', 'park', 'slanin', 'ryb', 'losos', 'tuniak']],
+  ['Pečivo', ['chlieb', 'chleb', 'rozk', 'zeml', 'bagel', 'pecivo', 'croissant', 'toast']],
+  ['Ovocie', ['jablk', 'banan', 'pomaranc', 'citron', 'hrozn', 'jahod', 'ovoc']],
+  ['Zelenina', ['zemiak', 'cibul', 'cesnak', 'mrkv', 'paradaj', 'uhork', 'papri', 'salat', 'zelenin', 'hub']],
+  ['Nápoje', ['pivo', 'vino', 'voda', 'mineralk', 'dzus', 'limonad', 'kava', 'caj', 'sirup', 'cola', 'nealko']],
+  ['Sladkosti a snacky', ['cokol', 'susienk', 'cukrik', 'chips', 'oriesk', 'tycink', 'zmrzlin', 'keks']],
+  ['Trvanlivé potraviny', ['muk', 'cukor', 'ryz', 'cestovin', 'olej', 'ocot', 'konzerv', 'kecup', 'horcic', 'majonez']],
+  ['Drogéria a hygiena', ['sampon', 'mydl', 'zubn', 'deodor', 'krem', 'plienk', 'vlozk', 'holiac', 'sprchov']],
+  ['Upratovanie a domácnosť', ['prasok', 'prac', 'aviv', 'saponat', 'papier', 'utierk', 'vrecia', 'tablet', 'cistic', 'spongi', 'hubk']],
+  ['Zvieratá', ['granul', 'krmivo', 'psy', 'mack', 'pes']],
+];
+const OTHER_DEPT = 'Ostatné';
+let deptIndex = null;
+
+/** Oddelenie obchodu pre položku: presná zhoda so zoznamom, potom najdlhšia zhoda, potom začiatok slova. */
+function departmentOf(text) {
+  if (typeof PRODUKTY_ODDELENIA === 'undefined') return OTHER_DEPT;
+  if (!deptIndex) {
+    deptIndex = { exact: new Map(), names: [] };
+    PRODUKTY_ODDELENIA.forEach(([dept, list]) =>
+      list.forEach((name) => {
+        const n = normalizeText(name);
+        deptIndex.exact.set(n, dept);
+        deptIndex.names.push([n, dept]);
+      })
+    );
+    deptIndex.names.sort((a, b) => b[0].length - a[0].length);
+  }
+  const t = normalizeText(text);
+  if (deptIndex.exact.has(t)) return deptIndex.exact.get(t);
+  const padded = ' ' + t + ' ';
+  for (const [n, dept] of deptIndex.names) if (n.length >= 3 && padded.includes(' ' + n + ' ')) return dept;
+  const words = t.split(/[^a-z0-9]+/).filter(Boolean);
+  for (const [dept, stems] of DEPT_STEMS) if (words.some((w) => stems.some((st) => w.startsWith(st)))) return dept;
+  return OTHER_DEPT;
+}
+
+function deptOrder() {
+  return (typeof PRODUKTY_ODDELENIA === 'undefined' ? [] : PRODUKTY_ODDELENIA.map((o) => o[0])).concat(OTHER_DEPT);
+}
+
+/** Položky zoskupené podľa oddelení v poradí obchodu: [[oddelenie, položky], …] (v skupine ostáva poradie). */
+function groupByDept(items) {
+  const groups = new Map(deptOrder().map((d) => [d, []]));
+  items.forEach((i) => groups.get(departmentOf(i.text)).push(i));
+  return [...groups].filter(([, list]) => list.length);
+}
+
+/** Zoraďovanie nákupu: podľa oddelení (predvolené) alebo podľa pridania. */
+function byDeptMode() {
+  try {
+    return localStorage.getItem('gazda.sort') !== 'added';
+  } catch {
+    return true;
+  }
+}
+
+function setByDeptMode(on) {
+  try {
+    localStorage.setItem('gazda.sort', on ? 'dept' : 'added');
+  } catch {
+    /* bez úložiska ostane predvolené */
+  }
+}
+
+const deptHead = (name) => '<div class="dept-head">' + esc(name) + '</div>';
 
 /** Návrhy pre zadaný text: najprv to, čo začína zadaným textom, potom slová a nakoniec obsahuje. */
 function suggestFor(query, sources, exclude, limit) {
@@ -2036,7 +2367,7 @@ function showTaskDetail(id) {
   const meta = [];
   if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
   if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
-  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate)) + '</span>');
+  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '')) + '</span>');
   if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
   meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
@@ -2044,7 +2375,8 @@ function showTaskDetail(id) {
     '<h2>' + esc(c.name) + '</h2>' +
       '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
       (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
-      '<div class="field"><label id="checkLabel"></label>' +
+      '<div class="field"><div class="check-head"><label id="checkLabel"></label>' +
+      (shopping ? '<button type="button" class="chip small hidden" id="sortMode"></button>' : '') + '</div>' +
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" placeholder="' +
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
@@ -2067,28 +2399,51 @@ function showTaskDetail(id) {
           (shopping ? 'Nakúpiť' : 'Checklist') + (p.total ? ' (' + p.done + '/' + p.total + ')' : '') +
           (total !== null ? ' · spolu ~' + formatPrice(total) : '');
         const open = (i) => !i.done && !i.missing;
-        const sorted = items.filter(open).concat(items.filter((i) => i.missing), items.filter((i) => i.done));
-        listEl.innerHTML = sorted.length
-          ? sorted
-              .map(
-                (i) =>
-                  '<button type="button" class="check-item' + itemClass(i) + '" data-item="' + esc(i.id) + '">' +
-                  '<span class="ms">' + itemIcon(i) + '</span>' + thumbHtml(i) +
-                  '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>'
-              )
-              .join('')
+        const row = (i) =>
+          '<button type="button" class="check-item' + itemClass(i) + '" data-item="' + esc(i.id) + '">' +
+          '<span class="ms">' + itemIcon(i) + '</span>' + thumbHtml(i) +
+          '<span class="check-text">' + esc(i.text) +
+          (shopping && !i.done && !i.missing ? offerLineHtml(i) : '') + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>';
+        const rest = items.filter((i) => i.missing).concat(items.filter((i) => i.done));
+        const byDept = shopping && byDeptMode();
+        const groups = byDept ? groupByDept(items.filter(open)) : [['', items.filter(open)]];
+        const sortBtn = root.querySelector('#sortMode');
+        if (sortBtn) {
+          sortBtn.classList.toggle('hidden', items.length < 2);
+          sortBtn.innerHTML = '<span class="ms">' + (byDept ? 'storefront' : 'schedule') + '</span>' + (byDept ? 'Podľa oddelení' : 'Podľa pridania');
+        }
+        listEl.innerHTML = items.length
+          ? groups.map(([d, list]) => (byDept && groups.length > 1 ? deptHead(d) : '') + list.map(row).join('')).join('') +
+            (rest.length && byDept ? deptHead('Vybavené') : '') + rest.map(row).join('')
           : '<div class="hint">Zatiaľ žiadne položky.</div>';
         root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
+        if (shopping) loadOffersFor(items.filter(open), renderList);
         listEl.querySelectorAll('[data-item]').forEach((b) => {
           b.onclick = (e) => {
             if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
             if (e.target.closest('[data-miss]')) return toggleMissingItem(c, b.dataset.item, renderList);
+            if (e.target.closest('[data-offer]')) return showOffers(c, b.dataset.item, renderList);
             toggle(b.dataset.item);
           };
         });
       };
 
       const toggle = (itemId) => toggleChecklistItem(c, itemId, renderList);
+      // nákup naživo: zmeny od ostatných sa prekreslia priamo v otvorenom detaile
+      state.openTask = {
+        id: c.id,
+        update: (fresh) => {
+          Object.assign(c, fresh);
+          renderList();
+        },
+      };
+      if (root.querySelector('#sortMode')) {
+        root.querySelector('#sortMode').onclick = () => {
+          setByDeptMode(!byDeptMode());
+          renderList();
+          refreshTaskCards(c);
+        };
+      }
 
       const qtyInput = root.querySelector('#qtyInput');
       const add = async (text) => {
@@ -2105,6 +2460,12 @@ function showTaskDetail(id) {
             state.detail.products.unshift(item.text);
           }
           renderList();
+          // pri zoskupení podľa oddelení môže byť nová položka nižšie – ukáž ju
+          const added = listEl.querySelector('[data-item="' + item.id + '"]');
+          if (added) {
+            added.classList.add('flash');
+            added.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }
         } catch (err) {
           showError(err);
         }
@@ -2164,6 +2525,7 @@ function optimisticTask(data, previous) {
     description: String(data.description || '').trim(),
     assignedTo: data.assignedTo,
     dueDate: data.dueDate,
+    dueTime: data.dueTime || '',
     periodicity: data.periodicity,
     repeatInterval: data.periodicity === 'none' ? null : Number(data.repeatInterval) || 1,
     icon: data.icon,
@@ -2228,7 +2590,14 @@ function showCinnostForm(priestorId, existing, opts) {
   };
   if (opts && opts.prefill) {
     const pre = opts.prefill;
-    v = { ...v, description: pre.description || '', items: pre.items || [], ...(pre.name && { name: pre.name }) };
+    v = {
+      ...v,
+      description: pre.description || '',
+      items: pre.items || [],
+      ...(pre.name && { name: pre.name }),
+      ...(pre.icon && { icon: pre.icon }),
+      ...(pre.periodicity && { periodicity: pre.periodicity }),
+    };
   }
   if (draft) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
@@ -2316,7 +2685,8 @@ function showCinnostForm(priestorId, existing, opts) {
         'Kto a kedy',
         '<div class="field"><label>Pridelené</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
           '<div class="chips wrap">' + memberChips + '</div></div>' +
-          '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<div class="row"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<div class="field field-time"><label>Pripomenúť o</label><input type="time" name="dueTime" value="' + esc(v.dueTime || '') + '"></div></div>' +
           '<div class="field"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
           '<div class="chips seg">' + periodChips + '</div>' +
           '<div class="interval hidden" id="intervalField"><span>každých</span>' +
@@ -2535,6 +2905,7 @@ function showCinnostForm(priestorId, existing, opts) {
           description: form.description.value,
           assignedTo: form.assignedTo.value,
           dueDate: form.dueDate.value,
+          dueTime: form.dueTime.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
           icon: isShop ? 'shopping' : icon,
@@ -2856,23 +3227,40 @@ document.querySelectorAll('#tabs .tab').forEach((t) => {
   };
 });
 
-// Automatická obnova: zmeny od ostatných členov sa ukážu bez obnovenia stránky
-// (pri otvorenej domácnosti každých 20 s a vždy po návrate do aplikácie).
-const AUTO_REFRESH_MS = 20000;
+// Automatická obnova – nákup naživo: každé 4 s sa lacno overí verzia domácnosti a celé údaje
+// sa načítajú len pri zmene (odškrtnutie od iného člena sa ukáže takmer hneď, aj v otvorenom detaile).
+const AUTO_REFRESH_MS = 4000;
+let lastRev = { id: '', rev: -1 };
 
-async function autoRefresh() {
-  if (document.hidden || !state.detail || !state.email || pending || !canRefreshView()) return;
+async function autoRefresh(force) {
+  if (document.hidden || !state.detail || !state.email || pending) return;
   if (state.detail.cinnosti.some((c) => c.pending)) return;
   const id = state.detail.household.id;
+  const live = state.openTask && $('modalContent').querySelector('#checklist') ? state.openTask : null;
+  if (!canRefreshView() && !live) return;
   const before = mutations;
   try {
+    const rev = await apiQuiet('getRev', id);
+    const changed = lastRev.id !== id || lastRev.rev !== rev;
+    const known = lastRev.id === id;
+    lastRev = { id, rev };
+    if (!force && (!changed || !known)) return;
     const fresh = await apiQuiet('getHouseholdData', id);
     // Medzičasom niečo zmenené alebo iná obrazovka – čerstvé údaje by ju prepísali.
-    if (mutations !== before || pending || !canRefreshView()) return;
+    if (mutations !== before || pending) return;
     if (!state.detail || state.detail.household.id !== id) return;
     if (JSON.stringify(fresh) === JSON.stringify(state.detail)) return;
-    state.detail = fresh;
-    renderDetail({ quiet: true });
+    const openNow = state.openTask && $('modalContent').querySelector('#checklist') ? state.openTask : null;
+    if (canRefreshView()) {
+      state.detail = fresh;
+      renderDetail({ quiet: true });
+    } else if (openNow) {
+      // otvorený detail činnosti: obnov jeho zoznam aj karty pod ním
+      state.detail = fresh;
+      const task = fresh.cinnosti.find((c) => c.id === openNow.id);
+      renderDetail({ quiet: true });
+      if (task) openNow.update(task);
+    }
   } catch (err) {
     // Obnova na pozadí je nepovinná; chyby (napr. bez internetu) neukazuj.
   }
@@ -2880,7 +3268,7 @@ async function autoRefresh() {
 
 setInterval(autoRefresh, AUTO_REFRESH_MS);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) autoRefresh();
+  if (!document.hidden) autoRefresh(true);
 });
 
 if ('serviceWorker' in navigator) {

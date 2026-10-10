@@ -50,11 +50,16 @@ export async function setup() {
     TEST_GOOGLE_JWKS: JSON.stringify({ keys: [publicJwk] }),
   };
   for (const file of readdirSync(join(root, 'migrations')).sort()) {
-    const sql = readFileSync(join(root, 'migrations', file), 'utf8')
-      .replace(/--.*$/gm, '')
-      .split(';')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // Príkazy oddelené „;“ – okrem tela triggra (BEGIN … END), ktoré ich má vnútri.
+    const sql = [];
+    let current = '';
+    for (const piece of readFileSync(join(root, 'migrations', file), 'utf8').replace(/--.*$/gm, '').split(';')) {
+      current += piece + ';';
+      if ((current.match(/\bBEGIN\b/gi) || []).length <= (current.match(/\bEND\b/gi) || []).length) {
+        if (current.replace(/;/g, '').trim()) sql.push(current.trim().replace(/;$/, ''));
+        current = '';
+      }
+    }
     await env.DB.batch(sql.map((s) => env.DB.prepare(s)));
   }
   const fetch = (path, init) => worker.fetch(new Request('https://gazda.test' + path, init), env);

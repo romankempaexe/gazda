@@ -65,6 +65,8 @@ async function openLeaflets(opts) {
   }
   lf.root.classList.remove('hidden');
   document.body.classList.add('lf-open');
+  // z akcie produktu: rovno konkrétny leták a strana
+  if (opts && opts.flyer) return openFlyer(opts.flyer, opts.page);
   lfLoadStore(lf.store);
 }
 
@@ -161,15 +163,20 @@ function lfRenderList(error) {
   });
 }
 
-async function openFlyer(slug) {
+async function openFlyer(slug, pageNo) {
   if (!lf.flyer || lf.flyer.slug !== slug) {
     try {
       lf.flyer = await api('getLeaflet', slug);
     } catch (err) {
       showError(err);
+      if (pageNo) lfLoadStore(lf.store); // z akcie: ukáž aspoň zoznam letákov
       return;
     }
     lf.page = 0;
+  }
+  if (pageNo) {
+    const i = lf.flyer.pages.findIndex((p) => p.n === pageNo);
+    lf.page = i >= 0 ? i : Math.min(pageNo, lf.flyer.pages.length) - 1;
   }
   lfOpenPage();
 }

@@ -349,11 +349,15 @@ async function kimbinoLeaflets(c, store) {
 }
 
 async function loadKimbinoFlyer(c, slug) {
-  const storeId = slug.split('-')[1];
-  const store = STORES.find((s) => s.id === storeId && s.kimbino);
-  if (!store) return null;
-  const cachedList = (await readConfig(c, KSTORE_KEY + store.id)) || (await kimbinoLeaflets(c, store), await readConfig(c, KSTORE_KEY + store.id));
-  const entry = cachedList && cachedList.list.find((f) => f.slug === slug);
+  // leták z akcie produktu (getOffers) – jeho adresa je uložená zvlášť
+  let entry = await readConfig(c, 'kpath:' + slug);
+  if (!entry) {
+    const storeId = slug.split('-')[1];
+    const store = STORES.find((s) => s.id === storeId && s.kimbino);
+    if (!store) return null;
+    const cachedList = (await readConfig(c, KSTORE_KEY + store.id)) || (await kimbinoLeaflets(c, store), await readConfig(c, KSTORE_KEY + store.id));
+    entry = cachedList && cachedList.list.find((f) => f.slug === slug);
+  }
   if (!entry) return null;
   let html = '';
   try {
@@ -694,4 +698,138 @@ export async function preanalyzeLeaflets(c, max = 4) {
     if (count >= max) break;
   }
   return count;
+}
+
+// ---- Akcie produktu naprieč obchodmi (Kimbino) ------------------------------------
+
+const OFFERS_KEY = 'offers:';
+const KPATH_KEY = 'kpath:';
+const OFFERS_TTL_MS = 6 * 3600 * 1000;
+const MAX_OFFERS = 12;
+const NUXT_WRAP = new Set(['Reactive', 'ShallowReactive', 'Ref', 'ShallowRef', 'EmptyRef', 'EmptyShallowRef', 'Set', 'Map', 'Date', 'NuxtError', 'Island']);
+
+/** Dáta Nuxt (__NUXT_DATA__ je „sploštený“ strom: odkazy sú indexy do poľa) → bežný objekt. */
+export function hydrateNuxt(arr) {
+  const cache = new Map();
+  const h = (i) => {
+    if (typeof i !== 'number' || i < 0 || i >= arr.length) return undefined;
+    if (cache.has(i)) return cache.get(i);
+    const v = arr[i];
+    if (v === null || typeof v !== 'object') {
+      cache.set(i, v);
+      return v;
+    }
+    if (Array.isArray(v)) {
+      if (typeof v[0] === 'string' && NUXT_WRAP.has(v[0])) {
+        const r = v[0] === 'Date' ? v[1] : h(v[1]);
+        cache.set(i, r);
+        return r;
+      }
+      const out = [];
+      cache.set(i, out);
+      v.forEach((x) => out.push(h(x)));
+      return out;
+    }
+    const o = {};
+    cache.set(i, o);
+    for (const k of Object.keys(v)) o[k] = h(v[k]);
+    return o;
+  };
+  return h(0);
+}
+
+/** Text položky → hľadaný výraz (bez počtov, gramáže a percent; najviac 3 slová). */
+export function offerQuery(text) {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/\d+([.,]\d+)?\s*(%|ks|kg|g|l|ml|bal\.?|x)?/g, ' ')
+    .replace(/[^\p{L}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2)
+    .slice(0, 3)
+    .join(' ');
+}
+
+const priceNumber = (s) => {
+  const m = String(s ?? '').match(/(\d+)[.,](\d{1,2})/) || String(s ?? '').match(/(\d+)/);
+  return m ? Number(m[1] + '.' + (m[2] || '0').padEnd(2, '0')) : null;
+};
+
+/** Stránka produktu na Kimbine → ponuky v platných letákoch, najlacnejšie prvé. */
+export function parseOffers(html, today) {
+  const raw = (html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/) || [])[1];
+  if (!raw) return null;
+  let root;
+  try {
+    root = hydrateNuxt(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+  const pinia = (root && root.pinia) || {};
+  const product = (pinia.products && pinia.products.product) || null;
+  const grid = (pinia.brochures && pinia.brochures.primaryGrid) || [];
+  const shops = new Map(((product && product.shops) || []).filter(Boolean).map((s) => [s.id, s]));
+  const seen = new Set();
+  const offers = [];
+  for (const o of Array.isArray(grid) ? grid : []) {
+    if (!o || !o.name || seen.has(o.id)) continue;
+    seen.add(o.id);
+    if (o.dateEnd && String(o.dateEnd).slice(0, 10) < today) continue; // leták už neplatí
+    const price = priceNumber(o.price);
+    if (price === null) continue;
+    const sef = String(o.sef || '');
+    const shop = shops.get(o.shop_id);
+    const shopSef = shop ? shop.sef : sef.split('-')[0];
+    const id = (sef.match(/-(\d{5,})$/) || [])[1];
+    offers.push({
+      name: String(o.name).slice(0, 120),
+      price: price.toFixed(2),
+      store: shop ? shop.name : shopSef.charAt(0).toUpperCase() + shopSef.slice(1),
+      validTo: o.dateEnd ? String(o.dateEnd).slice(0, 10) : '',
+      validFrom: o.dateStart ? String(o.dateStart).slice(0, 10) : '',
+      page: Number(o.page) || 1,
+      flyer: id ? 'k-' + shopSef + '-' + id : '',
+      path: id ? '/' + shopSef + '/' + sef + '/' : '',
+      img: typeof o.img === 'string' && o.img.startsWith('https://eu.kimbicdn.com/') ? o.img : '',
+    });
+  }
+  offers.sort((a, b) => a.price - b.price);
+  return { product: product ? String(product.name || '') : '', offers: offers.slice(0, MAX_OFFERS) };
+}
+
+/** Akcie na produkt (podľa textu položky) – z pamäte, inak z Kimbina (každý výraz najviac raz za 6 h). */
+export async function getOffers(c, text) {
+  const query = offerQuery(text);
+  if (!query) return { query: '', product: '', offers: [] };
+  const key = OFFERS_KEY + query;
+  const cached = await readConfig(c, key);
+  if (cached && Date.now() - cached.at < OFFERS_TTL_MS) return cached.data;
+  const attempts = [query];
+  if (query.includes(' ')) attempts.push(query.split(' ')[0]);
+  let data = { query, product: '', offers: [] };
+  for (const q of attempts) {
+    let res;
+    try {
+      res = await fetcher(c)(KIMBINO + '/hladat/?q=' + encodeURIComponent(q), { headers: HEADERS, redirect: 'follow' });
+    } catch (err) {
+      console.error('Akcie ' + q + ': ' + err);
+      if (cached) return cached.data;
+      throw new AppError('Akcie sa teraz nedajú načítať. Skús to neskôr.', 502);
+    }
+    if (!res.ok) continue;
+    const parsed = parseOffers(await res.text(), c.today);
+    if (parsed && parsed.offers.length) {
+      data = { query, product: parsed.product, offers: parsed.offers };
+      break;
+    }
+  }
+  // cesty letákov, aby sa dali otvoriť v prehliadači letákov
+  const paths = data.offers.filter((o) => o.flyer && o.path);
+  await c.db.batch([
+    upsert(c, key, { at: Date.now(), data }),
+    ...[...new Map(paths.map((o) => [o.flyer, o])).values()]
+      .slice(0, 20)
+      .map((o) => upsert(c, KPATH_KEY + o.flyer, { slug: o.flyer, store: o.flyer.split('-')[1], title: o.store, path: o.path })),
+  ]);
+  return data;
 }

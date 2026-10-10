@@ -166,8 +166,9 @@ function localHour(date) {
 
 /** Spúšťa cron každých 15 minút: ranný prehľad raz denne medzi 8:00 a 11:59. */
 export async function scheduledTick(db, now = new Date()) {
+  const reminders = await sendTimedReminders(db, now);
   const hour = localHour(now);
-  if (hour < MORNING_HOUR || hour > MORNING_LAST_HOUR) return 0;
+  if (hour < MORNING_HOUR || hour > MORNING_LAST_HOUR) return reminders;
   const today = todayYmd(now);
   // Raz denne – aj keď cron beží viackrát (zápis pred odoslaním, aby sa neposlalo dvakrát).
   const { meta } = await db
@@ -177,8 +178,58 @@ export async function scheduledTick(db, now = new Date()) {
     )
     .bind(today)
     .run();
-  if (!meta.changes) return 0;
-  return sendMorningDigest(db, today);
+  if (!meta.changes) return reminders;
+  return reminders + (await sendMorningDigest(db, today));
+}
+
+function localTime(date) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+}
+
+/**
+ * Pripomienky v zadaný čas (cron každých 15 min): dnešné činnosti s časom, ktorý už nastal,
+ * a pripomienka pre tento termín a čas ešte neodišla. Najprv sa označia (aby neodišli dvakrát).
+ */
+export async function sendTimedReminders(db, now = new Date()) {
+  const today = todayYmd(now);
+  const time = localTime(now);
+  const { results: due } = await db
+    .prepare(
+      `UPDATE cinnosti SET reminded = due_date || ' ' || due_time
+       WHERE due_time <> '' AND due_date = ? AND due_time <= ? AND reminded <> due_date || ' ' || due_time
+       RETURNING id`
+    )
+    .bind(today, time)
+    .all();
+  if (!due.length) return 0;
+  const { results } = await db
+    .prepare(
+      `SELECT c.*, m.email AS recipient, h.name AS household_name, p.name AS priestor_name,
+              (SELECT COUNT(*) FROM polozky i WHERE i.cinnost_id = c.id) AS items_total,
+              (SELECT COUNT(*) FROM polozky i WHERE i.cinnost_id = c.id AND i.done = 1) AS items_done
+       FROM cinnosti c
+       JOIN households h ON h.id = c.household_id
+       JOIN members m ON m.household_id = c.household_id AND (m.email = c.assigned_to OR c.assigned_to = '${ALL}')
+       LEFT JOIN priestory p ON p.id = c.priestor_id
+       WHERE c.id IN (SELECT value FROM json_each(?)) AND m.email IN (SELECT email FROM push_subscriptions)`
+    )
+    .bind(JSON.stringify(due.map((r) => r.id)))
+    .all();
+  const ctx = await pushContext(db, [...new Set(results.map((r) => r.recipient))]);
+  let sent = 0;
+  for (const c of results) {
+    const parts = [c.due_time];
+    if (c.kind === 'nakup') parts.push('🛒 ' + (c.store || 'Nákup'));
+    if (c.items_total) parts.push(c.items_done + '/' + c.items_total);
+    parts.push((c.priestor_name ? c.priestor_name + ' · ' : '') + c.household_name);
+    sent += await sendToUser(db, c.recipient, {
+      title: '⏰ ' + c.name,
+      body: parts.join(' · ') + (c.description ? '\n' + c.description : ''),
+      tag: 'remind-' + c.id,
+      url: '/',
+    }, ctx);
+  }
+  return sent;
 }
 
 export async function sendMorningDigest(db, today) {

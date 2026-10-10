@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
-import { imageSize, parseProducts, preanalyzeLeaflets, parseKimbinoStore, parseKimbinoFlyer } from '../src/leaflets.js';
+import { imageSize, parseProducts, preanalyzeLeaflets, parseKimbinoStore, parseKimbinoFlyer, offerQuery, parseOffers } from '../src/leaflets.js';
 import { cleanPrice } from '../src/api.js';
 
 let t, roman, jana, cudzi, hid, nakupId;
@@ -57,6 +57,48 @@ const KIMBINO_FLYER =
   ]) +
   '</script>';
 
+/** __NUXT_DATA__ ako ho posiela Nuxt (devalue): objekty a polia odkazujú na indexy. */
+function nuxtFlatten(value) {
+  const out = [];
+  const add = (v) => {
+    const i = out.length;
+    out.push(null);
+    if (v !== null && typeof v === 'object') {
+      if (Array.isArray(v)) out[i] = v.map(add);
+      else {
+        const o = {};
+        for (const k of Object.keys(v)) o[k] = add(v[k]);
+        out[i] = o;
+      }
+    } else out[i] = v;
+    return i;
+  };
+  add(value);
+  return out;
+}
+const offer = (id, shop, sef, name, price, end, page) => ({
+  id, shop_id: shop, name, price, page, sef, dateStart: '2026-10-05T00:00:00.000Z', dateEnd: end + 'T23:59:59.000Z',
+  img: KCDN + '/thumbor/x=/full-fit-in/240x240/a.jpg',
+});
+const KIMBINO_PRODUCT =
+  '<script type="application/json" id="__NUXT_DATA__">' +
+  JSON.stringify(
+    nuxtFlatten({
+      pinia: {
+        products: { product: { id: 1, name: 'Mlieko', shops: [{ id: 1, name: 'Lidl', sef: 'lidl' }, { id: 3, name: 'Billa', sef: 'billa' }] } },
+        brochures: {
+          primaryGrid: [
+            offer(11, 3, 'billa-letak-od-stredy-07-10-2026-6132219', 'Rajo mlieko 3,5%, čerstvé, 1 l', '1,09 €', '2026-10-13', 6),
+            offer(12, 1, 'lidl-letak-od-pondelka-05-10-2026-6132213', 'Kefírové mlieko, 950 g', '0,95 €', '2026-10-11', 4),
+            offer(13, 1, 'lidl-letak-od-pondelka-28-09-2026-6131000', 'Staré mlieko', '0,50 €', '2026-10-04', 2),
+            offer(12, 1, 'lidl-letak-od-pondelka-05-10-2026-6132213', 'Kefírové mlieko, 950 g', '0,95 €', '2026-10-11', 4),
+          ],
+        },
+      },
+    })
+  ) +
+  '</script>';
+
 /** Náhrada za lidl.sk a servery Schwarz. */
 async function fakeFetch(url) {
   url = String(url);
@@ -80,6 +122,8 @@ async function fakeFetch(url) {
   if (url === 'https://www.kimbino.sk/tesco/') return new Response(KIMBINO_STORE);
   if (url === 'https://www.kimbino.sk/tesco/tesco-hypermarket-letak-od-stredy-07-10-2026-6132237/') return new Response(KIMBINO_FLYER);
   if (url.startsWith(KCDN + '/')) return new Response('WEBP', { headers: { 'content-type': 'image/webp' } });
+  if (url === 'https://www.kimbino.sk/hladat/?q=mlieko') return new Response(KIMBINO_PRODUCT);
+  if (url.startsWith('https://www.kimbino.sk/hladat/')) return new Response('<html>nič</html>');
   return new Response('?', { status: 404 });
 }
 
@@ -463,4 +507,25 @@ test('ťuknutie na produkt: AI rozpozná produkt vo výreze', async () => {
     .bind(new Date().toISOString().slice(0, 10)).run();
   await assert.rejects(roman.api.identifyLeafletProduct(crop), /limit/);
   await t.env.DB.prepare("DELETE FROM config WHERE key = 'ai_neurons'").run();
+});
+
+test('akcie produktu: výraz z položky, ponuky z Kimbina (platné, najlacnejšie prvé), pamäť', async () => {
+  assert.equal(offerQuery('2 ks Mlieko 1,5% Rajo'), 'mlieko rajo');
+  assert.equal(offerQuery('Maslo 250 g'), 'maslo');
+  assert.equal(offerQuery('123'), '');
+  const parsed = parseOffers(KIMBINO_PRODUCT, '2026-10-07');
+  assert.deepEqual(parsed.offers.map((o) => [o.store, o.name, o.price, o.validTo, o.page, o.flyer]), [
+    ['Lidl', 'Kefírové mlieko, 950 g', '0.95', '2026-10-11', 4, 'k-lidl-6132213'],
+    ['Billa', 'Rajo mlieko 3,5%, čerstvé, 1 l', '1.09', '2026-10-13', 6, 'k-billa-6132219'],
+  ]);
+  calls.length = 0;
+  const res = await roman.api.getOffers('Mlieko');
+  assert.equal(res.product, 'Mlieko');
+  assert.equal(res.offers.length, 2);
+  await roman.api.getOffers('mlieko'); // z pamäte
+  assert.equal(calls.filter((u) => u.includes('/hladat/')).length, 1);
+  // neznámy produkt: skúsi aj prvé slovo, nič nenájde
+  const none = await roman.api.getOffers('Xyz abc');
+  assert.deepEqual(none.offers, []);
+  assert.deepEqual(calls.filter((u) => u.includes('q=xyz')).length, 2);
 });

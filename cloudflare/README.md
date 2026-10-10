@@ -135,6 +135,27 @@ Tlačidlo **Vrátiť** pri zázname vráti činnosť späť (`restoreHistory`): 
 sa znova vytvorí z uloženej kópie (stĺpec `task`), opakovanej sa vráti termín;
 položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od najnovšieho.
 
+## Nákup: oddelenia, akcie, naživo
+
+- **Oddelenia:** položky nákupu sa zoskupujú podľa oddelení obchodu (`PRODUKTY_ODDELENIA`
+  v `public/produkty.js` + začiatky slov v `app.js`); čip prepne na poradie pridania.
+- **Akcie a ceny:** `getOffers(text)` číta stránku produktu na kimbino.sk (`/hladat/?q=` →
+  `/produkty/…/`, dáta Nuxt) – ponuky v platných letákoch všetkých obchodov, v `config`
+  (`offers:<výraz>`) na 6 h. Pri položke nákupu sa ukáže najlacnejšia, ťuknutím všetky
+  (otvoriť leták na strane, použiť cenu – `setItemPrice`). Raz denne po 9:00 (`src/deals.js`)
+  dostanú členovia upozornenie na akcie často kupovaných produktov (každú akciu raz).
+- **Nákup naživo:** každá zmena zvýši `households.rev` (triggery, migrácia 0009); appka sa
+  každé 4 s pýta `getRev` a údaje načíta len pri zmene (aj v otvorenom detaile).
+- **Znova:** v Histórii pri nákupe – nový nákup s tými istými položkami.
+
+## Pripomienky, šablóny, vzhľad, skratky
+
+- Činnosť môže mať čas (`due_time`, migrácia 0010); cron každých 15 min pošle pripomienku
+  v ten čas (raz pre daný termín a čas).
+- Sprievodca novou činnosťou ponúka šablóny (`SABLONY` v `app.js`).
+- Vzhľad v účte: podľa telefónu / svetlý / tmavý (`data-theme` na `<html>`).
+- Skratky ikony (manifest `shortcuts`): `/?akcia=nakup` (pridávanie do nákupu), `/?akcia=nova`.
+
 ## Upozornenia (push notifikácie)
 
 Zapínajú sa v aplikácii ťuknutím na 🔔 (po prvej prezývke ich Gazda ponúkne sama),

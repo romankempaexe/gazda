@@ -1795,6 +1795,7 @@ function wizItems(w) {
           const same = w.items.find((i) => normalizeText(i.text) === normalizeText(text));
           if (same) same.qty = qty || same.qty;
           else w.items.unshift({ text, qty });
+          rememberProduct(text);
           input.value = '';
           qtyInput.value = '';
           suggest.clear();
@@ -1897,6 +1898,16 @@ function attachSuggest(input, box, getSources, getExclude, onPick) {
   };
   input.addEventListener('input', render);
   return { refresh: render, clear: () => box.classList.add('hidden') };
+}
+
+/** Nový produkt (napísaný do zoznamu) si zapamätaj hneď – lokálne aj na serveri. */
+function rememberProduct(text) {
+  const d = state.detail;
+  if (!d || !text) return;
+  d.products = d.products || [];
+  if (d.products.some((x) => normalizeText(x) === normalizeText(text))) return;
+  d.products.unshift(text);
+  apiQuiet('rememberProducts', d.household.id, [text]).catch(() => {});
 }
 
 function productSources() {
@@ -2432,6 +2443,7 @@ function showCinnostForm(priestorId, existing, opts) {
         const same = items.find((i) => normalizeText(i.text) === normalizeText(text));
         if (same) same.qty = qty || same.qty;
         else items.unshift({ text, qty, done: false });
+        rememberProduct(text);
         itemInput.value = '';
         qtyInput.value = '';
         itemSuggest.clear();

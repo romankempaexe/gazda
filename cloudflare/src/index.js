@@ -79,6 +79,10 @@ async function handleApi(request, env, url, ctx) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
     }
+    // DOČASNÉ (len náhľad): sonda Kimbino
+    if (url.pathname === '/api/debug/kimbino' && url.hostname.startsWith('gazda-preview')) {
+      return (await import('./probe.js')).probe(url);
+    }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
     }

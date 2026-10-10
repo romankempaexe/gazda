@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --primary: #16a34a;
   --primary-strong: #15803d;
   --primary-soft: #dcfce7;
@@ -22,8 +23,9 @@
   --radius-lg: 24px;
 }
 
+/* Tmavý režim: podľa telefónu (Automaticky) alebo natvrdo cez data-theme (nastavenie v účte). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --primary: #22c55e;
     --primary-strong: #4ade80;
     --primary-soft: rgba(34, 197, 94, 0.16);
@@ -40,7 +42,28 @@
     --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
     --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.6);
     --glass: rgba(21, 26, 23, 0.78);
+    color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --primary: #22c55e;
+  --primary-strong: #4ade80;
+  --primary-soft: rgba(34, 197, 94, 0.16);
+  --error: #f87171;
+  --error-soft: rgba(248, 113, 113, 0.14);
+
+  --bg: #0b0f0d;
+  --surface: #151a17;
+  --surface-2: #1d2420;
+  --text: #e8ece9;
+  --muted: #94a3a0;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.6);
+  --glass: rgba(21, 26, 23, 0.78);
+  color-scheme: dark;
 }
 
 * {
@@ -2748,4 +2771,27 @@ input.lf-pageno::-webkit-inner-spin-button {
 .offer-acts {
   display: flex;
   justify-content: flex-end;
+}
+
+/* prepínač vzhľadu v účte (rovnaký vzhľad ako opakovanie vo formulári) */
+.theme-seg {
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--surface-2);
+}
+
+.theme-seg .chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.theme-seg .chip .ms {
+  font-size: 16px;
+}
+
+.chips.seg .chip.active {
+  background: var(--primary);
+  color: #fff;
 }

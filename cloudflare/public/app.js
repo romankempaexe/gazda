@@ -387,6 +387,40 @@ async function copyText(input) {
   }
 }
 
+// ---- Vzhľad: automaticky podľa telefónu, svetlý alebo tmavý ----------------------
+
+const THEME_KEY = 'gazda.theme';
+
+function currentTheme() {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    return t === 'light' || t === 'dark' ? t : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+function applyTheme(theme) {
+  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  const dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#151a17' : '#16a34a');
+}
+
+function setTheme(theme) {
+  try {
+    if (theme === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* bez úložiska platí len do zatvorenia */
+  }
+  applyTheme(theme);
+}
+
+applyTheme(currentTheme());
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(currentTheme()));
+
 function showAccount() {
   openModal(
     '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
@@ -396,6 +430,12 @@ function showAccount() {
         ? '<button type="button" class="btn small" id="install" style="margin:4px 8px 12px 0">' +
           '<span class="ms">add</span>Nainštalovať Gazdu</button>'
         : '') +
+      '<div class="field"><label>Vzhľad</label><div class="chips seg theme-seg">' +
+      [['auto', 'brightness_auto', 'Podľa telefónu'], ['light', 'light_mode', 'Svetlý'], ['dark', 'dark_mode', 'Tmavý']]
+        .map(([v, icon, label]) =>
+          '<button type="button" class="chip' + (currentTheme() === v ? ' active' : '') + '" data-theme-pick="' + v + '"><span class="ms">' + icon + '</span>' + label + '</button>')
+        .join('') +
+      '</div></div>' +
       '<button type="button" class="btn tonal small" id="import" style="margin:4px 0 12px">' +
       '<span class="ms">refresh</span>Preniesť zo starej Gazdy</button>' +
       '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +
@@ -407,6 +447,12 @@ function showAccount() {
       root.querySelector('#logout').onclick = logout;
       root.querySelector('#nick').onclick = () => showNicknameForm(state.nickname, false);
       root.querySelector('#import').onclick = showImportCode;
+      root.querySelectorAll('[data-theme-pick]').forEach((b) => {
+        b.onclick = () => {
+          setTheme(b.dataset.themePick);
+          root.querySelectorAll('[data-theme-pick]').forEach((x) => x.classList.toggle('active', x === b));
+        };
+      });
       const install = root.querySelector('#install');
       if (install) install.onclick = installApp;
     }

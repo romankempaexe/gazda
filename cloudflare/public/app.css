@@ -2504,3 +2504,56 @@ input.lf-pageno::-webkit-inner-spin-button {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------ Sprievodca novou činnosťou */
+.wiz-progress {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.wiz-progress span {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.wiz-progress span.on {
+  background: var(--primary);
+}
+
+.wiz-actions #back {
+  margin-right: auto;
+}
+
+.wiz-actions #next .ms {
+  margin-left: 4px;
+  margin-right: 0;
+}
+
+.wiz-new {
+  margin-top: 4px;
+}
+
+.wiz .item-add {
+  margin-bottom: 10px;
+}
+
+.wiz .item-add > input {
+  font: inherit;
+  padding: 11px 14px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.wiz .item-add > input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.list-select .card.active {
+  background: var(--primary-soft);
+}

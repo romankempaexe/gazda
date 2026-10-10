@@ -2270,3 +2270,228 @@ input.lf-pageno::-webkit-inner-spin-button {
 .field > .checklist {
   margin-top: 8px;
 }
+
+/* ------------------------------------------------ Formulár činnosti (úprava / nová) */
+.task-form .form-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.task-form .form-head .task-icon {
+  width: 52px;
+  height: 52px;
+  font-size: 26px;
+  border-radius: 16px;
+  align-self: center;
+  transition: background-color 0.2s;
+}
+
+.form-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.task-form .title-input {
+  width: 100%;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  padding: 6px 2px;
+  border: none;
+  border-bottom: 2px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.task-form .title-input:focus {
+  outline: none;
+  border-bottom-color: var(--primary);
+}
+
+.fsec {
+  background: var(--surface-2);
+  border-radius: 18px;
+  padding: 14px 14px 4px;
+  margin-bottom: 12px;
+}
+
+.fsec-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary-strong);
+  margin-bottom: 12px;
+}
+
+.fsec-title .ms {
+  font-size: 19px;
+}
+
+.fsec-count {
+  margin-left: auto;
+  min-width: 22px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 12px;
+  text-align: center;
+}
+
+.fsec-count:empty {
+  display: none;
+}
+
+/* polia v sekcii sú biele na sivom podklade */
+.fsec .field input,
+.fsec .field select,
+.fsec .field textarea,
+.fsec .item-add input,
+.fsec .stepper {
+  background: var(--surface);
+}
+
+.fsec .field {
+  margin-bottom: 14px;
+}
+
+.fsec > .item-add,
+.fsec > #formLeaflets {
+  margin-bottom: 10px;
+}
+
+.fsec > .checklist {
+  margin: 0 0 10px;
+}
+
+.fsec .check-item.edit {
+  background: var(--surface);
+  border-radius: 12px;
+  margin-bottom: 4px;
+}
+
+.fsec .switch {
+  margin-bottom: 14px;
+}
+
+.chips.wrap {
+  flex-wrap: wrap;
+  overflow: visible;
+  margin-bottom: 0;
+}
+
+.task-form .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 13px;
+  font-size: 14px;
+}
+
+.task-form .chip .ms {
+  font-size: 17px;
+}
+
+.task-form .chip.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* opakovanie ako segmentový prepínač */
+.chips.seg {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: visible;
+}
+
+.chips.seg .chip {
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 4px;
+  background: transparent;
+  font-size: 13px;
+}
+
+.interval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.fsec .interval input {
+  width: 64px;
+  text-align: center;
+  padding: 9px 6px;
+}
+
+.form-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -4px;
+  padding: 10px 4px 4px;
+  background: linear-gradient(to bottom, transparent, var(--surface) 30%);
+}
+
+.form-actions #delete {
+  margin-right: auto;
+  color: var(--error);
+}
+
+.chips.seg .chip.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.fsec .item-add > input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 11px 14px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.fsec .item-add > input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-soft);
+}
+
+/* riadky položiek: užší počet, aby sa názov zmestil */
+.fsec .check-item.edit .stepper .step {
+  width: 26px;
+}
+
+.fsec .check-item.edit .stepper input {
+  width: 46px;
+}
+
+.fsec .check-item.edit .check-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

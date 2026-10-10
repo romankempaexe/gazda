@@ -2450,14 +2450,23 @@ input.lf-pageno::-webkit-inner-spin-button {
 
 .form-actions {
   position: sticky;
-  bottom: 0;
-  margin: 0 -4px;
-  padding: 10px 4px 4px;
-  background: linear-gradient(to bottom, transparent, var(--surface) 30%);
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px -4px 8px;
+  padding: 6px 4px 8px;
+  background: var(--surface);
+  /* zakryje aj okraj okna nad lištou, aby obsah nepresvital */
+  box-shadow: 0 -28px 0 var(--surface), 0 8px 10px -10px rgba(15, 23, 42, 0.25);
+}
+
+.form-actions #cancel {
+  margin-right: auto;
 }
 
 .form-actions #delete {
-  margin-right: auto;
   color: var(--error);
 }
 

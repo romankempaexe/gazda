@@ -103,7 +103,7 @@ jobs:
             echo
             if [ -n "$TARGET_ENV" ]; then
               sleep 15
-              for q in mlieko maslo; do curl -sS "$url/api/debug/kimbino?q=$q" | head -c 12000; echo; done
+              for q in mlieko "kuracie prsia"; do curl -sS "$url/api/debug/kimbino?q=$(echo $q | sed "s/ /%20/g")" | head -c 9000; echo; done
             fi
           fi
 

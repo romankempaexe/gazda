@@ -537,8 +537,21 @@ function formatDateLong(s) {
 }
 
 /** Ako sa človek zobrazuje: prezývka, kým ju nemá, tak časť e-mailu pred @. */
+/** assignedTo spoločnej činnosti – patrí všetkým členom domácnosti. */
+const ALL = '*';
+
+/** Činnosť, ktorú mám riešiť ja: pridelená mne alebo spoločná. */
+function isMine(c) {
+  return c.assignedTo === state.email || c.assignedTo === ALL;
+}
+
+function assigneeIcon(email) {
+  return email === ALL ? 'group' : 'person';
+}
+
 function shortName(email) {
   if (!email) return 'Nepriradené';
+  if (email === ALL) return 'Všetci';
   return nicknameOf(email) || email.split('@')[0];
 }
 
@@ -594,7 +607,7 @@ function tasksForDate(date, onlyMine) {
   if (!state.detail) return [];
   return state.detail.cinnosti
     .filter((c) => occursOn(c, date))
-    .filter((c) => !onlyMine || c.assignedTo === state.email)
+    .filter((c) => !onlyMine || isMine(c))
     .sort((x, y) => x.name.localeCompare(y.name, 'sk'));
 }
 
@@ -1105,7 +1118,7 @@ function taskCard(c, mode) {
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
-  if (mode === 'plan') info.push(tag('person', shortName(c.assignedTo)));
+  if (mode === 'plan' || c.assignedTo === ALL) info.push(tag(assigneeIcon(c.assignedTo), shortName(c.assignedTo)));
 
   const action =
     mode === 'plan'
@@ -1264,12 +1277,12 @@ function myOverdueTasks() {
   if (!state.detail) return [];
   const today = todayYmd();
   return state.detail.cinnosti
-    .filter((c) => c.assignedTo === state.email && c.dueDate < today)
+    .filter((c) => isMine(c) && c.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name, 'sk'));
 }
 
 function renderRozpis() {
-  const myTasks = state.detail.cinnosti.filter((c) => c.assignedTo === state.email);
+  const myTasks = state.detail.cinnosti.filter(isMine);
   if (!myTasks.length) {
     return (
       '<div class="empty"><span class="ms">checklist</span><h2>Môj rozpis</h2>' +
@@ -1414,7 +1427,7 @@ function renderPlanovanie() {
           const n = all.filter((c) => c.assignedTo === u).length;
           return (
             '<button class="chip' + (state.selectedUser === u ? ' active' : '') +
-            '" data-user="' + esc(u) + '" data-user-set="1">' + esc(shortName(u)) + ' (' + n + ')</button>'
+            '" data-user="' + esc(u) + '" data-user-set="1">' + esc(u === ALL ? 'Spoločné' : shortName(u)) + ' (' + n + ')</button>'
           );
         })
         .join('') +
@@ -1787,7 +1800,7 @@ function showTaskDetail(id) {
   if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
   meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate)) + '</span>');
   if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
-  meta.push('<span class="tag"><span class="ms">person</span>' + esc(shortName(c.assignedTo)) + '</span>');
+  meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
   openModal(
     '<h2>' + esc(c.name) + '</h2>' +
@@ -1991,6 +2004,7 @@ function showCinnostForm(priestorId, existing, opts) {
   if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
   const memberOptions =
     '<option value="">Nepriradené</option>' +
+    '<option value="' + ALL + '"' + (v.assignedTo === ALL ? ' selected' : '') + '>Všetci – spoločná</option>' +
     members
       .map(
         (e) =>

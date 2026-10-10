@@ -7,6 +7,7 @@
 
 import { notifyAssigned, rememberOrigin, saveSubscription, sendToUser, vapidKeys } from './notifications.js';
 import {
+  ALL,
   AppError,
   COLOR_RE,
   DATE_RE,
@@ -268,7 +269,8 @@ async function validateCinnost(c, householdId, data) {
   if (!priestor && (data.priestorId || !kind)) throw new AppError('Vyber priestor.');
 
   const assignedTo = String(data.assignedTo ?? '').trim().toLowerCase();
-  if (assignedTo) {
+  // ALL = spoločná činnosť pre všetkých členov domácnosti
+  if (assignedTo && assignedTo !== ALL) {
     const isMember = await c.db
       .prepare('SELECT 1 FROM members WHERE household_id = ? AND email = ?')
       .bind(householdId, assignedTo)

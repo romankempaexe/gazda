@@ -2,6 +2,9 @@
 
 export const PERIODICITIES = ['none', 'weekly', 'monthly', 'annually'];
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Hodnota assigned_to spoločnej činnosti – patrí všetkým členom domácnosti. */
+export const ALL = '*';
+
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 export const MAX_ITEMS = 100;

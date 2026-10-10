@@ -179,6 +179,21 @@ test('spoločná činnosť (Všetci): upozornenie ostatným členom, v rannom pr
   }
 });
 
+test('pripomienka v zadaný čas: raz, v čase termínu; zmena času ju znova zapne', async () => {
+  await assert.rejects(roman.api.addCinnost(hid, { name: 'X', kind: 'nakup', dueDate: '2026-10-13', dueTime: '25:00', assignedTo: 'roman@exe.sk' }), /HH:MM/);
+  const c = await roman.api.addCinnost(hid, { name: 'Vyniesť smeti', kind: 'nakup', dueDate: '2026-10-13', dueTime: '18:00', assignedTo: 'roman@exe.sk' });
+  assert.equal(c.dueTime, '18:00');
+  sent.length = 0;
+  assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T15:59:00Z')), 0); // 17:59 v Bratislave
+  assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:00:00Z')), 1);
+  const msg = JSON.parse(await decrypt(romanPhone, sent[0].body));
+  assert.equal(msg.title, '⏰ Vyniesť smeti');
+  assert.match(msg.body, /^18:00 · 🛒 Nákup · Byt/);
+  assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:15:00Z')), 0); // len raz
+  await roman.api.updateCinnost(c.id, { ...c, dueTime: '18:30' });
+  assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:30:00Z')), 1);
+});
+
 test('vypnutie upozornení na zariadení', async () => {
   await jana.api.unsubscribePush(janaPhone.subscription.endpoint);
   sent.length = 0;

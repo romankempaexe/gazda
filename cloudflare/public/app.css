@@ -2618,3 +2618,11 @@ input.lf-pageno::-webkit-inner-spin-button {
   gap: 4px;
   flex: none;
 }
+
+.field-time {
+  flex: 0 0 120px !important;
+}
+
+.field-time label {
+  white-space: nowrap;
+}

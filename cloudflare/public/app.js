@@ -608,7 +608,8 @@ function tasksForDate(date, onlyMine) {
   return state.detail.cinnosti
     .filter((c) => occursOn(c, date))
     .filter((c) => !onlyMine || isMine(c))
-    .sort((x, y) => x.name.localeCompare(y.name, 'sk'));
+    // s časom najprv (podľa času), potom ostatné podľa názvu
+    .sort((x, y) => (x.dueTime || '99').localeCompare(y.dueTime || '99') || x.name.localeCompare(y.name, 'sk'));
 }
 
 function priestorName(id) {
@@ -1116,6 +1117,7 @@ function taskCard(c, mode) {
         '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
     );
   }
+  if (c.dueTime) info.push(tag('alarm', c.dueTime));
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
@@ -2136,7 +2138,7 @@ function showTaskDetail(id) {
   const meta = [];
   if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
   if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
-  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate)) + '</span>');
+  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '')) + '</span>');
   if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
   meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
@@ -2291,6 +2293,7 @@ function optimisticTask(data, previous) {
     description: String(data.description || '').trim(),
     assignedTo: data.assignedTo,
     dueDate: data.dueDate,
+    dueTime: data.dueTime || '',
     periodicity: data.periodicity,
     repeatInterval: data.periodicity === 'none' ? null : Number(data.repeatInterval) || 1,
     icon: data.icon,
@@ -2443,7 +2446,8 @@ function showCinnostForm(priestorId, existing, opts) {
         'Kto a kedy',
         '<div class="field"><label>Pridelené</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
           '<div class="chips wrap">' + memberChips + '</div></div>' +
-          '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<div class="row"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<div class="field field-time"><label>Pripomenúť o</label><input type="time" name="dueTime" value="' + esc(v.dueTime || '') + '"></div></div>' +
           '<div class="field"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
           '<div class="chips seg">' + periodChips + '</div>' +
           '<div class="interval hidden" id="intervalField"><span>každých</span>' +
@@ -2662,6 +2666,7 @@ function showCinnostForm(priestorId, existing, opts) {
           description: form.description.value,
           assignedTo: form.assignedTo.value,
           dueDate: form.dueDate.value,
+          dueTime: form.dueTime.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
           icon: isShop ? 'shopping' : icon,

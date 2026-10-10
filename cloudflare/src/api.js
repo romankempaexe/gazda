@@ -73,6 +73,7 @@ const toCinnost = (r, items = []) => ({
   icon: r.icon,
   color: r.color,
   dueDate: r.due_date,
+  dueTime: r.due_time || '',
   periodicity: PERIODICITIES.includes(r.periodicity) ? r.periodicity : 'none',
   repeatInterval: r.repeat_interval ?? null,
   createdAt: r.created_at,
@@ -258,6 +259,8 @@ export async function addPriestor(c, householdId, name) {
   return priestor;
 }
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 /** Overí údaje činnosti z formulára a vráti hodnoty na uloženie. */
 async function validateCinnost(c, householdId, data) {
   data = data && typeof data === 'object' ? data : {};
@@ -280,6 +283,9 @@ async function validateCinnost(c, householdId, data) {
 
   const dueDate = String(data.dueDate ?? '');
   if (!DATE_RE.test(dueDate)) throw new AppError('Zadaj termín.');
+
+  const dueTime = String(data.dueTime ?? '').trim();
+  if (dueTime && !TIME_RE.test(dueTime)) throw new AppError('Čas zadaj ako HH:MM.');
 
   const periodicity = PERIODICITIES.includes(data.periodicity) ? data.periodicity : 'none';
   let repeatInterval = null;
@@ -307,6 +313,7 @@ async function validateCinnost(c, householdId, data) {
       icon: String(data.icon || 'home'),
       color: COLOR_RE.test(data.color) ? data.color : '#4CAF50',
       due_date: dueDate,
+      due_time: dueTime,
       periodicity,
       repeat_interval: repeatInterval,
       kind,
@@ -642,6 +649,7 @@ export async function restoreHistory(c, historyId) {
       icon: h.icon,
       color: h.color,
       due_date: h.due_date,
+      due_time: String(task.due_time || ''),
       periodicity: PERIODICITIES.includes(task.periodicity) ? task.periodicity : 'none',
       repeat_interval: task.repeat_interval ?? null,
       kind: h.kind,

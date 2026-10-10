@@ -77,7 +77,7 @@ test('priestory a validácia činnosti', async () => {
     { ...c, id: undefined, createdAt: undefined },
     {
       id: undefined, householdId: hid, priestorId: kuchyna.id, name: 'Umyť riad', description: '',
-      assignedTo: 'jana@gmail.com', icon: 'dishes', color: '#4CAF50', dueDate: '2026-10-07',
+      assignedTo: 'jana@gmail.com', icon: 'dishes', color: '#4CAF50', dueDate: '2026-10-07', dueTime: '',
       periodicity: 'none', repeatInterval: null, createdAt: undefined, kind: '', store: '', items: [],
     }
   );

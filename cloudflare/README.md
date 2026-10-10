@@ -131,6 +131,9 @@ Pri položke nákupu je tlačidlo **Nemali** (oranžová, počíta sa ako vybave
 stavom (kúpené / nemali / nekúpené), cenou a obrázkom (obrázky v histórii sa nemažú).
 Pri opakovanom nákupe kúpené položky zmiznú a čo nemali, ostane na budúce.
 Karta **História** ich ukazuje po dňoch.
+Tlačidlo **Vrátiť** pri zázname vráti činnosť späť (`restoreHistory`): jednorazová
+sa znova vytvorí z uloženej kópie (stĺpec `task`), opakovanej sa vráti termín;
+položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od najnovšieho.
 
 ## Upozornenia (push notifikácie)
 

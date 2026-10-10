@@ -200,6 +200,7 @@ function lfOpenPage(dir) {
       '<button class="icon-btn" id="lfZoomOut" title="Oddialiť"><span class="ms">remove</span></button>' +
       '<button class="icon-btn" id="lfZoomIn" title="Priblížiť"><span class="ms">add</span></button>' +
       '<button class="btn tonal" id="lfMode"></button>' +
+      '<button class="lf-pageno" id="lfPageNo" title="Prejsť na stranu">' + p.n + ' / ' + f.pages.length + '</button>' +
       '<button class="icon-btn" id="lfNext" title="Ďalšia"><span class="ms">chevron_right</span></button>'
   );
   const img = $('lfImg');
@@ -218,6 +219,7 @@ function lfOpenPage(dir) {
   $('lfNext').disabled = lf.page === f.pages.length - 1;
   $('lfPrev').onclick = () => lfStep(-1);
   $('lfNext').onclick = () => lfStep(1);
+  $('lfPageNo').onclick = lfAskPage;
   $('lfZoomIn').onclick = () => lfSetZoom(lf.zoom + 1);
   $('lfZoomOut').onclick = () => lfSetZoom(lf.zoom - 1);
   $('lfMode').onclick = () => {
@@ -236,6 +238,47 @@ function lfStep(d) {
   if (next < 0 || next >= lf.flyer.pages.length) return;
   lf.page = next;
   lfOpenPage(d);
+}
+
+/** Ťuknutie na číslo strany: zadá sa číslo a leták skočí na tú stranu. */
+function lfAskPage() {
+  const btn = $('lfPageNo');
+  const pages = lf.flyer.pages;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.inputMode = 'numeric';
+  input.min = 1;
+  input.max = pages.length;
+  input.className = 'lf-pageno';
+  input.placeholder = pages[lf.page].n;
+  input.setAttribute('aria-label', 'Číslo strany (1 – ' + pages.length + ')');
+  btn.replaceWith(input);
+  input.focus();
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    const n = parseInt(input.value, 10);
+    // strany letáka majú svoje čísla; ak také nie je, ber poradie
+    let index = pages.findIndex((x) => x.n === n);
+    if (index < 0 && n >= 1) index = Math.min(n, pages.length) - 1;
+    if (index >= 0 && index !== lf.page) {
+      const d = index > lf.page ? 1 : -1;
+      lf.page = index;
+      lfOpenPage(d);
+    } else {
+      input.replaceWith(btn);
+    }
+  };
+  input.onkeydown = (e) => {
+    e.stopPropagation(); // Escape tu nezatvára leták
+    if (e.key === 'Enter') go();
+    if (e.key === 'Escape') {
+      input.value = '';
+      go();
+    }
+  };
+  input.onblur = go;
 }
 
 function lfModeUpdate() {

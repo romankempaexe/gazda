@@ -546,8 +546,8 @@ async function historyStatement(c, cinnost) {
   return c.db
     .prepare(
       `INSERT INTO historia (id, household_id, cinnost_id, name, kind, store, icon, color, priestor, due_date,
-                             completed_by, completed_at, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                             completed_by, completed_at, items, task)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       uuid(),
@@ -562,8 +562,97 @@ async function historyStatement(c, cinnost) {
       cinnost.due_date,
       c.email,
       nowIso(),
-      JSON.stringify(list)
+      JSON.stringify(list),
+      JSON.stringify(cinnost)
     );
+}
+
+/**
+ * Vráti dokončenú činnosť z histórie späť: jednorazová sa znova vytvorí (s rovnakým id),
+ * opakovanej sa vráti pôvodný termín. Položky dostanú stav, aký mali pri dokončení
+ * (odškrtnuté sa vrátia, aj s obrázkami). Záznam z histórie sa vymaže.
+ */
+export async function restoreHistory(c, historyId) {
+  const h = await c.db.prepare('SELECT * FROM historia WHERE id = ?').bind(String(historyId ?? '')).first();
+  if (!h) throw new AppError('Záznam v histórii neexistuje (možno ho už niekto vrátil).', 404);
+  await requireMember(c, h.household_id);
+  const newer = await c.db
+    .prepare('SELECT 1 FROM historia WHERE household_id = ? AND cinnost_id = ? AND completed_at > ? LIMIT 1')
+    .bind(h.household_id, h.cinnost_id, h.completed_at)
+    .first();
+  if (newer) throw new AppError('Najprv vráť novšie dokončenie tejto činnosti.');
+
+  const id = h.cinnost_id || uuid();
+  const existing = await c.db.prepare('SELECT * FROM cinnosti WHERE id = ?').bind(id).first();
+  if (existing && existing.household_id !== h.household_id) throw new AppError('Činnosť sa nedá vrátiť.');
+  const statements = [];
+  if (existing) {
+    statements.push(c.db.prepare('UPDATE cinnosti SET due_date = ? WHERE id = ?').bind(h.due_date, id));
+  } else {
+    let task = {};
+    try {
+      task = JSON.parse(h.task || '{}') || {};
+    } catch {
+      task = {};
+    }
+    // priestor mohol medzičasom zaniknúť; staré záznamy majú len jeho názov
+    const priestor = await c.db
+      .prepare('SELECT id FROM priestory WHERE household_id = ? AND (id = ? OR name = ?) ORDER BY id = ? DESC LIMIT 1')
+      .bind(h.household_id, String(task.priestor_id || ''), h.priestor, String(task.priestor_id || ''))
+      .first();
+    const row = {
+      id,
+      household_id: h.household_id,
+      priestor_id: priestor ? priestor.id : '',
+      name: h.name,
+      description: String(task.description || ''),
+      assigned_to: task.assigned_to ?? h.completed_by,
+      icon: h.icon,
+      color: h.color,
+      due_date: h.due_date,
+      periodicity: PERIODICITIES.includes(task.periodicity) ? task.periodicity : 'none',
+      repeat_interval: task.repeat_interval ?? null,
+      kind: h.kind,
+      store: h.store,
+      created_at: task.created_at || nowIso(),
+    };
+    const columns = Object.keys(row);
+    statements.push(
+      c.db
+        .prepare(`INSERT INTO cinnosti (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+        .bind(...columns.map((k) => row[k]))
+    );
+  }
+  const items = JSON.parse(h.items || '[]')
+    .filter((i) => i && i.id && i.text)
+    .map((i, index) => ({
+      id: String(i.id),
+      text: String(i.text),
+      qty: String(i.qty || ''),
+      price: String(i.price || ''),
+      done: i.state === 'done' ? 1 : 0,
+      missing: i.state === 'missing' ? 1 : 0,
+      position: index + 1,
+    }));
+  if (items.length) {
+    // položky, ktoré na opakovanej činnosti ostali, dostanú späť svoj stav
+    statements.push(
+      c.db
+        .prepare(
+          `INSERT INTO polozky (id, cinnost_id, household_id, text, qty, done, missing, position, created_at, created_by, price)
+           SELECT json_extract(value, '$.id'), ?, ?, json_extract(value, '$.text'), json_extract(value, '$.qty'),
+                  json_extract(value, '$.done'), json_extract(value, '$.missing'), json_extract(value, '$.position'),
+                  ?, ?, json_extract(value, '$.price')
+           FROM json_each(?) WHERE true
+           ON CONFLICT (id) DO UPDATE SET done = excluded.done, missing = excluded.missing
+             WHERE polozky.cinnost_id = excluded.cinnost_id`
+        )
+        .bind(id, h.household_id, nowIso(), c.email, JSON.stringify(items))
+    );
+  }
+  statements.push(c.db.prepare('DELETE FROM historia WHERE id = ?').bind(h.id));
+  await c.db.batch(statements);
+  return loadCinnost(c, id);
 }
 
 const HISTORY_PAGE = 40;

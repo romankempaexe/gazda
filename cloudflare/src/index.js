@@ -36,6 +36,7 @@ const METHODS = {
   setItemMissing: api.setItemMissing,
   getHistory: api.getHistory,
   rememberProducts: api.rememberProducts,
+  getRev: api.getRev,
   restoreHistory: api.restoreHistory,
   deleteCinnost: api.deleteCinnost,
   completeCinnost: api.completeCinnost,

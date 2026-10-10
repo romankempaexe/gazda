@@ -260,3 +260,16 @@ test('nové produkty sa zapamätajú hneď pri písaní, použitie pribudne pri 
   d = await roman.api.getHouseholdData(h.id);
   assert.equal(d.products[0], 'Ovsené vločky');
 });
+
+test('verzia domácnosti sa zmení pri každej zmene (nákup naživo)', async () => {
+  const h = (await roman.api.createHousehold('Naživo', 'jana@gmail.com')).households.find((x) => x.name === 'Naživo');
+  const r0 = await jana.api.getRev(h.id);
+  const task = await roman.api.addCinnost(h.id, { name: 'Nákup', kind: 'nakup', dueDate: '2026-10-07', assignedTo: '*', items: ['Mlieko'] });
+  const r1 = await jana.api.getRev(h.id);
+  assert.ok(r1 > r0);
+  await roman.api.toggleItem(task.items[0].id, true);
+  const r2 = await jana.api.getRev(h.id);
+  assert.ok(r2 > r1);
+  assert.equal(await jana.api.getRev(h.id), r2); // bez zmeny rovnaká
+  await rejects(cudzi.api.getRev(h.id), /nemáš prístup/, 403);
+});

@@ -2557,3 +2557,64 @@ input.lf-pageno::-webkit-inner-spin-button {
 .list-select .card.active {
   background: var(--primary-soft);
 }
+
+/* ------------------------------------------------ Nákup podľa oddelení */
+.dept-head {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 10px 2px;
+}
+
+.check-item.compact + .dept-head,
+.card-checklist .dept-head {
+  padding: 6px 4px 0;
+  font-size: 10.5px;
+}
+
+.check-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.check-head label {
+  margin: 0;
+}
+
+.chip.small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.chip.small .ms {
+  font-size: 15px;
+}
+
+@keyframes flash-in {
+  from {
+    background: var(--primary-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.check-item.flash {
+  animation: flash-in 1.6s ease-out;
+}
+
+.hist-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+}

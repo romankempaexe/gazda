@@ -411,6 +411,13 @@ function rememberShoppingStatements(c, householdId, store, texts) {
  * Zapamätá nové produkty hneď, keď ich niekto napíše do zoznamu (aj keď činnosť ešte
  * neuložil), aby ich našepkávanie ponúklo nabudúce. Počet použití pribudne až pri uložení.
  */
+/** Verzia domácnosti (mení sa pri každej zmene) – lacná kontrola, či treba načítať údaje. */
+export async function getRev(c, householdId) {
+  await requireMember(c, householdId);
+  const row = await c.db.prepare('SELECT rev FROM households WHERE id = ?').bind(householdId).first();
+  return row ? row.rev : 0;
+}
+
 export async function rememberProducts(c, householdId, texts) {
   await requireMember(c, householdId);
   const products = new Map();

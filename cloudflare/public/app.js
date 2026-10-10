@@ -2075,6 +2075,11 @@ function showCinnostForm(priestorId, existing, opts) {
     '<section class="fsec"' + (extra || '') + '><div class="fsec-title"><span class="ms">' + icon + '</span>' + title + '</div>' + body + '</section>';
   openModal(
     '<form id="f" class="task-form">' +
+      // Tlačidlá hore – dole ich na mobile prekrývala klávesnica a obsah.
+      '<div class="form-actions">' +
+      '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+      (edit ? '<button type="button" class="icon-btn" id="delete" title="Vymazať činnosť"><span class="ms">delete</span></button>' : '') +
+      '<button class="btn">' + (edit ? 'Uložiť' : 'Vytvoriť') + '</button></div>' +
       '<div class="form-head"><span class="ms task-icon" id="fIcon" style="background:' + esc(currentColor) + '">' +
       ICONS[v.kind === 'nakup' ? 'shopping' : currentIcon] + '</span><div class="form-head-text">' +
       '<div class="form-kicker">' + (edit ? 'Upraviť činnosť' : v.kind === 'nakup' ? 'Nový nákup' : 'Nová domáca činnosť') + '</div>' +
@@ -2119,10 +2124,7 @@ function showCinnostForm(priestorId, existing, opts) {
           '<div class="field" id="colorField"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>',
         ' id="lookField"'
       ) +
-      '<div class="actions form-actions">' +
-      (edit ? '<button type="button" class="icon-btn danger-text" id="delete" title="Vymazať činnosť"><span class="ms">delete</span></button>' : '') +
-      '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
-      '<button class="btn">' + (edit ? 'Uložiť' : 'Vytvoriť činnosť') + '</button></div></form>',
+      '</form>',
     (root) => {
       const form = root.querySelector('#f');
       let icon = currentIcon;

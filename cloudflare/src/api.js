@@ -529,6 +529,16 @@ export async function setItemMissing(c, itemId, missing) {
   return toItem({ ...item, done: 0, missing: missing ? 1 : 0 });
 }
 
+/** Cena položky (napr. z akcie v letáku); prázdna cenu zmaže. */
+export async function setItemPrice(c, itemId, price) {
+  const item = await c.db.prepare(ITEMS_SQL + ' WHERE p.id = ?').bind(String(itemId ?? '')).first();
+  if (!item) throw new AppError('Položka neexistuje (možno ju medzičasom niekto vymazal).', 404);
+  await requireMember(c, item.household_id);
+  price = cleanPrice(price);
+  await c.db.prepare('UPDATE polozky SET price = ? WHERE id = ?').bind(price, item.id).run();
+  return toItem({ ...item, price });
+}
+
 export async function deleteCinnost(c, cinnostId) {
   const cinnost = await findCinnost(c, cinnostId);
   await c.db.batch([

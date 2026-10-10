@@ -16,8 +16,9 @@ import { authenticate, endSession, startSession } from './auth.js';
 import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
+import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
-import { analyzeLeafletPage, getLeaflet, identifyLeafletProduct, getLeaflets, leafletImage } from './leaflets.js';
+import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -37,6 +38,8 @@ const METHODS = {
   getHistory: api.getHistory,
   rememberProducts: api.rememberProducts,
   getRev: api.getRev,
+  getOffers,
+  setItemPrice: api.setItemPrice,
   restoreHistory: api.restoreHistory,
   deleteCinnost: api.deleteCinnost,
   completeCinnost: api.completeCinnost,
@@ -64,8 +67,13 @@ export default {
 
   // Cron (wrangler.json „triggers“): každých 15 minút – ranný prehľad raz denne o 8:00.
   async scheduled(event, env, ctx) {
+    const now = new Date(event.scheduledTime);
     ctx.waitUntil(
-      scheduledTick(env.DB, new Date(event.scheduledTime)).catch((err) => console.error('Ranný prehľad: ' + err))
+      scheduledTick(env.DB, now)
+        .catch((err) => console.error('Ranný prehľad: ' + err))
+        // akcie na často kupované produkty – raz denne po 9:00 (vlastný beh, mimo prehľadu)
+        .then(() => sendDealAlerts({ db: env.DB, fetch: env.TEST_FETCH }, now))
+        .catch((err) => console.error('Akcie: ' + err))
     );
   },
 };

@@ -1546,6 +1546,100 @@ async function completeTask(id, button) {
   }
 }
 
+// ---- Akcie a porovnanie cien (Kimbino) ---------------------------------------
+
+const offersCache = new Map(); // výraz → { data } alebo { loading: Promise }
+
+function offerKey(text) {
+  return normalizeText(text).replace(/\d+([.,]\d+)?\s*(%|ks|kg|g|l|ml|bal\.?|x)?/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Najlacnejšia akcia, ktorá naozaj zodpovedá položke (hlavné slovo v názve ponuky). */
+function bestOffer(text, offers) {
+  const word = normalizeText(text).split(/[^a-z0-9]+/).find((w) => w.length >= 3);
+  if (!word) return null;
+  const stem = word.slice(0, Math.max(3, word.length - 2));
+  return (offers || []).find((o) => normalizeText(o.name).includes(stem)) || null;
+}
+
+function offerLineHtml(i) {
+  const hit = offersCache.get(offerKey(i.text));
+  const o = hit && hit.data && bestOffer(i.text, hit.data.offers);
+  if (!o) return '';
+  return (
+    '<span class="offer-line" data-offer="1"><span class="ms">sell</span>' + esc(o.store) + ' ' + esc(formatPrice(o.price)) +
+    (hit.data.offers.length > 1 ? ' · +' + (hit.data.offers.length - 1) + ' ďalšie' : '') + '</span>'
+  );
+}
+
+/** Akcie pre položky (najviac 15 naraz; výsledky si appka pamätá) – potom prekreslí zoznam. */
+function loadOffersFor(items, rerender) {
+  const missing = items.map((i) => offerKey(i.text)).filter((k) => k && !offersCache.has(k)).slice(0, 15);
+  if (!missing.length) return;
+  const jobs = missing.map((k) => {
+    const job = apiQuiet('getOffers', k)
+      .then((data) => offersCache.set(k, { data }))
+      .catch(() => offersCache.set(k, { data: { offers: [] } }));
+    offersCache.set(k, { loading: job });
+    return job;
+  });
+  Promise.all(jobs).then(() => {
+    if ($('modalContent').querySelector('#checklist')) rerender();
+  });
+}
+
+/** Porovnanie cien: všetky akcie na položku; leták sa dá otvoriť, cena použiť. */
+function showOffers(c, itemId, back) {
+  const item = (c.items || []).find((i) => i.id === itemId);
+  const hit = item && offersCache.get(offerKey(item.text));
+  if (!hit || !hit.data) return;
+  const offers = hit.data.offers;
+  const until = (d) => (d ? 'do ' + formatDateShort(d) : '');
+  openModal(
+    '<h2>' + esc(item.text) + ' v akcii</h2><div class="subtitle">Najlacnejšie prvé · z letákov obchodov (Kimbino)</div>' +
+      '<div class="offers">' +
+      offers
+        .map(
+          (o, idx) =>
+            '<div class="offer">' + (o.img ? '<img src="/api/leaflets/image?p=' + encodeURIComponent(o.img) + '" alt="" loading="lazy">' : '<span class="ms">sell</span>') +
+            '<div class="offer-body"><div class="offer-name">' + esc(o.name) + '</div>' +
+            '<div class="hint">' + esc(o.store) + ' · ' + esc(until(o.validTo)) + '</div></div>' +
+            '<div class="offer-side"><div class="offer-price">' + esc(formatPrice(o.price)) + '</div>' +
+            '<div class="offer-acts">' +
+            (o.flyer ? '<button type="button" class="icon-btn small" data-open="' + idx + '" title="Otvoriť leták"><span class="ms">newspaper</span></button>' : '') +
+            '<button type="button" class="icon-btn small" data-use="' + idx + '" title="Použiť cenu v nákupe"><span class="ms">payments</span></button>' +
+            '</div></div></div>'
+        )
+        .join('') +
+      '</div><div class="actions"><button type="button" class="btn text" id="back"><span class="ms">arrow_back</span>Späť</button></div>',
+    (root) => {
+      root.querySelector('#back').onclick = () => showTaskDetail(c.id);
+      root.querySelectorAll('[data-open]').forEach((b) => {
+        b.onclick = () => {
+          const o = offers[Number(b.dataset.open)];
+          closeModal(true);
+          openLeaflets({ taskId: c.id, flyer: o.flyer, page: o.page });
+        };
+      });
+      root.querySelectorAll('[data-use]').forEach((b) => {
+        b.onclick = async () => {
+          const o = offers[Number(b.dataset.use)];
+          try {
+            const saved = await api('setItemPrice', item.id, o.price);
+            item.price = saved.price;
+            refreshTaskCards(c);
+            toast('Cena ' + formatPrice(o.price) + ' (' + o.store + ') použitá');
+            showTaskDetail(c.id);
+          } catch (err) {
+            showError(err);
+          }
+        };
+      });
+    },
+    { focus: false }
+  );
+}
+
 /** Nový nákup z položiek nákupu v histórii (všetky, aj tie, čo nemali). */
 function shopAgain(entryId) {
   const e = state.history && state.history.entries.find((x) => x.id === entryId);
@@ -2219,7 +2313,8 @@ function showTaskDetail(id) {
         const row = (i) =>
           '<button type="button" class="check-item' + itemClass(i) + '" data-item="' + esc(i.id) + '">' +
           '<span class="ms">' + itemIcon(i) + '</span>' + thumbHtml(i) +
-          '<span class="check-text">' + esc(i.text) + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>';
+          '<span class="check-text">' + esc(i.text) +
+          (shopping && !i.done && !i.missing ? offerLineHtml(i) : '') + '</span>' + qtyHtml(i) + missHtml(c, i) + '</button>';
         const rest = items.filter((i) => i.missing).concat(items.filter((i) => i.done));
         const byDept = shopping && byDeptMode();
         const groups = byDept ? groupByDept(items.filter(open)) : [['', items.filter(open)]];
@@ -2233,10 +2328,12 @@ function showTaskDetail(id) {
             (rest.length && byDept ? deptHead('Vybavené') : '') + rest.map(row).join('')
           : '<div class="hint">Zatiaľ žiadne položky.</div>';
         root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
+        if (shopping) loadOffersFor(items.filter(open), renderList);
         listEl.querySelectorAll('[data-item]').forEach((b) => {
           b.onclick = (e) => {
             if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
             if (e.target.closest('[data-miss]')) return toggleMissingItem(c, b.dataset.item, renderList);
+            if (e.target.closest('[data-offer]')) return showOffers(c, b.dataset.item, renderList);
             toggle(b.dataset.item);
           };
         });

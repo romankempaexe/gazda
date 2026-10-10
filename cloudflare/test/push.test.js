@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
 import { b64urlDecode, b64urlEncode, encryptPayload, vapidAuthorization, generateVapidKeys } from '../src/webpush.js';
 import { scheduledTick } from '../src/notifications.js';
+import { sendDealAlerts, matchingOffer } from '../src/deals.js';
 
 const enc = new TextEncoder();
 
@@ -192,6 +193,43 @@ test('pripomienka v zadaný čas: raz, v čase termínu; zmena času ju znova za
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:15:00Z')), 0); // len raz
   await roman.api.updateCinnost(c.id, { ...c, dueTime: '18:30' });
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:30:00Z')), 1);
+});
+
+test('akcie na často kupované produkty: raz denne, každú akciu len raz', async () => {
+  for (let i = 0; i < 2; i++) await roman.api.addCinnost(hid, { name: 'Nákup ' + i, kind: 'nakup', dueDate: '2026-10-20', assignedTo: 'roman@exe.sk', items: ['Mlieko'] });
+  // stránka produktu na Kimbine (__NUXT_DATA__ sploštené ako v Nuxte)
+  const flat = [];
+  const add = (v) => {
+    const i = flat.length;
+    flat.push(null);
+    flat[i] = v !== null && typeof v === 'object' ? (Array.isArray(v) ? v.map(add) : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, add(x)]))) : v;
+    return i;
+  };
+  add({ pinia: { products: { product: { name: 'Mlieko', shops: [{ id: 3, name: 'Billa', sef: 'billa' }] } }, brochures: { primaryGrid: [
+    { id: 1, shop_id: 3, name: 'Rajo mlieko 1 l', price: '0,99 €', page: 2, sef: 'billa-letak-6132219', dateEnd: '2026-10-21T23:59:59Z' },
+  ] } } });
+  const html = '<script id="__NUXT_DATA__" type="application/json">' + JSON.stringify(flat) + '</script>';
+  const kimbino = [];
+  const fakeFetch = async (url, init) => {
+    if (String(url).startsWith('https://www.kimbino.sk/')) {
+      kimbino.push(String(url));
+      return new Response(String(url).includes('mlieko') ? html : 'nič');
+    }
+    return globalThis.fetch(url, init);
+  };
+  sent.length = 0;
+  const c = { db: t.env.DB, fetch: fakeFetch };
+  assert.equal(await sendDealAlerts(c, new Date('2026-10-20T05:00:00Z')), 0); // 7:00 – ešte nie
+  const n = await sendDealAlerts(c, new Date('2026-10-20T07:00:00Z')); // 9:00
+  assert.ok(n >= 1);
+  const msg = JSON.parse(await decrypt(romanPhone, sent.find((x) => x.url === romanPhone.subscription.endpoint).body));
+  assert.equal(msg.title, '🏷 V akcii: Mlieko');
+  assert.equal(msg.body, '• Mlieko – Billa 0,99 € (do 21. 10.)');
+  assert.equal(await sendDealAlerts(c, new Date('2026-10-20T07:15:00Z')), 0); // raz denne
+  sent.length = 0;
+  assert.equal(await sendDealAlerts(c, new Date('2026-10-21T07:00:00Z')), 0); // tá istá akcia sa neopakuje
+  assert.equal(matchingOffer('Maslo', [{ name: 'Arašidové maslo' }, { name: 'Rajo maslo' }]).name, 'Arašidové maslo');
+  assert.equal(matchingOffer('Mlieko', [{ name: 'Syr' }]), null);
 });
 
 test('vypnutie upozornení na zariadení', async () => {

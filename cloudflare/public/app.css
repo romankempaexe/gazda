@@ -2677,3 +2677,75 @@ input.lf-pageno::-webkit-inner-spin-button {
 .tpl:active {
   background: var(--primary-soft);
 }
+
+/* ------------------------------------------------ Akcie a porovnanie cien */
+.offer-line {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.offer-line .ms {
+  font-size: 14px;
+  color: var(--accent) !important;
+}
+
+.offers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.offer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.offer img,
+.offer > .ms {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.offer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.offer-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.offer-side {
+  flex: none;
+  text-align: right;
+}
+
+.offer-price {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.offer-acts {
+  display: flex;
+  justify-content: flex-end;
+}

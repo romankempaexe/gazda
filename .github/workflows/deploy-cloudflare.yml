@@ -101,9 +101,5 @@ jobs:
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
-            if [ -n "$TARGET_ENV" ]; then
-              sleep 15
-              for q in mlieko "kuracie prsia"; do curl -sS "$url/api/debug/kimbino?q=$(echo $q | sed "s/ /%20/g")" | head -c 9000; echo; done
-            fi
           fi
 

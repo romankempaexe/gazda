@@ -1121,6 +1121,49 @@ function renderDetail(opts) {
 
   const selected = $('view').querySelector('.cal-day.selected');
   if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+  runLaunchAction();
+}
+
+// ---- Skratky ikony aplikácie (dlhé podržanie ikony na ploche) --------------------
+
+// /?akcia=nakup – rovno pridávanie do nákupu, /?akcia=nova – nová činnosť
+let launchAction = (() => {
+  try {
+    const action = new URLSearchParams(location.search).get('akcia');
+    if (action) history.replaceState(null, '', location.pathname);
+    return action;
+  } catch {
+    return null;
+  }
+})();
+
+function runLaunchAction() {
+  if (!launchAction || !state.detail || !state.email) return;
+  const action = launchAction;
+  launchAction = null;
+  setTimeout(() => (action === 'nova' ? showKindStep() : quickShop()), 300);
+}
+
+/** Pridávanie do nákupu: najbližší môj (alebo spoločný) nákup, inak nový „Nakúpiť“ na dnes. */
+async function quickShop() {
+  let c = state.detail.cinnosti
+    .filter((x) => x.kind === 'nakup' && !x.pending && (isMine(x) || !x.assignedTo))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  if (!c) {
+    try {
+      c = await api('addCinnost', state.detail.household.id, {
+        name: 'Nakúpiť', kind: 'nakup', icon: 'shopping', dueDate: todayYmd(), assignedTo: state.email, periodicity: 'none', items: [],
+      });
+      state.detail.cinnosti.push(c);
+      renderDetail({ quiet: true });
+    } catch (err) {
+      showError(err);
+      return;
+    }
+  }
+  showTaskDetail(c.id);
+  const input = $('modalContent').querySelector('#itemInput');
+  if (input) input.focus();
 }
 
 function renderCalendar(onlyMine) {

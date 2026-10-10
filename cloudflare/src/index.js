@@ -88,10 +88,6 @@ async function handleApi(request, env, url, ctx) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
     }
-    // DOČASNÉ (len náhľad): sonda Kimbino
-    if (url.pathname === '/api/debug/kimbino' && url.hostname.startsWith('gazda-preview')) {
-      return (await import('./probe.js')).probe(url);
-    }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
     }
@@ -179,6 +175,21 @@ function manifest() {
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+    // dlhé podržanie ikony (Android) – skratky; dajú sa aj pretiahnuť na plochu
+    shortcuts: [
+      {
+        name: 'Pridať do nákupu',
+        short_name: 'Do nákupu',
+        url: '/?akcia=nakup',
+        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+      },
+      {
+        name: 'Nová činnosť',
+        short_name: 'Nová činnosť',
+        url: '/?akcia=nova',
+        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+      },
     ],
   };
   return new Response(JSON.stringify(body), {

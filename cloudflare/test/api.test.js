@@ -248,3 +248,15 @@ test('limit D1 (50 dotazov na požiadavku): úloha so 100 položkami potrebuje m
     t.env.DB = realDb;
   }
 });
+
+test('nové produkty sa zapamätajú hneď pri písaní, použitie pribudne pri uložení', async () => {
+  const h = (await roman.api.createHousehold('Produkty', 'jana@gmail.com')).households.find((x) => x.name === 'Produkty');
+  assert.deepEqual(await jana.api.rememberProducts(h.id, [' Kešu orechy ', 'kešu ORECHY', '', 'Ovsené vločky']), { ok: true });
+  let d = await roman.api.getHouseholdData(h.id);
+  assert.deepEqual([...d.products].sort(), ['Kešu orechy', 'Ovsené vločky']);
+  await rejects(cudzi.api.rememberProducts(h.id, ['X']), /nemáš prístup/, 403);
+  // uložený nákup s produktom ho posunie dopredu
+  await roman.api.addCinnost(h.id, { name: 'Nákup', kind: 'nakup', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk', items: ['Ovsené vločky'] });
+  d = await roman.api.getHouseholdData(h.id);
+  assert.equal(d.products[0], 'Ovsené vločky');
+});

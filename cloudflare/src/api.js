@@ -407,6 +407,30 @@ function rememberShoppingStatements(c, householdId, store, texts) {
   return statements;
 }
 
+/**
+ * Zapamätá nové produkty hneď, keď ich niekto napíše do zoznamu (aj keď činnosť ešte
+ * neuložil), aby ich našepkávanie ponúklo nabudúce. Počet použití pribudne až pri uložení.
+ */
+export async function rememberProducts(c, householdId, texts) {
+  await requireMember(c, householdId);
+  const products = new Map();
+  for (const raw of Array.isArray(texts) ? texts.slice(0, 50) : []) {
+    const text = String(raw ?? '').trim().slice(0, 100);
+    if (text && !products.has(nameKey(text))) products.set(nameKey(text), text);
+  }
+  if (products.size) {
+    await c.db
+      .prepare(
+        `INSERT INTO produkty (household_id, name_key, name, uses, last_used)
+         SELECT ?, json_extract(value, '$[0]'), json_extract(value, '$[1]'), 0, ? FROM json_each(?) WHERE true
+         ON CONFLICT (household_id, name_key) DO NOTHING`
+      )
+      .bind(householdId, nowIso(), JSON.stringify([...products]))
+      .run();
+  }
+  return { ok: true };
+}
+
 export async function addCinnost(c, householdId, data) {
   await requireMember(c, householdId);
   const { priestor, fields, items } = await validateCinnost(c, householdId, data);

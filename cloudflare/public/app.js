@@ -1489,7 +1489,7 @@ function bindDetailEvents() {
   view.querySelectorAll('[data-open-task]').forEach((el) => {
     el.onclick = () => showTaskDetail(el.dataset.openTask);
   });
-  if ($('addTaskBtn')) $('addTaskBtn').onclick = showPriestorSelector;
+  if ($('addTaskBtn')) $('addTaskBtn').onclick = showKindStep;
 }
 
 /** Ťuknutie na položku v karte: odškrtnúť, „nemali“, alebo zväčšiť obrázok. */
@@ -1589,69 +1589,57 @@ function deleteTask(id) {
 // Priestory a nová činnosť
 // -------------------------------------------------------------------------
 
-function showPriestorSelector() {
+/** Nová činnosť po krokoch: 1. nákup alebo domáca činnosť, 2. komu, 3. formulár s vyplneným. */
+function showKindStep() {
+  const choice = (kind, icon, title, hint) =>
+    '<div class="card clickable wiz-choice" data-kind="' + kind + '"><span class="ms">' + icon + '</span>' +
+    '<div class="card-body"><div class="card-title">' + title + '</div><div class="hint">' + hint + '</div></div>' +
+    '<span class="ms muted">chevron_right</span></div>';
   openModal(
-    '<h2>Vyber priestor</h2><div class="subtitle">Kde sa má činnosť robiť?</div>' +
-      '<div class="card clickable shop-entry" id="shopEntry"><span class="ms">shopping_cart</span>' +
-      '<div class="card-body"><div class="card-title">Nákup</div><div class="hint">bez priestoru – stačí obchod a zoznam</div></div>' +
-      '<span class="ms muted">chevron_right</span></div>' +
-      '<div class="field"><input id="search" placeholder="Hľadaj priestor…"></div>' +
-      '<div class="list-select" id="plist"></div>' +
-      '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
-      '<button class="btn tonal" id="newP"><span class="ms">add</span>Nový priestor</button></div>',
+    '<h2>Nová činnosť</h2><div class="subtitle">Čo plánuješ?</div>' +
+      '<div class="list-select">' +
+      choice('nakup', 'shopping_cart', 'Nákup', 'zoznam na nákup, letáky') +
+      choice('domov', 'home', 'Domáca činnosť', 'upratovanie, opravy, záhrada…') +
+      '</div>' +
+      '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button></div>',
     (root) => {
-      const renderList = () => {
-        const q = root.querySelector('#search').value.trim().toLowerCase();
-        const items = state.detail.priestory
-          .filter((p) => p.name.toLowerCase().includes(q))
-          .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
-        root.querySelector('#plist').innerHTML = items.length
-          ? items
-              .map(
-                (p) =>
-                  '<div class="card" data-pid="' + esc(p.id) + '"><span class="ms">location_on</span>' +
-                  '<div class="card-body card-title">' + esc(p.name) + '</div>' +
-                  '<span class="ms muted">chevron_right</span></div>'
-              )
-              .join('')
-          : '<div class="empty">' +
-            (state.detail.priestory.length ? 'Nič sa nenašlo' : 'Žiadne priestory. Vytvor si prvý!') +
-            '</div>';
-        root.querySelectorAll('[data-pid]').forEach((el) => {
-          el.onclick = () => showCinnostForm(el.dataset.pid);
-        });
-      };
-      root.querySelector('#search').oninput = renderList;
-      root.querySelector('#shopEntry').onclick = () => showCinnostForm('', null, { shopping: true });
       root.querySelector('#cancel').onclick = closeModal;
-      root.querySelector('#newP').onclick = showNewPriestor;
-      renderList();
+      root.querySelectorAll('[data-kind]').forEach((el) => {
+        el.onclick = () => showAssignStep(el.dataset.kind === 'nakup');
+      });
     },
-    // Bez automatického fokusu – klávesnica by zakryla voľbu Nákup.
     { focus: false }
   );
 }
 
-function showNewPriestor() {
+function showAssignStep(shopping) {
+  const others = state.detail.members.map((m) => m.email).filter((e) => e !== state.email).sort();
+  const openForm = (assignedTo) => {
+    // jediný priestor sa vyberie sám
+    const only = state.detail.priestory.length === 1 ? state.detail.priestory[0].id : '';
+    showCinnostForm(shopping ? '' : only, null, { shopping, assignedTo });
+  };
+  // Sám v domácnosti – niet komu inému prideliť.
+  if (!others.length) return openForm(state.email);
+  const choice = (value, icon, title) =>
+    '<div class="card clickable" data-assign="' + esc(value) + '"><span class="ms">' + icon + '</span>' +
+    '<div class="card-body card-title">' + esc(title) + '</div><span class="ms muted">chevron_right</span></div>';
   openModal(
-    '<h2>Nový priestor</h2><div class="subtitle">Zadajte názov priestoru (napr. Kuchyňa, Záhrada)</div>' +
-      '<form id="f"><div class="field"><input name="name" maxlength="60" required></div>' +
-      '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
-      '<button class="btn">Pridať</button></div></form>',
+    '<h2>' + (shopping ? 'Nákup' : 'Domáca činnosť') + '</h2><div class="subtitle">Komu to prideliť?</div>' +
+      '<div class="list-select">' +
+      choice(state.email, 'person', shortName(state.email) + ' (ja)') +
+      others.map((e) => choice(e, 'person', shortName(e))).join('') +
+      choice(ALL, 'group', 'Všetci – spoločná') +
+      choice('', 'person_off', 'Nepriradené') +
+      '</div>' +
+      '<div class="actions"><button class="btn text" id="back"><span class="ms">arrow_back</span>Späť</button></div>',
     (root) => {
-      root.querySelector('#cancel').onclick = showPriestorSelector;
-      root.querySelector('#f').onsubmit = async (e) => {
-        e.preventDefault();
-        try {
-          const p = await api('addPriestor', state.detail.household.id, e.target.name.value);
-          state.detail.priestory.push(p);
-          toast('Priestor „' + p.name + '“ bol pridaný');
-          showCinnostForm(p.id);
-        } catch (err) {
-          showError(err);
-        }
-      };
-    }
+      root.querySelector('#back').onclick = showKindStep;
+      root.querySelectorAll('[data-assign]').forEach((el) => {
+        el.onclick = () => openForm(el.dataset.assign);
+      });
+    },
+    { focus: false }
   );
 }
 
@@ -2006,6 +1994,8 @@ function showEditCinnost(id) {
 }
 
 /** Formulár novej činnosti, alebo úpravy existujúcej (existing). */
+const NEW_PRIESTOR = '__new';
+
 function showCinnostForm(priestorId, existing, opts) {
   const edit = Boolean(existing);
   const shopOnly = !edit && Boolean(opts && opts.shopping);
@@ -2013,7 +2003,7 @@ function showCinnostForm(priestorId, existing, opts) {
   let v = existing || {
     name: '',
     description: '',
-    assignedTo: state.email,
+    assignedTo: opts && opts.assignedTo !== undefined ? opts.assignedTo : state.email,
     dueDate: state.selectedDate,
     periodicity: 'none',
     repeatInterval: 1,
@@ -2057,11 +2047,13 @@ function showCinnostForm(priestorId, existing, opts) {
     .sort((a, b) => a.name.localeCompare(b.name, 'sk'))
     .map((p) => '<option value="' + esc(p.id) + '"' + (p.id === priestorId ? ' selected' : '') + '>' + esc(p.name) + '</option>')
     .join('');
-  // Priestor sa vyberá vo formulári pri úprave a pri nákupe (môže byť aj bez priestoru).
-  const choosePriestor = edit || shopOnly;
+  // Priestor sa vyberá vo formulári (nákup ho mať nemusí); dá sa tu aj založiť nový.
   const priestorSelect =
-    '<div class="field' + (choosePriestor ? '' : ' hidden') + '" id="priestorField"><label>Priestor</label><select name="priestorId">' +
-    '<option value=""' + (priestorId ? '' : ' selected') + '>Bez priestoru (len nákup)</option>' + priestorOptions + '</select></div>';
+    '<div class="field" id="priestorField"><label>Priestor *</label><select name="priestorId">' +
+    '<option value=""' + (priestorId ? '' : ' selected') + '>' + (edit ? 'Bez priestoru (len nákup)' : 'Vyber priestor…') + '</option>' +
+    priestorOptions + '<option value="' + NEW_PRIESTOR + '">+ Nový priestor…</option></select>' +
+    '<div class="item-add hidden" id="newPriestorRow"><input id="newPriestorName" maxlength="60" placeholder="Názov (napr. Kuchyňa)">' +
+    '<button type="button" class="btn tonal small" id="newPriestorAdd"><span class="ms">add</span></button></div></div>';
   const currentIcon = ICONS[v.icon] ? v.icon : 'home';
   const currentColor = Object.values(COLORS).includes(v.color) ? v.color : COLORS['Zelená'];
   const iconButtons = Object.keys(ICONS)
@@ -2080,12 +2072,12 @@ function showCinnostForm(priestorId, existing, opts) {
     .join('');
 
   openModal(
-    '<h2>' + (edit ? 'Upraviť činnosť' : 'Nová činnosť') + '</h2>' +
-      (choosePriestor ? '' : '<div class="subtitle">Priestor: ' + esc(priestorName(priestorId)) + '</div>') +
+    '<h2>' + (edit ? 'Upraviť činnosť' : v.kind === 'nakup' ? 'Nový nákup' : 'Nová domáca činnosť') + '</h2>' +
       '<form id="f">' +
       '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div>' +
-      '<label class="switch"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
+      '<label class="switch' + (edit ? '' : ' hidden') + '"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
       '<span class="switch-track"></span><span class="ms">shopping_cart</span>Nákup</label>' +
+      priestorSelect +
       '<div class="field hidden" id="storeField"><label>Obchod</label>' +
       '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
       '<div class="suggest hidden" id="storeSuggest"></div></div>' +
@@ -2096,7 +2088,6 @@ function showCinnostForm(priestorId, existing, opts) {
       '<div class="suggest hidden" id="itemSuggest"></div>' +
       '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button></div>' +
       '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
-      priestorSelect +
       '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
       '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div></div>' +
       '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
@@ -2122,7 +2113,7 @@ function showCinnostForm(priestorId, existing, opts) {
       const applyKind = () => {
         const shop = shopping.checked;
         root.querySelector('#storeField').classList.add('hidden');
-        root.querySelector('#priestorField').classList.toggle('hidden', shop || !choosePriestor);
+        root.querySelector('#priestorField').classList.toggle('hidden', shop);
         root.querySelector('#iconField').classList.toggle('hidden', shop);
         root.querySelector('#colorField').classList.toggle('hidden', shop);
         root.querySelector('#formLeaflets').classList.toggle('hidden', !shop);
@@ -2132,6 +2123,47 @@ function showCinnostForm(priestorId, existing, opts) {
         if (shopping.checked && !form.name.value.trim()) form.name.value = 'Nakúpiť';
       };
       shopping.onchange = applyKind;
+
+      // „+ Nový priestor…“ vo výbere: názov sa zadá priamo vo formulári.
+      const pSelect = form.priestorId;
+      let lastPriestor = pSelect.value;
+      const newRow = root.querySelector('#newPriestorRow');
+      const newName = root.querySelector('#newPriestorName');
+      pSelect.onchange = () => {
+        const adding = pSelect.value === NEW_PRIESTOR;
+        newRow.classList.toggle('hidden', !adding);
+        if (adding) {
+          pSelect.value = lastPriestor;
+          newName.focus();
+        } else lastPriestor = pSelect.value;
+      };
+      const addPriestor = async () => {
+        if (!newName.value.trim()) return newName.focus();
+        const btn = root.querySelector('#newPriestorAdd');
+        btn.disabled = true;
+        try {
+          const p = await api('addPriestor', state.detail.household.id, newName.value);
+          state.detail.priestory.push(p);
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          pSelect.insertBefore(opt, pSelect.lastElementChild);
+          pSelect.value = lastPriestor = p.id;
+          newName.value = '';
+          newRow.classList.add('hidden');
+          toast('Priestor „' + p.name + '“ bol pridaný');
+        } catch (err) {
+          showError(err);
+        }
+        btn.disabled = false;
+      };
+      root.querySelector('#newPriestorAdd').onclick = addPriestor;
+      newName.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addPriestor();
+        }
+      };
       const storeSuggest = attachSuggest(storeInput, root.querySelector('#storeSuggest'), storeSources, null, (name) => {
         storeInput.value = name;
         storeSuggest.clear();
@@ -2224,7 +2256,7 @@ function showCinnostForm(priestorId, existing, opts) {
 
       form.onsubmit = async (e) => {
         e.preventDefault();
-        if (!form.isShopping.checked && !form.priestorId.value) {
+        if (!form.isShopping.checked && (!form.priestorId.value || form.priestorId.value === NEW_PRIESTOR)) {
           toast('Vyber priestor (bez priestoru môže byť len nákup)');
           form.priestorId.focus();
           return;

@@ -53,10 +53,10 @@ test('história: jednorazový nákup – čo sa kúpilo, čo nemali, aj s obráz
   const e = entries[0];
   assert.deepEqual([e.name, e.kind, e.store, e.completedBy, e.dueDate], ['Nákup Lidl', 'nakup', 'Lidl', 'jana@gmail.com', '2026-10-07']);
   assert.deepEqual(e.items, [
+    { text: 'Mascarpone 500 g', qty: '2 ks', price: '2.49', state: 'done', image: mascarpone.image },
     { text: 'Mlieko', qty: '', state: 'done' },
     { text: 'Chlieb', qty: '', state: 'missing' },
     { text: 'Maslo', qty: '', state: 'open' },
-    { text: 'Mascarpone 500 g', qty: '2 ks', price: '2.49', state: 'done', image: mascarpone.image },
   ]);
   // obrázok ostal pre históriu, aj keď položka už neexistuje
   const res = await t.fetch(mascarpone.image, { headers: { cookie: roman.cookie } });
@@ -122,8 +122,8 @@ test('vrátenie z histórie: jednorazová činnosť sa vráti so všetkým, aj s
     [back.id, back.name, back.priestorId, back.assignedTo, back.description, back.dueDate, back.periodicity],
     [task.id, 'Upratať', kuchyna.id, '*', 'Aj linku', '2026-10-06', 'none']
   );
-  assert.deepEqual(back.items.map((i) => [i.text, i.done]), [['Riad', true], ['Podlaha', false], ['Handra', false]]);
-  assert.equal(back.items[2].image, fotka.image);
+  assert.deepEqual(back.items.map((i) => [i.text, i.done]), [['Handra', false], ['Riad', true], ['Podlaha', false]]);
+  assert.equal(back.items[0].image, fotka.image);
   const res = await t.fetch(fotka.image, { headers: { cookie: roman.cookie } });
   assert.equal(res.status, 200);
   assert.equal((await roman.api.getHistory(hid)).entries.some((e) => e.id === entry.id), false);
@@ -150,6 +150,6 @@ test('vrátenie z histórie: opakovaná činnosť dostane späť termín a kúpe
   assert.equal(back.dueDate, '2026-10-07');
   assert.deepEqual(
     back.items.map((i) => [i.text, i.done, Boolean(i.missing)]),
-    [['Mlieko', true, false], ['Chlieb', false, true], ['Maslo', false, false], ['Káva', false, false]]
+    [['Káva', false, false], ['Mlieko', true, false], ['Chlieb', false, true], ['Maslo', false, false]]
   );
 });

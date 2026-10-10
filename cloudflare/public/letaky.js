@@ -833,7 +833,7 @@ function lfConfirm(thumb, mark, key, product, live) {
           const item = await api('addItem', taskId, text, qty, thumb, root.querySelector('#lfPrice').value);
           const c = state.detail.cinnosti.find((x) => x.id === taskId);
           if (c) {
-            c.items = (c.items || []).concat([item]);
+            c.items = [item].concat(c.items || []);
             rememberLocally({ items: name.value.trim() ? [item] : [] });
             toast('Pridané do „' + c.name + '“');
           }

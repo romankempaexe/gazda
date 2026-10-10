@@ -1831,12 +1831,12 @@ function showTaskDetail(id) {
     '<h2>' + esc(c.name) + '</h2>' +
       '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
       (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
-      '<div class="field"><label id="checkLabel"></label><div class="checklist" id="checklist"></div>' +
+      '<div class="field"><label id="checkLabel"></label>' +
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" placeholder="' +
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="checklist"></div></div>' +
       '<div class="actions">' +
       '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
       (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
@@ -1887,7 +1887,7 @@ function showTaskDetail(id) {
         suggest.clear();
         try {
           const item = await api('addItem', c.id, text, qty);
-          c.items = (c.items || []).concat([item]);
+          c.items = [item].concat(c.items || []);
           if (!state.detail.products.some((x) => normalizeText(x) === normalizeText(item.text))) {
             state.detail.products.unshift(item.text);
           }
@@ -2028,19 +2028,19 @@ function showCinnostForm(priestorId, existing, opts) {
   let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image, price: i.price }));
   const members = state.detail.members.map((m) => m.email).sort();
   // Ak je úloha pridelená niekomu, kto už nie je členom, ponecháme ho vo výbere.
-  if (v.assignedTo && !members.includes(v.assignedTo)) members.push(v.assignedTo);
-  const memberOptions =
-    '<option value="">Nepriradené</option>' +
-    '<option value="' + ALL + '"' + (v.assignedTo === ALL ? ' selected' : '') + '>Všetci – spoločná</option>' +
-    members
-      .map(
-        (e) =>
-          '<option value="' + esc(e) + '"' + (e === v.assignedTo ? ' selected' : '') + '>' +
-          esc(e === state.email ? shortName(e) + ' (ja)' : shortName(e)) + '</option>'
-      )
-      .join('');
-  const periodOptions = Object.keys(PERIODICITY)
-    .map((k) => '<option value="' + k + '"' + (k === v.periodicity ? ' selected' : '') + '>' + PERIODICITY[k].label + '</option>')
+  if (v.assignedTo && v.assignedTo !== ALL && !members.includes(v.assignedTo)) members.push(v.assignedTo);
+  // Pridelenie a opakovanie: čipy namiesto rozbaľovacích zoznamov (vidno všetky možnosti naraz).
+  const chip = (attr, value, icon, label, on) =>
+    '<button type="button" class="chip' + (on ? ' active' : '') + '" ' + attr + '="' + esc(value) + '">' +
+    (icon ? '<span class="ms">' + icon + '</span>' : '') + esc(label) + '</button>';
+  const memberChips =
+    [state.email].concat(members.filter((e) => e !== state.email))
+      .map((e) => chip('data-assign', e, 'person', e === state.email ? shortName(e) + ' (ja)' : shortName(e), e === v.assignedTo))
+      .join('') +
+    chip('data-assign', ALL, 'group', 'Všetci', v.assignedTo === ALL) +
+    chip('data-assign', '', 'person_off', 'Nikto', !v.assignedTo);
+  const periodChips = Object.keys(PERIODICITY)
+    .map((k) => chip('data-period', k, '', k === 'none' ? 'Raz' : PERIODICITY[k].label, k === v.periodicity))
     .join('');
   const priestorOptions = state.detail.priestory
     .slice()
@@ -2071,32 +2071,56 @@ function showCinnostForm(priestorId, existing, opts) {
     )
     .join('');
 
+  const section = (icon, title, body, extra) =>
+    '<section class="fsec"' + (extra || '') + '><div class="fsec-title"><span class="ms">' + icon + '</span>' + title + '</div>' + body + '</section>';
   openModal(
-    '<h2>' + (edit ? 'Upraviť činnosť' : v.kind === 'nakup' ? 'Nový nákup' : 'Nová domáca činnosť') + '</h2>' +
-      '<form id="f">' +
-      '<div class="field"><label>Názov *</label><input name="name" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div>' +
-      '<label class="switch' + (edit ? '' : ' hidden') + '"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
-      '<span class="switch-track"></span><span class="ms">shopping_cart</span>Nákup</label>' +
-      priestorSelect +
-      '<div class="field hidden" id="storeField"><label>Obchod</label>' +
-      '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
-      '<div class="suggest hidden" id="storeSuggest"></div></div>' +
-      '<div class="field"><label id="itemsLabel">Checklist</label><div class="checklist" id="itemList"></div>' +
-      '<div class="item-add">' + stepperHtml('id="qtyInput"') +
-      '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
-      '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div>' +
-      '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button></div>' +
-      '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
-      '<div class="row"><div class="field"><label>Pridelené</label><select name="assignedTo">' + memberOptions + '</select></div>' +
-      '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div></div>' +
-      '<div class="row"><div class="field"><label>Opakovanie</label><select name="periodicity">' + periodOptions + '</select></div>' +
-      '<div class="field hidden" id="intervalField"><label id="intervalLabel">Každých X</label>' +
-      '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '"><div class="hint" id="intervalHint"></div></div></div>' +
-      '<div class="field" id="iconField"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
-      '<div class="field" id="colorField"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>' +
-      '<div class="actions">' +
-      (edit ? '<button type="button" class="btn text danger-text" id="delete" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' : '') +
+    '<form id="f" class="task-form">' +
+      '<div class="form-head"><span class="ms task-icon" id="fIcon" style="background:' + esc(currentColor) + '">' +
+      ICONS[v.kind === 'nakup' ? 'shopping' : currentIcon] + '</span><div class="form-head-text">' +
+      '<div class="form-kicker">' + (edit ? 'Upraviť činnosť' : v.kind === 'nakup' ? 'Nový nákup' : 'Nová domáca činnosť') + '</div>' +
+      '<input name="name" class="title-input" maxlength="80" required placeholder="Čo je treba urobiť?" value="' + esc(v.name) + '"></div></div>' +
+      section(
+        'checklist',
+        '<span id="itemsLabel">Checklist</span><span class="fsec-count" id="itemsCount"></span>',
+        '<div class="item-add">' + stepperHtml('id="qtyInput"') +
+          '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať položku…">' +
+          '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
+          '<div class="suggest hidden" id="itemSuggest"></div>' +
+          '<button type="button" class="btn tonal small hidden" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button>' +
+          '<div class="checklist" id="itemList"></div>'
+      ) +
+      section(
+        'event',
+        'Kto a kedy',
+        '<div class="field"><label>Pridelené</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
+          '<div class="chips wrap">' + memberChips + '</div></div>' +
+          '<div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<div class="field"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
+          '<div class="chips seg">' + periodChips + '</div>' +
+          '<div class="interval hidden" id="intervalField"><span>každých</span>' +
+          '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '">' +
+          '<span id="intervalLabel"></span></div><div class="hint" id="intervalHint"></div></div>'
+      ) +
+      section(
+        'notes',
+        'Podrobnosti',
+        priestorSelect +
+          '<div class="field hidden" id="storeField"><label>Obchod</label>' +
+          '<input name="store" maxlength="60" placeholder="Kde? (napr. Lidl)" autocomplete="off" value="' + esc(v.store || '') + '">' +
+          '<div class="suggest hidden" id="storeSuggest"></div></div>' +
+          '<div class="field"><label>Popis</label><textarea name="description" rows="2" placeholder="Detaily a inštrukcie…">' + esc(v.description) + '</textarea></div>' +
+          '<label class="switch' + (edit ? '' : ' hidden') + '"><input type="checkbox" name="isShopping"' + (v.kind === 'nakup' ? ' checked' : '') + '>' +
+          '<span class="switch-track"></span><span class="ms">shopping_cart</span>Je to nákup</label>'
+      ) +
+      section(
+        'palette',
+        'Vzhľad',
+        '<div class="field" id="iconField"><label>Ikona</label><div class="icon-grid">' + iconButtons + '</div></div>' +
+          '<div class="field" id="colorField"><label>Farba</label><div class="color-grid">' + colorButtons + '</div></div>',
+        ' id="lookField"'
+      ) +
+      '<div class="actions form-actions">' +
+      (edit ? '<button type="button" class="icon-btn danger-text" id="delete" title="Vymazať činnosť"><span class="ms">delete</span></button>' : '') +
       '<button type="button" class="btn text" id="cancel">Zrušiť</button>' +
       '<button class="btn">' + (edit ? 'Uložiť' : 'Vytvoriť činnosť') + '</button></div></form>',
     (root) => {
@@ -2114,8 +2138,8 @@ function showCinnostForm(priestorId, existing, opts) {
         const shop = shopping.checked;
         root.querySelector('#storeField').classList.add('hidden');
         root.querySelector('#priestorField').classList.toggle('hidden', shop);
-        root.querySelector('#iconField').classList.toggle('hidden', shop);
-        root.querySelector('#colorField').classList.toggle('hidden', shop);
+        root.querySelector('#lookField').classList.toggle('hidden', shop);
+        updateHeadIcon();
         root.querySelector('#formLeaflets').classList.toggle('hidden', !shop);
         root.querySelector('#itemsLabel').textContent = shopping.checked ? 'Nakúpiť' : 'Checklist';
         itemInput.placeholder = shopping.checked ? 'Pridať produkt…' : 'Pridať položku…';
@@ -2172,6 +2196,7 @@ function showCinnostForm(priestorId, existing, opts) {
 
       // Checklist
       const renderItems = () => {
+        root.querySelector('#itemsCount').textContent = items.length ? String(items.length) : '';
         root.querySelector('#itemList').innerHTML = items
           .map(
             (i, idx) =>
@@ -2198,7 +2223,7 @@ function showCinnostForm(priestorId, existing, opts) {
         if (!text) return;
         const same = items.find((i) => normalizeText(i.text) === normalizeText(text));
         if (same) same.qty = qty || same.qty;
-        else items.push({ text, qty, done: false });
+        else items.unshift({ text, qty, done: false });
         itemInput.value = '';
         qtyInput.value = '';
         itemSuggest.clear();
@@ -2219,12 +2244,29 @@ function showCinnostForm(priestorId, existing, opts) {
       form.periodicity.onchange = () => {
         const p = PERIODICITY[form.periodicity.value];
         root.querySelector('#intervalField').classList.toggle('hidden', form.periodicity.value === 'none');
-        root.querySelector('#intervalLabel').textContent = p.unit ? 'Každých X ' + p.unit : '';
+        root.querySelector('#intervalLabel').textContent = p.unit || '';
         root.querySelector('#intervalHint').textContent = p.hint || '';
       };
+      const pickChip = (attr, input, onPick) => {
+        root.querySelectorAll('[' + attr + ']').forEach((b) => {
+          b.onclick = () => {
+            root.querySelectorAll('[' + attr + ']').forEach((x) => x.classList.toggle('active', x === b));
+            input.value = b.getAttribute(attr);
+            if (onPick) onPick();
+          };
+        });
+      };
+      pickChip('data-assign', form.assignedTo);
+      pickChip('data-period', form.periodicity, () => form.periodicity.onchange());
+      function updateHeadIcon() {
+        const head = root.querySelector('#fIcon');
+        head.textContent = ICONS[shopping.checked ? 'shopping' : icon] || ICONS.home;
+        head.style.background = color;
+      }
       function selectIcon(name) {
         root.querySelectorAll('[data-icon]').forEach((x) => x.classList.toggle('selected', x.dataset.icon === name));
         icon = name;
+        updateHeadIcon();
       }
       root.querySelectorAll('[data-icon]').forEach((b) => {
         b.onclick = () => selectIcon(b.dataset.icon);
@@ -2235,6 +2277,7 @@ function showCinnostForm(priestorId, existing, opts) {
           root.querySelectorAll('[data-color]').forEach((x) => x.classList.remove('selected'));
           b.classList.add('selected');
           color = b.dataset.color;
+          updateHeadIcon();
         };
       });
       form.periodicity.onchange();

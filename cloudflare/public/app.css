@@ -2235,3 +2235,33 @@ body.lf-open {
 .lf-pvzoom .ms {
   font-size: 20px;
 }
+
+/* Číslo strany v letáku – ťuknutím sa dá zadať strana */
+.lf-pageno {
+  flex: none;
+  width: 76px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+}
+
+input.lf-pageno {
+  background: var(--surface);
+  border-color: var(--primary);
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+input.lf-pageno::-webkit-outer-spin-button,
+input.lf-pageno::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

@@ -1614,13 +1614,13 @@ function showKindStep() {
 
 function showAssignStep(shopping) {
   const others = state.detail.members.map((m) => m.email).filter((e) => e !== state.email).sort();
-  const openForm = (assignedTo) => {
-    // jediný priestor sa vyberie sám
-    const only = state.detail.priestory.length === 1 ? state.detail.priestory[0].id : '';
-    showCinnostForm(shopping ? '' : only, null, { shopping, assignedTo });
+  const next = (assignedTo, skipped) => {
+    const w = { shopping, assignedTo, skipped, name: '', priestorId: '', description: '', items: [] };
+    if (shopping) wizShopMode(w);
+    else wizName(w);
   };
   // Sám v domácnosti – niet komu inému prideliť.
-  if (!others.length) return openForm(state.email);
+  if (!others.length) return next(state.email, true);
   const choice = (value, icon, title) =>
     '<div class="card clickable" data-assign="' + esc(value) + '"><span class="ms">' + icon + '</span>' +
     '<div class="card-body card-title">' + esc(title) + '</div><span class="ms muted">chevron_right</span></div>';
@@ -1636,11 +1636,213 @@ function showAssignStep(shopping) {
     (root) => {
       root.querySelector('#back').onclick = showKindStep;
       root.querySelectorAll('[data-assign]').forEach((el) => {
-        el.onclick = () => openForm(el.dataset.assign);
+        el.onclick = () => next(el.dataset.assign);
       });
     },
     { focus: false }
   );
+}
+
+// Ďalšie kroky sprievodcu (w = doteraz zadané údaje). Domáca činnosť: názov → priestor →
+// popis → checklist → formulár. Nákup: leták alebo ručne (→ položky → formulár).
+const wizBack = (w) => (w.skipped ? showKindStep() : showAssignStep(w.shopping));
+
+function wizStep(w, step, title, question, body, opts) {
+  const total = w.shopping ? 4 : 6;
+  openModal(
+    '<div class="wiz"><div class="wiz-progress">' +
+      Array.from({ length: total }, (_, i) => '<span' + (i < step ? ' class="on"' : '') + '></span>').join('') +
+      '</div><div class="form-kicker">' + esc(title) + ' · krok ' + step + ' z ' + total + '</div>' +
+      '<h2>' + esc(question) + '</h2>' + body +
+      '<div class="actions wiz-actions"><button type="button" class="btn text" id="back"><span class="ms">arrow_back</span>Späť</button>' +
+      (opts.skip ? '<button type="button" class="btn text" id="skip">Preskočiť</button>' : '') +
+      (opts.next ? '<button type="button" class="btn" id="next">Ďalej<span class="ms">arrow_forward</span></button>' : '') +
+      '</div></div>',
+    (root) => {
+      root.querySelector('#back').onclick = opts.back;
+      if (opts.skip) root.querySelector('#skip').onclick = opts.skip;
+      if (opts.next) root.querySelector('#next').onclick = opts.next;
+      if (opts.mount) opts.mount(root);
+    },
+    { focus: opts.focus || false }
+  );
+}
+
+function wizName(w) {
+  const go = () => {
+    const name = $('wizName').value.trim();
+    if (!name) {
+      toast('Zadaj názov činnosti');
+      return $('wizName').focus();
+    }
+    w.name = name;
+    wizRoom(w);
+  };
+  wizStep(w, 3, 'Domáca činnosť', 'Čo treba urobiť?',
+    '<div class="field"><input id="wizName" maxlength="80" placeholder="napr. Umyť okná" value="' + esc(w.name) + '"></div>',
+    {
+      back: () => wizBack(w),
+      next: go,
+      focus: '#wizName',
+      mount: (root) => {
+        root.querySelector('#wizName').onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            go();
+          }
+        };
+      },
+    });
+}
+
+function wizRoom(w) {
+  const list = state.detail.priestory.slice().sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  const pick = (id) => {
+    w.priestorId = id;
+    wizDescription(w);
+  };
+  wizStep(w, 4, 'Domáca činnosť', 'V ktorej miestnosti?',
+    '<div class="list-select">' +
+      list
+        .map(
+          (p) =>
+            '<div class="card clickable' + (p.id === w.priestorId ? ' active' : '') + '" data-pid="' + esc(p.id) + '"><span class="ms">location_on</span>' +
+            '<div class="card-body card-title">' + esc(p.name) + '</div><span class="ms muted">chevron_right</span></div>'
+        )
+        .join('') +
+      '</div>' +
+      '<div class="item-add wiz-new"><input id="wizRoom" maxlength="60" placeholder="' +
+      (list.length ? 'Iná – nová miestnosť…' : 'Názov miestnosti (napr. Kuchyňa)') + '">' +
+      '<button type="button" class="btn tonal small" id="wizRoomAdd"><span class="ms">add</span></button></div>',
+    {
+      back: () => wizName(w),
+      focus: list.length ? false : '#wizRoom',
+      mount: (root) => {
+        root.querySelectorAll('[data-pid]').forEach((el) => (el.onclick = () => pick(el.dataset.pid)));
+        const input = root.querySelector('#wizRoom');
+        const add = async () => {
+          if (!input.value.trim()) return input.focus();
+          const btn = root.querySelector('#wizRoomAdd');
+          btn.disabled = true;
+          try {
+            const p = await api('addPriestor', state.detail.household.id, input.value);
+            state.detail.priestory.push(p);
+            toast('Miestnosť „' + p.name + '“ bola pridaná');
+            pick(p.id);
+          } catch (err) {
+            btn.disabled = false;
+            showError(err);
+          }
+        };
+        root.querySelector('#wizRoomAdd').onclick = add;
+        input.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add();
+          }
+        };
+      },
+    });
+}
+
+function wizDescription(w) {
+  const go = (keep) => {
+    w.description = keep ? $('wizDesc').value.trim() : '';
+    wizItems(w);
+  };
+  wizStep(w, 5, 'Domáca činnosť', 'Popis (nepovinné)',
+    '<div class="field"><textarea id="wizDesc" rows="3" placeholder="Detaily a inštrukcie…">' + esc(w.description) + '</textarea></div>',
+    { back: () => wizRoom(w), skip: () => go(false), next: () => go(true), focus: '#wizDesc' });
+}
+
+/** Krok s položkami (checklist alebo nákupný zoznam). */
+function wizItems(w) {
+  const shop = w.shopping;
+  const finish = () => wizFinish(w, shop ? 'manual' : '');
+  wizStep(w, shop ? 4 : 6, shop ? 'Nákup' : 'Domáca činnosť', shop ? 'Čo treba kúpiť?' : 'Checklist (nepovinné)',
+    '<div class="item-add">' + stepperHtml('id="qtyInput"') +
+      '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="' + (shop ? 'Pridať produkt…' : 'Pridať položku…') + '">' +
+      '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="wizList"></div>',
+    {
+      back: () => (shop ? wizShopMode(w) : wizDescription(w)),
+      next: finish,
+      focus: '#itemInput',
+      mount: (root) => {
+        const input = root.querySelector('#itemInput');
+        const qtyInput = root.querySelector('#qtyInput');
+        const render = () => {
+          root.querySelector('#wizList').innerHTML = w.items.length
+            ? w.items
+                .map(
+                  (i, idx) =>
+                    '<div class="check-item edit"><span class="ms">check_box_outline_blank</span><span class="check-text">' + esc(i.text) +
+                    '</span>' + (i.qty ? '<span class="check-qty">' + esc(i.qty) + '</span>' : '') +
+                    '<button type="button" class="icon-btn small" data-remove="' + idx + '" title="Odstrániť"><span class="ms">close</span></button></div>'
+                )
+                .join('')
+            : '<div class="hint">Zatiaľ nič – napíš a pridaj ' + (shop ? 'produkt.' : 'položku, alebo daj Ďalej.') + '</div>';
+          root.querySelectorAll('[data-remove]').forEach((b) => {
+            b.onclick = () => {
+              w.items.splice(Number(b.dataset.remove), 1);
+              render();
+            };
+          });
+        };
+        const add = (raw) => {
+          const { text, qty } = splitQty(raw, qtyInput.value);
+          if (!text) return;
+          const same = w.items.find((i) => normalizeText(i.text) === normalizeText(text));
+          if (same) same.qty = qty || same.qty;
+          else w.items.unshift({ text, qty });
+          input.value = '';
+          qtyInput.value = '';
+          suggest.clear();
+          render();
+          input.focus();
+        };
+        const suggest = attachSuggest(input, root.querySelector('#itemSuggest'), productSources, () => w.items.map((i) => i.text), add);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            add(input.value);
+          }
+        });
+        root.querySelector('#itemAdd').onclick = () => add(input.value);
+        // text, ktorý ešte nebol pridaný, sa pridá pri Ďalej
+        root.querySelector('#next').addEventListener('click', () => add(input.value), { capture: true });
+        render();
+      },
+    });
+}
+
+function wizShopMode(w) {
+  const choice = (mode, icon, title, hint) =>
+    '<div class="card clickable" data-mode="' + mode + '"><span class="ms">' + icon + '</span>' +
+    '<div class="card-body"><div class="card-title">' + title + '</div><div class="hint">' + hint + '</div></div>' +
+    '<span class="ms muted">chevron_right</span></div>';
+  wizStep(w, 3, 'Nákup', 'Ako pridáš položky?',
+    '<div class="list-select">' +
+      choice('letak', 'newspaper', 'Vybrať z letáku', 'Lidl, Tesco, Kaufland… – ťukneš na tovar') +
+      choice('manual', 'edit_note', 'Pridať ručne', 'napíšeš, čo treba kúpiť') +
+      '</div>',
+    {
+      back: () => wizBack(w),
+      mount: (root) => {
+        root.querySelector('[data-mode=letak]').onclick = () => wizFinish(w, 'letak');
+        root.querySelector('[data-mode=manual]').onclick = () => wizItems(w);
+      },
+    });
+}
+
+/** Koniec sprievodcu: formulár s vyplneným (pri letáku sa nákup hneď uloží a otvoria sa letáky). */
+function wizFinish(w, mode) {
+  showCinnostForm(w.shopping ? '' : w.priestorId, null, {
+    shopping: w.shopping,
+    assignedTo: w.assignedTo,
+    prefill: { name: w.name, description: w.description, items: w.items.map((i) => ({ text: i.text, qty: i.qty })) },
+    mode,
+  });
 }
 
 // -------------------------------------------------------------------------
@@ -2013,6 +2215,10 @@ function showCinnostForm(priestorId, existing, opts) {
     store: '',
     items: [],
   };
+  if (opts && opts.prefill) {
+    const pre = opts.prefill;
+    v = { ...v, description: pre.description || '', items: pre.items || [], ...(pre.name && { name: pre.name }) };
+  }
   if (draft) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.
     const done = new Map((v.items || []).map((i) => [i.id, i.done]));
@@ -2298,6 +2504,8 @@ function showCinnostForm(priestorId, existing, opts) {
         leafletsAfterSave = true;
         form.requestSubmit();
       };
+      // sprievodca zvolil leták: nákup sa uloží a hneď sa otvoria letáky
+      if (opts && opts.mode === 'letak') setTimeout(() => root.querySelector('#formLeaflets').click(), 0);
 
       form.onsubmit = async (e) => {
         e.preventDefault();
@@ -2345,7 +2553,8 @@ function showCinnostForm(priestorId, existing, opts) {
           renderDetail({ quiet: true });
           toast(edit ? 'Zmeny uložené' : 'Činnosť „' + c.name + '“ bola vytvorená');
           if (leafletsAfterSave) openLeaflets({ taskId: c.id, store: c.store });
-          else if (!edit && c.kind === 'nakup') offerLeaflets(c);
+          // ručne zadaný nákup sa už na letáky nepýta
+          else if (!edit && c.kind === 'nakup' && !(opts && opts.mode === 'manual')) offerLeaflets(c);
         } catch (err) {
           const index = state.detail.cinnosti.indexOf(optimistic);
           if (index !== -1) {

@@ -162,6 +162,23 @@ test('ranný prehľad: o 8:00 raz denne, dnešné aj po termíne, len členom s 
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-10T06:00:00Z')) > 0, true);
 });
 
+test('spoločná činnosť (Všetci): upozornenie ostatným členom, v rannom prehľade u každého', async () => {
+  sent.length = 0;
+  const c = await roman.api.addCinnost(hid, { name: 'Spoločný nákup', dueDate: '2026-10-12', kind: 'nakup', assignedTo: '*', items: ['Mlieko'] });
+  assert.equal(c.assignedTo, '*');
+  assert.deepEqual(sent.map((s) => s.url), [janaPhone.subscription.endpoint]);
+  assert.equal(JSON.parse(await decrypt(janaPhone, sent[0].body)).title, '📝 Romi: Spoločný nákup');
+  // checklist môže plniť ktokoľvek
+  await jana.api.toggleItem(c.items[0].id, true);
+  sent.length = 0;
+  await scheduledTick(t.env.DB, new Date('2026-10-12T06:00:00Z'));
+  for (const [device, url] of [[romanPhone, romanPhone.subscription.endpoint], [janaPhone, janaPhone.subscription.endpoint]]) {
+    const today = (await Promise.all(sent.filter((s) => s.url === url).map((s) => decrypt(device, s.body))))
+      .map((m) => JSON.parse(m)).find((m) => m.tag === 'digest-today');
+    assert.match(today.body, /Spoločný nákup \(1\/1 · Byt\)/);
+  }
+});
+
 test('vypnutie upozornení na zariadení', async () => {
   await jana.api.unsubscribePush(janaPhone.subscription.endpoint);
   sent.length = 0;

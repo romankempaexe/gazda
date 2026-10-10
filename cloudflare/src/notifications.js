@@ -2,7 +2,7 @@
 // - nová pridelená úloha (hneď, s obchodom, termínom a checklistom),
 // - ranný prehľad o 8:00 (úlohy na dnes) a úlohy po termíne (spúšťa cron každých 15 min).
 
-import { DATE_RE, TIME_ZONE, nowIso, todayYmd } from './domain.js';
+import { ALL, DATE_RE, TIME_ZONE, nowIso, todayYmd } from './domain.js';
 import { generateVapidKeys, sendWebPush } from './webpush.js';
 
 const MORNING_HOUR = 8; // prehľad sa posiela od 8:00…
@@ -144,7 +144,15 @@ export async function assignedMessage(db, cinnost, priestor, fromEmail) {
 /** Upozorní riešiteľa, že mu niekto pridelil činnosť (na pozadí – nezdrží uloženie). */
 export async function notifyAssigned(c, cinnost, priestor) {
   const work = assignedMessage(c.db, cinnost, priestor, c.email)
-    .then((message) => sendToUser(c.db, cinnost.assignedTo, message))
+    .then(async (message) => {
+      if (cinnost.assignedTo !== ALL) return sendToUser(c.db, cinnost.assignedTo, message);
+      // spoločná činnosť – dostanú ju všetci členovia okrem toho, kto ju pridelil
+      const { results } = await c.db
+        .prepare('SELECT email FROM members WHERE household_id = ? AND email <> ?')
+        .bind(cinnost.householdId, c.email)
+        .all();
+      for (const m of results) await sendToUser(c.db, m.email, message);
+    })
     .catch((err) => console.warn('Upozornenie o pridelení sa nepodarilo odoslať: ' + err));
   if (c.waitUntil) c.waitUntil(work);
   else await work;
@@ -177,15 +185,15 @@ export async function sendMorningDigest(db, today) {
   // Len úlohy ľudí, ktorí majú zapnuté upozornenia a sú členmi domácnosti.
   const { results } = await db
     .prepare(
-      `SELECT c.*, h.name AS household_name, p.name AS priestor_name,
+      `SELECT c.*, m.email AS recipient, h.name AS household_name, p.name AS priestor_name,
               (SELECT COUNT(*) FROM polozky i WHERE i.cinnost_id = c.id) AS items_total,
               (SELECT COUNT(*) FROM polozky i WHERE i.cinnost_id = c.id AND i.done = 1) AS items_done
        FROM cinnosti c
        JOIN households h ON h.id = c.household_id
-       JOIN members m ON m.household_id = c.household_id AND m.email = c.assigned_to
+       JOIN members m ON m.household_id = c.household_id AND (m.email = c.assigned_to OR c.assigned_to = '${ALL}')
        LEFT JOIN priestory p ON p.id = c.priestor_id
        WHERE c.assigned_to <> '' AND c.due_date <= ?
-         AND c.assigned_to IN (SELECT email FROM push_subscriptions)
+         AND m.email IN (SELECT email FROM push_subscriptions)
        ORDER BY c.due_date, c.name`
     )
     .bind(today)
@@ -202,8 +210,8 @@ export async function sendMorningDigest(db, today) {
   const byUser = new Map();
   for (const c of results) {
     if (!DATE_RE.test(c.due_date)) continue;
-    if (!byUser.has(c.assigned_to)) byUser.set(c.assigned_to, { today: [], overdue: [] });
-    byUser.get(c.assigned_to)[c.due_date === today ? 'today' : 'overdue'].push(c);
+    if (!byUser.has(c.recipient)) byUser.set(c.recipient, { today: [], overdue: [] });
+    byUser.get(c.recipient)[c.due_date === today ? 'today' : 'overdue'].push(c);
   }
 
   const ctx = await pushContext(db, [...byUser.keys()]);

@@ -2626,3 +2626,54 @@ input.lf-pageno::-webkit-inner-spin-button {
 .field-time label {
   white-space: nowrap;
 }
+
+/* šablóny v sprievodcovi */
+.wiz > .dept-head {
+  padding: 4px 0 8px;
+}
+
+.tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+
+.tpl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  text-align: left;
+  padding: 10px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tpl .ms {
+  grid-row: span 2;
+  color: var(--primary-strong);
+  font-size: 22px;
+}
+
+.tpl-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.tpl-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.tpl:active {
+  background: var(--primary-soft);
+}

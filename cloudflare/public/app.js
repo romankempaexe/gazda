@@ -1698,6 +1698,22 @@ function wizStep(w, step, title, question, body, opts) {
   );
 }
 
+// Šablóny domácich činností: názov, checklist, ikona, opakovanie a miestnosť, ktorú ponúknu.
+const SABLONY = [
+  { name: 'Veľké upratovanie', icon: 'clean', room: '', items: ['Povysávať všetky miestnosti', 'Umyť podlahy', 'Utrieť prach', 'Umyť okná a parapety', 'Vyčistiť kúpeľňu a WC', 'Vyčistiť kuchynskú linku a sporák', 'Vyniesť smeti', 'Prezliecť posteľné prádlo'] },
+  { name: 'Týždenné upratovanie', icon: 'clean', room: '', periodicity: 'weekly', items: ['Povysávať', 'Utrieť prach', 'Umyť podlahy', 'Vyčistiť umývadlá', 'Vyniesť smeti'] },
+  { name: 'Upratať kúpeľňu', icon: 'bathtub', room: 'kúpeľ', periodicity: 'weekly', items: ['Vyčistiť vaňu / sprchu', 'Umyť umývadlo a batérie', 'Vyčistiť WC', 'Umyť zrkadlo', 'Vymeniť uteráky', 'Umyť podlahu'] },
+  { name: 'Upratať kuchyňu', icon: 'kitchen', room: 'kuch', periodicity: 'weekly', items: ['Umyť riad / vyložiť umývačku', 'Utrieť linku', 'Vyčistiť sporák', 'Vyčistiť mikrovlnku', 'Vytrieť podlahu', 'Vyniesť smeti'] },
+  { name: 'Vyčistiť chladničku', icon: 'kitchen', room: 'kuch', periodicity: 'monthly', items: ['Vyhodiť prošlé potraviny', 'Umyť poličky', 'Umyť zásuvky', 'Utrieť tesnenie dverí'] },
+  { name: 'Umyť okná', icon: 'window', room: '', items: ['Umyť sklá zvnútra', 'Umyť sklá zvonka', 'Umyť rámy', 'Umyť parapety', 'Vyprať záclony'] },
+  { name: 'Prať bielizeň', icon: 'laundry', room: '', periodicity: 'weekly', items: ['Roztriediť bielizeň', 'Vyprať', 'Zavesiť / sušička', 'Poskladať a odložiť'] },
+  { name: 'Prezliecť postele', icon: 'bed', room: 'spál', periodicity: 'weekly', items: ['Zvliecť obliečky', 'Vyprať', 'Navliecť čisté'] },
+  { name: 'Príprava na návštevu', icon: 'dining', room: '', items: ['Upratať obývačku', 'Vyčistiť WC', 'Pripraviť uteráky', 'Nakúpiť pohostenie', 'Prestrieť stôl'] },
+  { name: 'Kosenie a záhrada', icon: 'grass', room: 'záhrad', periodicity: 'weekly', items: ['Pokosiť trávnik', 'Polievať kvety', 'Vytrhať burinu', 'Pozametať chodník'] },
+  { name: 'Vyniesť smeti', icon: 'trash', room: '', periodicity: 'weekly', items: ['Komunál', 'Plasty', 'Papier', 'Sklo'] },
+  { name: 'Polievanie kvetov', icon: 'plants', room: '', periodicity: 'weekly', items: [] },
+];
+
 function wizName(w) {
   const go = () => {
     const name = $('wizName').value.trim();
@@ -1709,12 +1725,31 @@ function wizName(w) {
     wizRoom(w);
   };
   wizStep(w, 3, 'Domáca činnosť', 'Čo treba urobiť?',
-    '<div class="field"><input id="wizName" maxlength="80" placeholder="napr. Umyť okná" value="' + esc(w.name) + '"></div>',
+    '<div class="field"><input id="wizName" maxlength="80" placeholder="napr. Umyť okná" value="' + esc(w.name) + '"></div>' +
+      '<div class="dept-head">alebo vyber šablónu</div><div class="tpl-grid">' +
+      SABLONY.map(
+        (t, i) =>
+          '<button type="button" class="tpl" data-tpl="' + i + '"><span class="ms">' + ICONS[t.icon] + '</span><span class="tpl-name">' + esc(t.name) +
+          '</span><span class="tpl-sub">' + (t.items.length ? t.items.length + ' krokov' : '') +
+          (t.periodicity ? (t.items.length ? ' · ' : '') + PERIODICITY[t.periodicity].label.toLowerCase() : '') + '</span></button>'
+      ).join('') +
+      '</div>',
     {
       back: () => wizBack(w),
       next: go,
-      focus: '#wizName',
+      focus: false,
       mount: (root) => {
+        root.querySelectorAll('[data-tpl]').forEach((b) => {
+          b.onclick = () => {
+            const t = SABLONY[Number(b.dataset.tpl)];
+            w.name = t.name;
+            w.items = t.items.map((text) => ({ text, qty: '' }));
+            w.icon = t.icon;
+            w.periodicity = t.periodicity || 'none';
+            w.roomHint = t.room;
+            wizRoom(w);
+          };
+        });
         root.querySelector('#wizName').onkeydown = (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
@@ -1727,6 +1762,11 @@ function wizName(w) {
 
 function wizRoom(w) {
   const list = state.detail.priestory.slice().sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  // šablóna navrhne miestnosť (napr. kúpeľňa), ak ju domácnosť má
+  if (!w.priestorId && w.roomHint) {
+    const hint = list.find((p) => normalizeText(p.name).includes(normalizeText(w.roomHint)));
+    if (hint) w.priestorId = hint.id;
+  }
   const pick = (id) => {
     w.priestorId = id;
     wizDescription(w);
@@ -1871,7 +1911,13 @@ function wizFinish(w, mode) {
   showCinnostForm(w.shopping ? '' : w.priestorId, null, {
     shopping: w.shopping,
     assignedTo: w.assignedTo,
-    prefill: { name: w.name, description: w.description, items: w.items.map((i) => ({ text: i.text, qty: i.qty })) },
+    prefill: {
+      name: w.name,
+      description: w.description,
+      items: w.items.map((i) => ({ text: i.text, qty: i.qty })),
+      ...(w.icon && { icon: w.icon }),
+      ...(w.periodicity && { periodicity: w.periodicity }),
+    },
     mode,
   });
 }
@@ -2358,7 +2404,14 @@ function showCinnostForm(priestorId, existing, opts) {
   };
   if (opts && opts.prefill) {
     const pre = opts.prefill;
-    v = { ...v, description: pre.description || '', items: pre.items || [], ...(pre.name && { name: pre.name }) };
+    v = {
+      ...v,
+      description: pre.description || '',
+      items: pre.items || [],
+      ...(pre.name && { name: pre.name }),
+      ...(pre.icon && { icon: pre.icon }),
+      ...(pre.periodicity && { periodicity: pre.periodicity }),
+    };
   }
   if (draft) {
     // Po chybe pri ukladaní: vyplnené údaje, odškrtnutie položiek ostáva z pôvodnej úlohy.

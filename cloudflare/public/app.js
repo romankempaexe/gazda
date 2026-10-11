@@ -569,11 +569,13 @@ function weekday(s) {
 }
 
 function formatDate(s) {
+  if (!s) return 'bez termínu';
   const p = parseYmd(s);
   return p.d + '. ' + p.m + '. ' + p.y;
 }
 
 function formatDateShort(s) {
+  if (!s) return 'bez termínu';
   const p = parseYmd(s);
   return WEEKDAYS_SHORT[weekday(s)].toLowerCase() + ' ' + p.d + '. ' + p.m + '.';
 }

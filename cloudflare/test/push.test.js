@@ -252,6 +252,13 @@ test('komentáre: pridanie, upozornenie riešiteľovi, počet, mazanie len vlast
   assert.equal(left.n, 0);
 });
 
+test('pridelená činnosť bez termínu: upozornenie odíde („Bez termínu“)', async () => {
+  sent.length = 0;
+  await roman.api.addCinnost(hid, { name: 'Nákup niekedy', kind: 'nakup', dueDate: '', assignedTo: 'jana@gmail.com' });
+  assert.equal(sent.length, 1);
+  assert.match(JSON.parse(await decrypt(janaPhone, sent[0].body)).body, /Bez termínu/);
+});
+
 test('vypnutie upozornení na zariadení', async () => {
   await jana.api.unsubscribePush(janaPhone.subscription.endpoint);
   sent.length = 0;

@@ -119,7 +119,7 @@ export async function assignedMessage(db, cinnost, priestor, fromEmail) {
   if (cinnost.kind === 'nakup') lines.push('🛒 Nákup' + (cinnost.store ? ': ' + cinnost.store : ''));
   const place = [priestor && priestor.name, household && household.name].filter(Boolean).join(' · ');
   if (place) lines.push(place);
-  let when = 'Termín: ' + formatShortDate(cinnost.dueDate);
+  let when = cinnost.dueDate ? 'Termín: ' + formatShortDate(cinnost.dueDate) : 'Bez termínu';
   if (cinnost.periodicity !== 'none') {
     const labels = { weekly: 'týždenne', monthly: 'mesačne', annually: 'ročne' };
     const n = Number(cinnost.repeatInterval) || 1;

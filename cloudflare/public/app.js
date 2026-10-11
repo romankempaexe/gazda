@@ -1264,8 +1264,10 @@ function totalTag(c) {
 function cardChecklist(c) {
   const items = c.items || [];
   if (!items.length) return '';
-  const pictures = items.filter((i) => i.image);
-  const plain = items.filter((i) => !i.image);
+  // vybavené (odškrtnuté, nemali) idú na koniec – nekúpené ostávajú vpredu
+  const byState = (list) => list.filter((i) => !i.done && !i.missing).concat(list.filter((i) => i.missing), list.filter((i) => i.done));
+  const pictures = byState(items.filter((i) => i.image));
+  const plain = byState(items.filter((i) => !i.image));
   const more = plain.length - CARD_ITEMS;
   const tiles = pictures.length
     ? '<div class="card-tiles">' +

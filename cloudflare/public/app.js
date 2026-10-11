@@ -2369,114 +2369,233 @@ function parseSpokenItem(part) {
   return name + ' ' + String(num).replace('.', ',') + ' ' + (unit || 'ks');
 }
 
+const isNumberWord = (w) => /^\d+([.,]\d+)?$/.test(w) || NUMBER_WORDS[w] !== undefined;
+const isUnitWord = (w) => SPOKEN_UNITS.some(([re]) => re.test(w));
+
+/**
+ * Rozdelí súvislú reč bez čiarok na položky: „mlieko kilo papriky tri rožky maslo“ →
+ * mlieko | kilo papriky | tri rožky | maslo. Nová položka začína počtom alebo jednotkou;
+ * známe produkty (aj viacslovné) sa berú celé, neznáme slová vedľa seba ostanú spolu.
+ */
+function segmentSpoken(part) {
+  const tokens = part.trim().split(/\s+/).filter(Boolean);
+  const norm = tokens.map((t) => normalizeText(t));
+  const out = [];
+  let i = 0;
+  let unknown = [];
+  const flushUnknown = () => {
+    if (unknown.length) out.push(unknown.join(' '));
+    unknown = [];
+  };
+  while (i < tokens.length) {
+    let start = i;
+    // počet a/alebo jednotka pred názvom patria k nasledujúcej položke
+    if (isNumberWord(norm[i])) i++;
+    if (i < tokens.length && isUnitWord(norm[i]) && i + 1 < tokens.length) i++;
+    const hasQty = i > start;
+    // najdlhší známy produkt (3, 2 alebo 1 slovo)
+    let len = 0;
+    for (let n = Math.min(3, tokens.length - i); n >= 1; n--) {
+      if (knownProduct(tokens.slice(i, i + n))) {
+        len = n;
+        break;
+      }
+    }
+    if (len) {
+      flushUnknown();
+      out.push(tokens.slice(start, i + len).join(' '));
+      i += len;
+    } else if (hasQty) {
+      flushUnknown();
+      unknown = tokens.slice(start, i + 1);
+      i += 1;
+    } else {
+      unknown.push(tokens[i]);
+      i += 1;
+    }
+  }
+  flushUnknown();
+  return out;
+}
+
 /** „mlieko, kilo papriky a tri rožky“ → ['Mlieko', 'Paprika 1 kg', 'Rožky 3 ks'] */
 function splitSpoken(text) {
   return String(text)
-    .split(/,|;|\s+(?:a|aj|potom|plus|tiez|ešte|este)\s+/i)
+    .split(/,|;|\.|\s+(?:a|aj|potom|plus|tiez|tiež|ešte|este)\s+/i)
+    .flatMap(segmentSpoken)
     .map(parseSpokenItem)
     .filter(Boolean);
 }
 
-const STOP_WORDS = /^(hotovo|koniec|stop|stačí|staci|to je všetko|to je vsetko)[.!]?$/i;
-const VOICE_IDLE_MS = 30000; // bez reči 30 s – mikrofón sa sám vypne
+/** Z viacerých možností rozpoznania vyber tú, v ktorej je najviac známych produktov. */
+function bestTranscript(alternatives) {
+  let best = alternatives[0] || '';
+  let bestScore = -1;
+  alternatives.forEach((t, idx) => {
+    const items = String(t).split(/\s+/).filter(Boolean);
+    let score = 0;
+    for (let i = 0; i < items.length; i++) if (knownProduct([items[i]])) score++;
+    score -= idx * 0.5; // pri zhode vyhráva tá, ktorú rozpoznávanie považuje za najpravdepodobnejšiu
+    if (score > bestScore) {
+      bestScore = score;
+      best = t;
+    }
+  });
+  return best;
+}
+
+const STOP_WORDS = /\s*(hotovo|koniec|to je všetko|to je vsetko)[.!]?\s*$/i;
+const VOICE_IDLE_MS = 25000; // bez reči 25 s – nahrávanie sa samo ukončí
 
 /**
- * Mikrofón vedľa poľa na pridanie: jedným ťuknutím sa zapne a počúva stále – každá
- * povedaná vec (po krátkej pauze) sa hneď pridá. Vypne sa ďalším ťuknutím, slovom
- * „hotovo“, zatvorením okna alebo po 30 s ticha.
+ * Mikrofón vedľa poľa na pridanie – diktovanie celého zoznamu: ťuknutím sa začne nahrávať,
+ * človek povie všetko naraz („mlieko kilo papriky tri rožky maslo“), ďalším ťuknutím
+ * (alebo „hotovo“) sa text rozanalyzuje a ukáže sa náhľad položiek na potvrdenie.
  */
 function attachVoice(input, add) {
   if (!SpeechRec || !input || input.parentNode.querySelector('.mic')) return;
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn tonal small mic';
-  btn.title = 'Hovoriť položky (ťukni znova na koniec)';
+  btn.title = 'Nadiktovať zoznam';
   btn.innerHTML = '<span class="ms">mic</span>';
   input.after(btn);
+  const row = input.parentNode;
   const placeholder = input.placeholder;
   let active = false;
   let rec = null;
   let lastSpeech = 0;
-  let queue = Promise.resolve();
-  let added = 0;
+  let text = ''; // doteraz nadiktované (ukončené úseky)
 
-  const stop = () => {
+  const preview = document.createElement('div');
+  preview.className = 'voice-preview hidden';
+  row.after(preview);
+
+  const showPreview = (items) => {
+    if (!items.length) {
+      preview.classList.add('hidden');
+      toast('Nič som nezachytil. Skús to znova.', true);
+      return;
+    }
+    const render = () => {
+      preview.innerHTML =
+        '<div class="voice-head"><span class="ms">mic</span>Rozpoznané (' + items.length + ')</div>' +
+        '<div class="voice-items">' +
+        items
+          .map((it, i) => '<span class="voice-item">' + esc(it) + '<button type="button" data-drop="' + i + '" title="Odstrániť"><span class="ms">close</span></button></span>')
+          .join('') +
+        '</div><div class="voice-acts"><button type="button" class="btn text small" data-voice="cancel">Zrušiť</button>' +
+        '<button type="button" class="btn tonal small" data-voice="again"><span class="ms">mic</span>Znova</button>' +
+        '<button type="button" class="btn small" data-voice="add"' + (items.length ? '' : ' disabled') + '><span class="ms">add</span>Pridať všetky</button></div>';
+      preview.querySelectorAll('[data-drop]').forEach((b) => {
+        b.onclick = () => {
+          items.splice(Number(b.dataset.drop), 1);
+          if (!items.length) preview.classList.add('hidden');
+          else render();
+        };
+      });
+      preview.querySelector('[data-voice=cancel]').onclick = () => preview.classList.add('hidden');
+      preview.querySelector('[data-voice=again]').onclick = () => {
+        preview.classList.add('hidden');
+        start();
+      };
+      preview.querySelector('[data-voice=add]').onclick = async () => {
+        preview.classList.add('hidden');
+        for (const it of items) await add(it);
+        toast('Pridané: ' + items.length);
+      };
+    };
+    preview.classList.remove('hidden');
+    render();
+  };
+
+  const finish = () => {
     if (!active) return;
     active = false;
     btn.classList.remove('listening');
     input.placeholder = placeholder;
     input.value = '';
-    if (rec) rec.stop();
-    // počet až po pridaní posledných položiek (pridávajú sa postupne)
-    queue.then(() => added && toast('Pridaných hlasom: ' + added));
-  };
-
-  const handle = (text) => {
-    text = text.trim();
-    if (!text) return;
-    lastSpeech = Date.now();
-    if (STOP_WORDS.test(text)) return stop();
-    // „…a hotovo“ na konci vety: pridaj, čo bolo pred tým, a skonči
-    const end = text.match(/^(.*?)[,\s]+(?:a\s+)?(hotovo|koniec|to je všetko)[.!]?$/i);
-    const items = splitSpoken(end ? end[1] : text);
-    for (const item of items) {
-      queue = queue.then(() => add(item)).then(() => added++).catch(() => {});
+    if (rec) {
+      const r = rec;
+      rec = null;
+      r.onend = null;
+      try {
+        r.stop();
+      } catch {
+        /* už skončilo */
+      }
     }
-    if (end) stop();
+    const all = (text + ' ' + current).replace(STOP_WORDS, '').trim();
+    current = '';
+    showPreview(splitSpoken(all));
   };
 
+  let current = ''; // rozpracovaný úsek (aktuálne počúvanie)
   const listen = () => {
     rec = new SpeechRec();
     rec.lang = 'sk-SK';
     rec.continuous = true;
     rec.interimResults = true;
-    rec.maxAlternatives = 1;
-    const done = new Set(); // Android niekedy pošle ten istý výsledok znova
+    rec.maxAlternatives = 3;
     rec.onresult = (e) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          if (!done.has(i)) {
-            done.add(i);
-            handle(t);
-          }
-        } else interim += t;
+      // Celý text tohto počúvania poskladaj znova z výsledkov. Android niekedy posiela
+      // výsledok, ktorý už obsahuje predchádzajúce – taký nahradí, nie pridá (bez zdvojenia).
+      let session = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        const alts = [];
+        for (let k = 0; k < r.length; k++) alts.push(r[k].transcript);
+        const t = (r.isFinal ? bestTranscript(alts) : alts[0]).trim();
+        if (!t) continue;
+        if (normalizeText(t).startsWith(normalizeText(session))) session = t;
+        else if (!normalizeText(session).endsWith(normalizeText(t))) session += ' ' + t;
       }
-      if (active) input.value = interim.trim();
+      current = session.trim();
+      lastSpeech = Date.now();
+      input.value = (text + ' ' + current).trim();
+      input.scrollLeft = input.scrollWidth;
+      if (STOP_WORDS.test(current)) finish();
     };
     rec.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         toast('Povoľ Gazde mikrofón v nastaveniach prehliadača.', true);
-        stop();
+        active = false;
+        btn.classList.remove('listening');
+        input.placeholder = placeholder;
       } else if (e.error === 'network') {
         toast('Rozpoznávanie reči potrebuje internet.', true);
-        stop();
+        finish();
       }
     };
     rec.onend = () => {
+      // telefón po chvíli ticha počúvanie ukončí – úsek si odlož a počúvaj ďalej
       rec = null;
-      // telefón po chvíli ticha počúvanie ukončí – kým je zapnuté, pokračuj
+      text = (text + ' ' + current).trim();
+      current = '';
       if (!active) return;
-      if (!input.isConnected || Date.now() - lastSpeech > VOICE_IDLE_MS) return stop();
+      if (!input.isConnected) return (active = false);
+      if (Date.now() - lastSpeech > VOICE_IDLE_MS) return finish();
       setTimeout(() => active && !rec && listen(), 200);
     };
     try {
       rec.start();
     } catch {
-      stop();
+      finish();
     }
   };
 
-  btn.onclick = () => {
-    if (active) return stop();
+  const start = () => {
     active = true;
-    added = 0;
+    text = '';
+    current = '';
     lastSpeech = Date.now();
+    preview.classList.add('hidden');
     btn.classList.add('listening');
-    input.placeholder = 'Počúvam… hovor položky, „hotovo“ ukončí';
+    input.placeholder = 'Diktuj celý zoznam… potom ťukni na mikrofón';
     listen();
   };
+
+  btn.onclick = () => (active ? finish() : start());
 }
 
 function productSources() {

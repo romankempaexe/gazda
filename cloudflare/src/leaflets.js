@@ -843,10 +843,14 @@ const listPrompt = (text, known) =>
   'bez interpunkcie, môžu byť v ňom chyby a výplňové slová). Vypíš z neho LEN veci na kúpu.\n' +
   'Pravidlá:\n' +
   '- každá vec je samostatná položka; názov v základnom tvare (1. pád), s veľkým začiatočným písmenom,\n' +
+  '- zachovaj celý názov aj s prívlastkom alebo druhom – NErozdeľuj ho a neskracuj: „smotanu na šľahanie“ → ' +
+  '„Smotana na šľahanie“, „syra eidam“ → „Syr eidam“, „toaletný papier“ → „Toaletný papier“,\n' +
   '- vynechaj slová, ktoré nie sú tovar (treba, kúpiť, daj, prosím, ešte, nejaké, potom, a, aj, to je všetko…),\n' +
-  '- počet a jednotku daj do "qty" ako „číslo jednotka“: ks, kg, g, dkg, l, dl, ml, bal. (napr. „kilo papriky“ → ' +
-  '{"name":"Paprika","qty":"1 kg"}, „tri rožky“ → {"name":"Rožok","qty":"3 ks"}, „pol kila syra“ → {"name":"Syr","qty":"0,5 kg"}); bez počtu "qty":"",\n' +
-  '- oprav zjavné chyby rozpoznávania reči podľa zmyslu,\n' +
+  '- počet a jednotka stoja PRED vecou, ku ktorej patria: „vajcia dve balenia kávy“ → Vajcia bez počtu a Káva 2 bal.,\n' +
+  '- "qty" je „číslo jednotka“ (ks, kg, g, dkg, l, dl, ml, bal.), napr. „kilo papriky“ → {"name":"Paprika","qty":"1 kg"}, ' +
+  '„tri rožky“ → {"name":"Rožok","qty":"3 ks"}, „pol kila syra“ → {"name":"Syr","qty":"0,5 kg"},\n' +
+  '- ak počet nebol povedaný, daj "qty":"" – nič si nedomýšľaj („nejaké rožky“ → {"name":"Rožok","qty":""}),\n' +
+  '- oprav zjavné chyby rozpoznávania reči podľa zmyslu (napr. „mleko“ → Mlieko),\n' +
   (known.length ? '- ak vec zodpovedá niektorému z týchto názvov, ktoré domácnosť používa, použi presne ten názov: ' + known.join(', ') + '\n' : '') +
   'Odpovedz IBA JSON poľom, napr. [{"name":"Mlieko","qty":""},{"name":"Paprika","qty":"1 kg"}].\n\n' +
   'Text: „' + text + '“';
@@ -883,7 +887,9 @@ export async function parseShoppingText(c, householdId, text) {
     return null;
   }
   await addNeurons(c, Number(answer && answer.usage && answer.usage.neurons) || 10);
-  const data = extractJson(answer && answer.response);
+  // Workers AI niekedy vráti JSON už rozparsovaný (pole), inak text
+  const response = answer && answer.response;
+  const data = response && typeof response === 'object' ? response : extractJson(response);
   const list = Array.isArray(data) ? data : data && Array.isArray(data.items) ? data.items : null;
   if (!list) return null;
   const out = [];

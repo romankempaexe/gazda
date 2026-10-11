@@ -547,3 +547,9 @@ test('nadiktovaný zoznam: AI rozdelí text na položky (základný tvar, počet
   aiAnswer = 'neviem';
   assert.equal(await roman.api.parseShoppingText(hid, 'mlieko'), null);
 });
+
+test('nadiktovaný zoznam: odpoveď AI ako hotové pole (nie text)', async () => {
+  await t.env.DB.prepare("DELETE FROM config WHERE key = 'ai_neurons'").run();
+  aiAnswer = [{ name: 'Smotana na šľahanie', qty: '' }, { name: 'Káva', qty: '2 bal.' }];
+  assert.deepEqual(await roman.api.parseShoppingText(hid, 'smotanu na šľahanie dve balenia kávy'), ['Smotana na šľahanie', 'Káva 2 bal.']);
+});

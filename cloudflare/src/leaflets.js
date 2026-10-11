@@ -855,12 +855,6 @@ const listPrompt = (text, known) =>
   'Odpovedz IBA JSON poľom, napr. [{"name":"Mlieko","qty":""},{"name":"Paprika","qty":"1 kg"}].\n\n' +
   'Text: „' + text + '“';
 
-/** DOČASNÉ: sonda kvality na náhľade (bez prihlásenia, bez domácnosti). */
-export async function probeShoppingText(c, text) {
-  const answer = await c.ai.run(PRODUCTS_MODEL, { messages: [{ role: 'user', content: listPrompt(text, ['Rožok']) }], max_tokens: 600, temperature: 0 });
-  return { text, raw: answer && answer.response, neurons: answer && answer.usage };
-}
-
 /** Nadiktovaný text → ['Mlieko', 'Paprika 1 kg', …] (null, ak AI nie je k dispozícii). */
 export async function parseShoppingText(c, householdId, text) {
   text = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 1500);

@@ -92,11 +92,6 @@ async function handleApi(request, env, url, ctx) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
     }
-    // DOČASNÉ (len náhľad): sonda AI rozdelenia nadiktovaného zoznamu
-    if (url.pathname === '/api/debug/voice' && url.hostname.startsWith('gazda-preview')) {
-      const { probeShoppingText } = await import('./leaflets.js');
-      return json(await probeShoppingText({ ai: env.AI }, url.searchParams.get('t') || ''));
-    }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
     }

@@ -101,11 +101,5 @@ jobs:
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."
             echo
-            if [ -n "$TARGET_ENV" ]; then
-              sleep 15
-              for t in "treba kúpiť mlieko a ešte nejaké rožky" "potrebujem kilo papriky tri rožky a maslo prosím" "tak daj tam chlieb no a smotanu na šľahanie a toaletný papier" "hmm no tak vajcia dve balenia kávy pol kila syra eidam a to je všetko" "mleko kilo papriky tri roški maslo zubna pasta prášok na pranie"; do
-                curl -sS -G "$url/api/debug/voice" --data-urlencode "t=$t" | head -c 1500; echo
-              done
-            fi
           fi
 

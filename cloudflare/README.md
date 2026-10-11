@@ -155,6 +155,10 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 - Sprievodca novou činnosťou ponúka šablóny (`SABLONY` v `app.js`).
 - Vzhľad v účte: podľa telefónu / svetlý / tmavý (`data-theme` na `<html>`).
 - Skratky ikony (manifest `shortcuts`): `/?akcia=nakup` (pridávanie do nákupu), `/?akcia=nova`.
+- Hlasové pridávanie: mikrofón pri poli na pridanie (Web Speech API telefónu, nie Workers AI);
+  „mlieko, dva chleby a maslo“ sa rozdelí na položky aj s počtom.
+- Činnosť bez termínu (`due_date` prázdny, len bez opakovania) – sekcia „Bez termínu“.
+- Komentáre pri činnosti (tabuľka `komentare`, migrácia 0011) – upozornenie riešiteľovi, naživo.
 
 ## Upozornenia (push notifikácie)
 

@@ -2882,3 +2882,23 @@ input.lf-pageno::-webkit-inner-spin-button {
   border-color: var(--primary);
   background: var(--surface);
 }
+
+/* hlasové pridávanie */
+.mic {
+  flex: none;
+}
+
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+  }
+}
+
+.mic.listening {
+  background: var(--error);
+  color: #fff;
+  animation: mic-pulse 1.1s ease-out infinite;
+}

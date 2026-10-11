@@ -629,6 +629,7 @@ function periodicityLabel(c) {
 
 /** Vyskytuje sa činnosť v daný deň? (rovnaká logika ako vo Flutter verzii) */
 function occursOn(c, date) {
+  if (!c.dueDate) return false; // bez termínu – nie je v žiadnom dni
   if (c.dueDate === date) return true;
   if (c.periodicity === 'none') return false;
 
@@ -1377,7 +1378,7 @@ function myOverdueTasks() {
   if (!state.detail) return [];
   const today = todayYmd();
   return state.detail.cinnosti
-    .filter((c) => isMine(c) && c.dueDate < today)
+    .filter((c) => isMine(c) && c.dueDate && c.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name, 'sk'));
 }
 
@@ -1409,7 +1410,18 @@ function renderRozpis() {
   } else {
     html += tasks.map((c) => taskCard(c, 'mine')).join('');
   }
+  html += noDateSection(myTasks, 'mine');
   return html;
+}
+
+/** Činnosti bez termínu („niekedy treba urobiť“) – pod úlohami dňa. */
+function noDateSection(list, mode) {
+  const someday = list.filter((c) => !c.dueDate).sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  if (!someday.length) return '';
+  return (
+    '<div class="section-gap"></div><div class="section-title"><span class="ms">event_busy</span>Bez termínu (' + someday.length + ')</div>' +
+    someday.map((c) => taskCard(c, mode)).join('')
+  );
 }
 
 // -------------------------------------------------------------------------
@@ -1544,6 +1556,10 @@ function renderPlanovanie() {
   } else {
     html += tasks.map((c) => taskCard(c, 'plan')).join('');
   }
+  html += noDateSection(
+    state.detail.cinnosti.filter((c) => state.selectedUser === null || c.assignedTo === state.selectedUser),
+    'plan'
+  );
 
   html +=
     '<div class="fab-bar"><button class="btn" id="addTaskBtn">' +
@@ -1747,7 +1763,7 @@ function restoreFromHistory(entryId) {
   if (!e) return;
   openModal(
     '<h2>Vrátiť činnosť?</h2><div class="subtitle">„' + esc(e.name) + '“ sa vráti medzi činnosti s termínom ' +
-      esc(formatDate(e.dueDate)) + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
+      esc(e.dueDate ? formatDate(e.dueDate) : '– bez termínu –') + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
       '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
       '<button class="btn" id="ok"><span class="ms">undo</span>Vrátiť</button></div>',
     (root) => {
@@ -2367,7 +2383,7 @@ function showTaskDetail(id) {
   const meta = [];
   if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
   if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
-  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '')) + '</span>');
+  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(c.dueDate ? formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '') : 'Bez termínu') + '</span>');
   if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
   meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
@@ -2685,9 +2701,11 @@ function showCinnostForm(priestorId, existing, opts) {
         'Kto a kedy',
         '<div class="field"><label>Pridelené</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
           '<div class="chips wrap">' + memberChips + '</div></div>' +
-          '<div class="row"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<label class="switch nodate"><input type="checkbox" name="noDate"' + (v.dueDate ? '' : ' checked') + '>' +
+          '<span class="switch-track"></span><span class="ms">event_busy</span>Bez termínu (niekedy)</label>' +
+          '<div class="row" id="dateRow"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate || state.selectedDate) + '"></div>' +
           '<div class="field field-time"><label>Pripomenúť o</label><input type="time" name="dueTime" value="' + esc(v.dueTime || '') + '"></div></div>' +
-          '<div class="field"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
+          '<div class="field" id="periodField"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
           '<div class="chips seg">' + periodChips + '</div>' +
           '<div class="interval hidden" id="intervalField"><span>každých</span>' +
           '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '">' +
@@ -2848,6 +2866,20 @@ function showCinnostForm(priestorId, existing, opts) {
       };
       pickChip('data-assign', form.assignedTo);
       pickChip('data-period', form.periodicity, () => form.periodicity.onchange());
+      // bez termínu: dátum, čas ani opakovanie sa nezadávajú
+      const applyNoDate = () => {
+        const none = form.noDate.checked;
+        root.querySelector('#dateRow').classList.toggle('hidden', none);
+        root.querySelector('#periodField').classList.toggle('hidden', none);
+        form.dueDate.required = !none;
+        if (none) {
+          form.periodicity.value = 'none';
+          root.querySelectorAll('[data-period]').forEach((x) => x.classList.toggle('active', x.dataset.period === 'none'));
+          form.periodicity.onchange();
+        }
+      };
+      form.noDate.onchange = applyNoDate;
+      applyNoDate();
       function updateHeadIcon() {
         const head = root.querySelector('#fIcon');
         head.textContent = ICONS[shopping.checked ? 'shopping' : icon] || ICONS.home;
@@ -2904,8 +2936,8 @@ function showCinnostForm(priestorId, existing, opts) {
           name: form.name.value,
           description: form.description.value,
           assignedTo: form.assignedTo.value,
-          dueDate: form.dueDate.value,
-          dueTime: form.dueTime.value,
+          dueDate: form.noDate.checked ? '' : form.dueDate.value,
+          dueTime: form.noDate.checked ? '' : form.dueTime.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
           icon: isShop ? 'shopping' : icon,

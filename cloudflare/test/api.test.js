@@ -273,3 +273,12 @@ test('verzia domácnosti sa zmení pri každej zmene (nákup naživo)', async ()
   assert.equal(await jana.api.getRev(h.id), r2); // bez zmeny rovnaká
   await rejects(cudzi.api.getRev(h.id), /nemáš prístup/, 403);
 });
+
+test('činnosť bez termínu („niekedy“): bez dátumu aj času, opakovaná ho musí mať', async () => {
+  const h = (await roman.api.createHousehold('Niekedy', '')).households.find((x) => x.name === 'Niekedy');
+  const p = await roman.api.addPriestor(h.id, 'Chodba');
+  const c = await roman.api.addCinnost(h.id, { name: 'Opraviť kľučku', priestorId: p.id, dueDate: '', dueTime: '10:00', assignedTo: 'roman@exe.sk' });
+  assert.deepEqual([c.dueDate, c.dueTime, c.periodicity], ['', '', 'none']);
+  await rejects(roman.api.addCinnost(h.id, { name: 'X', priestorId: p.id, dueDate: '', periodicity: 'weekly', repeatInterval: 1 }), /potrebuje termín/);
+  assert.deepEqual(await roman.api.completeCinnost(c.id), { deleted: true });
+});

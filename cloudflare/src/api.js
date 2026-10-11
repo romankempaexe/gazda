@@ -281,13 +281,15 @@ async function validateCinnost(c, householdId, data) {
     if (!isMember) throw new AppError('Činnosť môžeš prideliť len členovi domácnosti.');
   }
 
+  // prázdny termín = „bez termínu“ (niekedy treba urobiť); opakovaná činnosť ho musí mať
   const dueDate = String(data.dueDate ?? '');
-  if (!DATE_RE.test(dueDate)) throw new AppError('Zadaj termín.');
+  const periodicity = PERIODICITIES.includes(data.periodicity) ? data.periodicity : 'none';
+  if (dueDate === '' && periodicity !== 'none') throw new AppError('Opakovaná činnosť potrebuje termín.');
+  if (dueDate !== '' && !DATE_RE.test(dueDate)) throw new AppError('Zadaj termín.');
 
-  const dueTime = String(data.dueTime ?? '').trim();
+  const dueTime = dueDate ? String(data.dueTime ?? '').trim() : '';
   if (dueTime && !TIME_RE.test(dueTime)) throw new AppError('Čas zadaj ako HH:MM.');
 
-  const periodicity = PERIODICITIES.includes(data.periodicity) ? data.periodicity : 'none';
   let repeatInterval = null;
   if (periodicity !== 'none') {
     repeatInterval = parseInt(data.repeatInterval, 10);

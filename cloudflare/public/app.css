@@ -2795,3 +2795,13 @@ input.lf-pageno::-webkit-inner-spin-button {
   background: var(--primary);
   color: #fff;
 }
+
+.fsec .switch.nodate {
+  margin-bottom: 12px;
+}
+
+.section-title > .ms {
+  font-size: 17px;
+  vertical-align: -3px;
+  margin-right: 4px;
+}

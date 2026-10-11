@@ -243,7 +243,7 @@ export async function sendMorningDigest(db, today) {
        JOIN households h ON h.id = c.household_id
        JOIN members m ON m.household_id = c.household_id AND (m.email = c.assigned_to OR c.assigned_to = '${ALL}')
        LEFT JOIN priestory p ON p.id = c.priestor_id
-       WHERE c.assigned_to <> '' AND c.due_date <= ?
+       WHERE c.assigned_to <> '' AND c.due_date <> '' AND c.due_date <= ?
          AND m.email IN (SELECT email FROM push_subscriptions)
        ORDER BY c.due_date, c.name`
     )

@@ -121,6 +121,9 @@ button:active:not(:disabled) {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  /* ikona je slovo (ligatúra) – veľké písmená ani rozostup ju nesmú pokaziť (napr. v nadpisoch sekcií) */
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .hidden {

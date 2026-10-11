@@ -833,3 +833,66 @@ export async function getOffers(c, text) {
   ]);
   return data;
 }
+
+// ---- Nadiktovaný nákupný zoznam → položky (Workers AI, len text) --------------------
+
+const LIST_QTY = /^(\d+(?:[.,]\d+)?)\s*(ks|kg|g|dkg|l|dl|ml|bal\.?)$/i;
+
+const listPrompt = (text, known) =>
+  'Si pomocník na nákupný zoznam. Nižšie je text, ktorý človek nadiktoval po slovensky (rozpoznávanie reči, ' +
+  'bez interpunkcie, môžu byť v ňom chyby a výplňové slová). Vypíš z neho LEN veci na kúpu.\n' +
+  'Pravidlá:\n' +
+  '- každá vec je samostatná položka; názov v základnom tvare (1. pád), s veľkým začiatočným písmenom,\n' +
+  '- zachovaj celý názov aj s prívlastkom alebo druhom – NErozdeľuj ho a neskracuj: „smotanu na šľahanie“ → ' +
+  '„Smotana na šľahanie“, „syra eidam“ → „Syr eidam“, „toaletný papier“ → „Toaletný papier“,\n' +
+  '- vynechaj slová, ktoré nie sú tovar (treba, kúpiť, daj, prosím, ešte, nejaké, potom, a, aj, to je všetko…),\n' +
+  '- počet a jednotka stoja PRED vecou, ku ktorej patria: „vajcia dve balenia kávy“ → Vajcia bez počtu a Káva 2 bal.,\n' +
+  '- "qty" je „číslo jednotka“ (ks, kg, g, dkg, l, dl, ml, bal.), napr. „kilo papriky“ → {"name":"Paprika","qty":"1 kg"}, ' +
+  '„tri rožky“ → {"name":"Rožok","qty":"3 ks"}, „pol kila syra“ → {"name":"Syr","qty":"0,5 kg"},\n' +
+  '- ak počet nebol povedaný, daj "qty":"" – nič si nedomýšľaj („nejaké rožky“ → {"name":"Rožok","qty":""}),\n' +
+  '- oprav zjavné chyby rozpoznávania reči podľa zmyslu (napr. „mleko“ → Mlieko),\n' +
+  (known.length ? '- ak vec zodpovedá niektorému z týchto názvov, ktoré domácnosť používa, použi presne ten názov: ' + known.join(', ') + '\n' : '') +
+  'Odpovedz IBA JSON poľom, napr. [{"name":"Mlieko","qty":""},{"name":"Paprika","qty":"1 kg"}].\n\n' +
+  'Text: „' + text + '“';
+
+/** Nadiktovaný text → ['Mlieko', 'Paprika 1 kg', …] (null, ak AI nie je k dispozícii). */
+export async function parseShoppingText(c, householdId, text) {
+  text = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  if (!text) return [];
+  const member = await c.db
+    .prepare('SELECT 1 FROM members WHERE household_id = ? AND email = ?')
+    .bind(String(householdId ?? ''), c.email)
+    .first();
+  if (!member) throw new AppError('K tejto domácnosti nemáš prístup.', 403);
+  if (!c.ai || (await neuronsToday(c)) >= DAILY_NEURONS) return null; // appka použije vlastné rozdelenie
+  const { results } = await c.db
+    .prepare('SELECT name FROM produkty WHERE household_id = ? ORDER BY uses DESC, last_used DESC LIMIT 80')
+    .bind(householdId)
+    .all();
+  let answer;
+  try {
+    answer = await c.ai.run(PRODUCTS_MODEL, {
+      messages: [{ role: 'user', content: listPrompt(text, results.map((r) => r.name)) }],
+      max_tokens: 600,
+      temperature: 0,
+    });
+  } catch (err) {
+    console.error('Zoznam z hlasu: ' + err);
+    return null;
+  }
+  await addNeurons(c, Number(answer && answer.usage && answer.usage.neurons) || 10);
+  // Workers AI niekedy vráti JSON už rozparsovaný (pole), inak text
+  const response = answer && answer.response;
+  const data = response && typeof response === 'object' ? response : extractJson(response);
+  const list = Array.isArray(data) ? data : data && Array.isArray(data.items) ? data.items : null;
+  if (!list) return null;
+  const out = [];
+  for (const it of list.slice(0, 60)) {
+    const name = String((it && typeof it === 'object' ? it.name : it) ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!name || /^\d/.test(name)) continue;
+    const m = String((it && it.qty) ?? '').trim().replace(/\s+/g, ' ').match(LIST_QTY);
+    const qty = m ? m[1].replace('.', ',') + ' ' + m[2].toLowerCase().replace(/^bal$/, 'bal.') : '';
+    out.push(name.charAt(0).toUpperCase() + name.slice(1) + (qty ? ' ' + qty : ''));
+  }
+  return out;
+}

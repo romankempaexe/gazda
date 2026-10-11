@@ -18,7 +18,7 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
-import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage } from './leaflets.js';
+import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -42,6 +42,7 @@ const METHODS = {
   addComment: api.addComment,
   deleteComment: api.deleteComment,
   getOffers,
+  parseShoppingText,
   setItemPrice: api.setItemPrice,
   restoreHistory: api.restoreHistory,
   deleteCinnost: api.deleteCinnost,

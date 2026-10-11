@@ -1609,7 +1609,7 @@ function bindDetailEvents() {
   view.querySelectorAll('[data-complete]').forEach((el) => {
     el.onclick = (e) => {
       e.stopPropagation();
-      completeTask(el.dataset.complete, el);
+      confirmComplete(el.dataset.complete, el);
     };
   });
   view.querySelectorAll('[data-edit-task]').forEach((el) => {
@@ -1638,6 +1638,40 @@ function bindCardItems(scope) {
       toggleChecklistItem(c, el.dataset.cardItem, () => refreshTaskCards(c));
     };
   });
+}
+
+/** Potvrdenie pred „Hotové“ – omylom ťuknuté tlačidlo nič nedokončí. */
+function confirmComplete(id, button) {
+  const c = state.detail.cinnosti.find((x) => x.id === id);
+  if (!c) return;
+  const open = (c.items || []).filter((i) => !i.done && !i.missing).length;
+  const shopping = c.kind === 'nakup';
+  const notes = [];
+  if (open) {
+    notes.push(
+      '<span class="ms">warning</span>' + open + (open === 1 ? ' položka nie je odškrtnutá' : open < 5 ? ' položky nie sú odškrtnuté' : ' položiek nie je odškrtnutých') +
+        (shopping && c.periodicity !== 'none' ? ' – ostanú na budúci nákup.' : '.')
+    );
+  }
+  notes.push(
+    c.periodicity !== 'none'
+      ? '<span class="ms">repeat</span>Opakuje sa – posunie sa na ďalší termín.'
+      : '<span class="ms">history</span>Uloží sa do Histórie (odtiaľ sa dá vrátiť).'
+  );
+  openModal(
+    '<h2>Dať za hotovú?</h2><div class="subtitle">„' + esc(c.name) + '“</div>' +
+      '<div class="confirm-notes">' + notes.map((n) => '<div>' + n + '</div>').join('') + '</div>' +
+      '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button>' +
+      '<button type="button" class="btn" id="ok"><span class="ms">check</span>Hotové</button></div>',
+    (root) => {
+      root.querySelector('#cancel').onclick = closeModal;
+      root.querySelector('#ok').onclick = () => {
+        closeModal(true);
+        completeTask(id, button);
+      };
+    },
+    { focus: false }
+  );
 }
 
 async function completeTask(id, button) {
@@ -2758,10 +2792,7 @@ function showTaskDetail(id) {
           openLeaflets({ taskId: c.id });
         };
       }
-      root.querySelector('#done').onclick = (e) => {
-        closeModal();
-        completeTask(c.id, e.currentTarget);
-      };
+      root.querySelector('#done').onclick = (e) => confirmComplete(c.id, e.currentTarget);
       renderList();
     },
     { focus: false, onClose: () => state.detail && renderDetail() }

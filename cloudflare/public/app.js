@@ -2337,11 +2337,26 @@ function knownProduct(words) {
     const pw = normalizeText(name).split(/\s+/);
     if (pw.length !== words.length) return false; // „jogurty“ nie je „Jogurt biely“
     const forms = pw.flatMap(wordForms);
-    return spoken.every((stems) => stems.some((st) => forms.some((f) => f.startsWith(st))));
+    // začiatok slova musí pokryť väčšinu názvu – „pros(ím)“ nie je „Prosecco“, „tam“ nie „Tampóny“
+    return spoken.every((stems) => stems.some((st) => forms.some((f) => f.startsWith(st) && st.length >= Math.min(f.length, Math.max(3, f.length * 0.6)))));
   };
   for (const list of productSources()) {
     const hits = list.filter(fits).sort((a, b) => a.length - b.length);
     if (hits.length) return hits[0];
+  }
+  // jedno slovo, ktoré je len súčasťou známeho názvu: „jogurtov“ → „Jogurt“ (z „Jogurt biely“)
+  if (words.length === 1) {
+    const stems = spoken[0];
+    for (const list of productSources()) {
+      for (const name of list) {
+        for (const w of name.split(/\s+/)) {
+          const f = normalizeText(w);
+          if (f.length >= 4 && wordForms(f).some((ff) => stems.some((st) => ff.startsWith(st) && st.length >= Math.max(3, ff.length * 0.6)))) {
+            return w.charAt(0).toUpperCase() + w.slice(1);
+          }
+        }
+      }
+    }
   }
   return '';
 }
@@ -2369,6 +2384,24 @@ function parseSpokenItem(part) {
   return name + ' ' + String(num).replace('.', ',') + ' ' + (unit || 'ks');
 }
 
+// Výplňové slová reči – nie sú to produkty („treba kúpiť mlieko a ešte nejaké rožky“).
+// Bez diakritiky, ako ich vráti normalizeText.
+const FILLER_WORDS = new Set(
+  ('kup kupit kupte kupim kupime nakup nakupit nakupte zober zobrat zoberte vezmi vziat prines priniest ' +
+    'daj dat dajte pridaj pridat pridajte zapis zapisat napis napisat treba potrebujem potrebujeme potrebujes ' +
+    'chcem chceme chces chcelo chcel chcela by bolo bude je su sme som mame mam nemame nemam dosli doslo ' +
+    'mi nam ti vam si sa ma mu jej im tam tu tak teda no jo ok okej hej nie ano hm hmm ehm eh ee eee mmm ' +
+    'prosim dakujem diky este aj a alebo potom plus tiez taktiez a potom no a ' +
+    'nejake nejaky nejaku nejaka nejakeho nejakych nejakej trochu par vela malo viac menej dalsie dalsi dalsiu ' +
+    'na do z zo s so k ku v vo pre od o ze aby ked ako co to ten ta tie tych toho tomu tej toto tieto ' +
+    'vsetko vsetky doma domov obchod obchode obchodu dnes zajtra rano vecer potom zoznam nakupny nakupu ' +
+    'hotovo koniec stop staci')
+    .split(' ')
+    .filter(Boolean)
+);
+
+const PREPOSITIONS = new Set(['na', 's', 'so', 'z', 'zo', 'do', 'pre', 'bez', 'od']);
+
 const isNumberWord = (w) => /^\d+([.,]\d+)?$/.test(w) || NUMBER_WORDS[w] !== undefined;
 const isUnitWord = (w) => SPOKEN_UNITS.some(([re]) => re.test(w));
 
@@ -2383,28 +2416,49 @@ function segmentSpoken(part) {
   const out = [];
   let i = 0;
   let unknown = [];
+  let lastEnd = -1; // kde skončila posledná známa položka (na pripojenie „na pranie“)
   const flushUnknown = () => {
     if (unknown.length) out.push(unknown.join(' '));
     unknown = [];
   };
+  const productAt = (k) => {
+    for (let n = Math.min(3, tokens.length - k); n >= 1; n--) if (knownProduct(tokens.slice(k, k + n))) return n;
+    return 0;
+  };
   while (i < tokens.length) {
+    // výplňové slovo (ak nezačína známy produkt) sa vynechá a ukončí rozpracovanú položku
+    // predložka medzi dvoma slovami názvu ho nedelí: „prášok na pranie“, „jogurt s jahodami“
+    if (PREPOSITIONS.has(norm[i]) && i + 1 < tokens.length && !FILLER_WORDS.has(norm[i + 1]) && !isNumberWord(norm[i + 1])) {
+      if (unknown.length) {
+        unknown.push(tokens[i]);
+        i++;
+        continue;
+      }
+      if (out.length && lastEnd === i) {
+        out[out.length - 1] += ' ' + tokens[i] + ' ' + tokens[i + 1];
+        i += 2;
+        lastEnd = i;
+        continue;
+      }
+    }
+    // (viacslovný produkt ako „smotana na šľahanie“ sa vynechať nesmie)
+    if ((FILLER_WORDS.has(norm[i]) || norm[i].length < 2) && !isNumberWord(norm[i]) && productAt(i) < 2) {
+      flushUnknown();
+      i++;
+      continue;
+    }
     let start = i;
     // počet a/alebo jednotka pred názvom patria k nasledujúcej položke
     if (isNumberWord(norm[i])) i++;
     if (i < tokens.length && isUnitWord(norm[i]) && i + 1 < tokens.length) i++;
     const hasQty = i > start;
     // najdlhší známy produkt (3, 2 alebo 1 slovo)
-    let len = 0;
-    for (let n = Math.min(3, tokens.length - i); n >= 1; n--) {
-      if (knownProduct(tokens.slice(i, i + n))) {
-        len = n;
-        break;
-      }
-    }
+    const len = productAt(i);
     if (len) {
       flushUnknown();
       out.push(tokens.slice(start, i + len).join(' '));
       i += len;
+      lastEnd = i;
     } else if (hasQty) {
       flushUnknown();
       unknown = tokens.slice(start, i + 1);

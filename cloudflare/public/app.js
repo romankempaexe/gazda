@@ -595,6 +595,15 @@ function assigneeIcon(email) {
   return email === ALL ? 'group' : 'person';
 }
 
+/** Čas komentára: dnes len hodiny, inak deň. */
+function commentTime(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  const time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const day = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  return day === todayYmd() ? time : formatDateShort(day) + ' ' + time;
+}
+
 function shortName(email) {
   if (!email) return 'Nepriradené';
   if (email === ALL) return 'Všetci';
@@ -629,6 +638,7 @@ function periodicityLabel(c) {
 
 /** Vyskytuje sa činnosť v daný deň? (rovnaká logika ako vo Flutter verzii) */
 function occursOn(c, date) {
+  if (!c.dueDate) return false; // bez termínu – nie je v žiadnom dni
   if (c.dueDate === date) return true;
   if (c.periodicity === 'none') return false;
 
@@ -1207,6 +1217,7 @@ function taskCard(c, mode) {
     );
   }
   if (c.dueTime) info.push(tag('alarm', c.dueTime));
+  if (c.comments) info.push(tag('chat', String(c.comments)));
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
@@ -1377,7 +1388,7 @@ function myOverdueTasks() {
   if (!state.detail) return [];
   const today = todayYmd();
   return state.detail.cinnosti
-    .filter((c) => isMine(c) && c.dueDate < today)
+    .filter((c) => isMine(c) && c.dueDate && c.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.name.localeCompare(b.name, 'sk'));
 }
 
@@ -1409,7 +1420,18 @@ function renderRozpis() {
   } else {
     html += tasks.map((c) => taskCard(c, 'mine')).join('');
   }
+  html += noDateSection(myTasks, 'mine');
   return html;
+}
+
+/** Činnosti bez termínu („niekedy treba urobiť“) – pod úlohami dňa. */
+function noDateSection(list, mode) {
+  const someday = list.filter((c) => !c.dueDate).sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  if (!someday.length) return '';
+  return (
+    '<div class="section-gap"></div><div class="section-title"><span class="ms">event_busy</span>Bez termínu (' + someday.length + ')</div>' +
+    someday.map((c) => taskCard(c, mode)).join('')
+  );
 }
 
 // -------------------------------------------------------------------------
@@ -1544,6 +1566,10 @@ function renderPlanovanie() {
   } else {
     html += tasks.map((c) => taskCard(c, 'plan')).join('');
   }
+  html += noDateSection(
+    state.detail.cinnosti.filter((c) => state.selectedUser === null || c.assignedTo === state.selectedUser),
+    'plan'
+  );
 
   html +=
     '<div class="fab-bar"><button class="btn" id="addTaskBtn">' +
@@ -1747,7 +1773,7 @@ function restoreFromHistory(entryId) {
   if (!e) return;
   openModal(
     '<h2>Vrátiť činnosť?</h2><div class="subtitle">„' + esc(e.name) + '“ sa vráti medzi činnosti s termínom ' +
-      esc(formatDate(e.dueDate)) + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
+      esc(e.dueDate ? formatDate(e.dueDate) : '– bez termínu –') + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
       '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
       '<button class="btn" id="ok"><span class="ms">undo</span>Vrátiť</button></div>',
     (root) => {
@@ -2063,6 +2089,7 @@ function wizItems(w) {
           }
         });
         root.querySelector('#itemAdd').onclick = () => add(input.value);
+        attachVoice(input, add);
         // text, ktorý ešte nebol pridaný, sa pridá pri Ďalej
         root.querySelector('#next').addEventListener('click', () => add(input.value), { capture: true });
         render();
@@ -2241,6 +2268,79 @@ function rememberProduct(text) {
   apiQuiet('rememberProducts', d.household.id, [text]).catch(() => {});
 }
 
+// ---- Hlasové pridávanie (rozpoznávanie reči v telefóne, bez AI) -----------------
+
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+const NUMBER_WORDS = {
+  jeden: 1, jedna: 1, jedno: 1, jednu: 1, dva: 2, dve: 2, tri: 3, styri: 4, pat: 5, sest: 6,
+  sedem: 7, osem: 8, devat: 9, desat: 10, pol: 0.5,
+};
+
+/** „mlieko, dva chleby a maslo“ → ['Mlieko', '2 chleby', 'Maslo'] */
+function splitSpoken(text) {
+  return String(text)
+    .split(/,|;|\s+(?:a|aj|potom|plus|tiez|ešte|este|a tiež|a este)\s+/i)
+    .map((part) => {
+      const words = part.trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return '';
+      const n = NUMBER_WORDS[normalizeText(words[0])];
+      if (n !== undefined && words.length > 1) words[0] = String(n);
+      const t = words.join(' ');
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    })
+    .filter(Boolean);
+}
+
+/** Mikrofón vedľa poľa na pridanie: čo človek povie, pridá sa ako položky (každá cez add). */
+function attachVoice(input, add) {
+  if (!SpeechRec || !input || input.parentNode.querySelector('.mic')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn tonal small mic';
+  btn.title = 'Povedať položky';
+  btn.innerHTML = '<span class="ms">mic</span>';
+  input.after(btn);
+  let rec = null;
+  btn.onclick = () => {
+    if (rec) return rec.stop();
+    rec = new SpeechRec();
+    rec.lang = 'sk-SK';
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    const before = input.placeholder;
+    btn.classList.add('listening');
+    input.placeholder = 'Počúvam… napr. „mlieko, dva chleby a maslo“';
+    let finalText = '';
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
+        else interim += e.results[i][0].transcript;
+      }
+      input.value = (finalText + interim).trim();
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Povoľ Gazde mikrofón v nastaveniach prehliadača.', true);
+      else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Hlas sa nepodarilo rozpoznať. Skús znova.', true);
+    };
+    rec.onend = async () => {
+      rec = null;
+      btn.classList.remove('listening');
+      input.placeholder = before;
+      const items = splitSpoken(finalText || input.value);
+      input.value = '';
+      for (const item of items) await add(item);
+      if (items.length) toast('Pridané: ' + items.join(', '));
+    };
+    try {
+      rec.start();
+    } catch {
+      rec = null;
+      btn.classList.remove('listening');
+    }
+  };
+}
+
 function productSources() {
   return [(state.detail && state.detail.products) || [], typeof PRODUKTY !== 'undefined' ? PRODUKTY : []];
 }
@@ -2367,7 +2467,7 @@ function showTaskDetail(id) {
   const meta = [];
   if (shopping) meta.push('<span class="tag"><span class="ms">shopping_cart</span>' + esc(c.store || 'Nákup') + '</span>');
   if (c.priestorId) meta.push('<span class="tag"><span class="ms">location_on</span>' + esc(priestorName(c.priestorId)) + '</span>');
-  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '')) + '</span>');
+  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(c.dueDate ? formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '') : 'Bez termínu') + '</span>');
   if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
   meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
@@ -2382,6 +2482,9 @@ function showTaskDetail(id) {
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
       '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="checklist"></div></div>' +
+      '<div class="field comments"><label><span class="ms">chat</span>Komentáre</label><div id="commentList"><div class="hint">Načítavam…</div></div>' +
+      '<div class="item-add"><input id="commentInput" maxlength="500" autocomplete="off" placeholder="Napíš komentár pre ostatných…">' +
+      '<button type="button" class="btn tonal small" id="commentSend" title="Poslať"><span class="ms">send</span></button></div></div>' +
       '<div class="actions">' +
       '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
       (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
@@ -2429,12 +2532,77 @@ function showTaskDetail(id) {
       };
 
       const toggle = (itemId) => toggleChecklistItem(c, itemId, renderList);
+      // Komentáre
+      const commentList = root.querySelector('#commentList');
+      const commentInput = root.querySelector('#commentInput');
+      const renderComments = (list) => {
+        commentList.innerHTML = list.length
+          ? list
+              .map(
+                (k) =>
+                  '<div class="comment' + (k.author === state.email ? ' mine' : '') + '"><div class="comment-head"><b>' + esc(shortName(k.author)) +
+                  '</b><span class="hint">' + esc(commentTime(k.createdAt)) + '</span>' +
+                  (k.author === state.email
+                    ? '<button type="button" class="icon-btn small" data-del-comment="' + esc(k.id) + '" title="Zmazať"><span class="ms">close</span></button>'
+                    : '') +
+                  '</div><div class="comment-text">' + esc(k.text) + '</div></div>'
+              )
+              .join('')
+          : '<div class="hint">Zatiaľ žiadne. Napíš napr. „kúp radšej polotučné“.</div>';
+        commentList.querySelectorAll('[data-del-comment]').forEach((b) => {
+          b.onclick = async () => {
+            try {
+              await api('deleteComment', b.dataset.delComment);
+              c.comments = Math.max(0, (c.comments || 1) - 1);
+              loadComments();
+            } catch (err) {
+              showError(err);
+            }
+          };
+        });
+      };
+      const loadComments = async () => {
+        try {
+          const list = await apiQuiet('getComments', c.id);
+          if (root.querySelector('#commentList') === commentList) renderComments(list);
+        } catch {
+          commentList.innerHTML = '<div class="hint">Komentáre sa nepodarilo načítať.</div>';
+        }
+      };
+      const sendComment = async () => {
+        const text = commentInput.value.trim();
+        if (!text) return;
+        const btn = root.querySelector('#commentSend');
+        btn.disabled = true;
+        try {
+          await api('addComment', c.id, text);
+          commentInput.value = '';
+          c.comments = (c.comments || 0) + 1;
+          await loadComments();
+        } catch (err) {
+          showError(err);
+        }
+        btn.disabled = false;
+      };
+      root.querySelector('#commentSend').onclick = sendComment;
+      commentInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendComment();
+        }
+      });
+      if (String(c.id).startsWith('tmp-')) commentList.innerHTML = '<div class="hint">Ukladá sa…</div>';
+      else loadComments();
+
       // nákup naživo: zmeny od ostatných sa prekreslia priamo v otvorenom detaile
       state.openTask = {
         id: c.id,
         update: (fresh) => {
+          const newComments = (fresh.comments || 0) !== (c.comments || 0);
+          if (!fresh.comments) delete c.comments;
           Object.assign(c, fresh);
           renderList();
+          if (newComments) loadComments();
         },
       };
       if (root.querySelector('#sortMode')) {
@@ -2481,6 +2649,7 @@ function showTaskDetail(id) {
         }
       });
       root.querySelector('#itemAdd').onclick = () => add(input.value);
+      attachVoice(input, add);
       root.querySelector('#cancel').onclick = closeModal;
       root.querySelector('#edit').onclick = () => showCinnostForm(c.priestorId, c);
       if (shopping) {
@@ -2685,9 +2854,11 @@ function showCinnostForm(priestorId, existing, opts) {
         'Kto a kedy',
         '<div class="field"><label>Pridelené</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
           '<div class="chips wrap">' + memberChips + '</div></div>' +
-          '<div class="row"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate) + '"></div>' +
+          '<label class="switch nodate"><input type="checkbox" name="noDate"' + (v.dueDate ? '' : ' checked') + '>' +
+          '<span class="switch-track"></span><span class="ms">event_busy</span>Bez termínu (niekedy)</label>' +
+          '<div class="row" id="dateRow"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate || state.selectedDate) + '"></div>' +
           '<div class="field field-time"><label>Pripomenúť o</label><input type="time" name="dueTime" value="' + esc(v.dueTime || '') + '"></div></div>' +
-          '<div class="field"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
+          '<div class="field" id="periodField"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
           '<div class="chips seg">' + periodChips + '</div>' +
           '<div class="interval hidden" id="intervalField"><span>každých</span>' +
           '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '">' +
@@ -2829,6 +3000,7 @@ function showCinnostForm(priestorId, existing, opts) {
         }
       });
       root.querySelector('#itemAdd').onclick = () => addItemText(itemInput.value);
+      attachVoice(itemInput, addItemText);
       renderItems();
 
       form.periodicity.onchange = () => {
@@ -2848,6 +3020,20 @@ function showCinnostForm(priestorId, existing, opts) {
       };
       pickChip('data-assign', form.assignedTo);
       pickChip('data-period', form.periodicity, () => form.periodicity.onchange());
+      // bez termínu: dátum, čas ani opakovanie sa nezadávajú
+      const applyNoDate = () => {
+        const none = form.noDate.checked;
+        root.querySelector('#dateRow').classList.toggle('hidden', none);
+        root.querySelector('#periodField').classList.toggle('hidden', none);
+        form.dueDate.required = !none;
+        if (none) {
+          form.periodicity.value = 'none';
+          root.querySelectorAll('[data-period]').forEach((x) => x.classList.toggle('active', x.dataset.period === 'none'));
+          form.periodicity.onchange();
+        }
+      };
+      form.noDate.onchange = applyNoDate;
+      applyNoDate();
       function updateHeadIcon() {
         const head = root.querySelector('#fIcon');
         head.textContent = ICONS[shopping.checked ? 'shopping' : icon] || ICONS.home;
@@ -2904,8 +3090,8 @@ function showCinnostForm(priestorId, existing, opts) {
           name: form.name.value,
           description: form.description.value,
           assignedTo: form.assignedTo.value,
-          dueDate: form.dueDate.value,
-          dueTime: form.dueTime.value,
+          dueDate: form.noDate.checked ? '' : form.dueDate.value,
+          dueTime: form.noDate.checked ? '' : form.dueTime.value,
           periodicity: form.periodicity.value,
           repeatInterval: form.repeatInterval.value,
           icon: isShop ? 'shopping' : icon,

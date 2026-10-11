@@ -232,6 +232,26 @@ test('akcie na často kupované produkty: raz denne, každú akciu len raz', asy
   assert.equal(matchingOffer('Mlieko', [{ name: 'Syr' }]), null);
 });
 
+test('komentáre: pridanie, upozornenie riešiteľovi, počet, mazanie len vlastných', async () => {
+  const c = await jana.api.addCinnost(hid, { name: 'Nákup na víkend', kind: 'nakup', dueDate: '2026-10-25', assignedTo: 'jana@gmail.com' });
+  sent.length = 0;
+  const k = await roman.api.addComment(c.id, '  kúp radšej polotučné  ');
+  assert.deepEqual([k.author, k.text], ['roman@exe.sk', 'kúp radšej polotučné']);
+  assert.deepEqual(sent.map((x) => x.url), [janaPhone.subscription.endpoint]);
+  const msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.title, msg.body], ['💬 Romi: Nákup na víkend', 'kúp radšej polotučné']);
+  await assert.rejects(roman.api.addComment(c.id, '   '), /Napíš komentár/);
+  await jana.api.addComment(c.id, 'ok');
+  assert.deepEqual((await jana.api.getComments(c.id)).map((x) => x.text), ['kúp radšej polotučné', 'ok']);
+  assert.equal((await roman.api.getHouseholdData(hid)).cinnosti.find((x) => x.id === c.id).comments, 2);
+  await assert.rejects(jana.api.deleteComment(k.id), /len svoj/);
+  await roman.api.deleteComment(k.id);
+  assert.equal((await jana.api.getComments(c.id)).length, 1);
+  await jana.api.deleteCinnost(c.id);
+  const left = await t.env.DB.prepare('SELECT COUNT(*) AS n FROM komentare WHERE cinnost_id = ?').bind(c.id).first();
+  assert.equal(left.n, 0);
+});
+
 test('vypnutie upozornení na zariadení', async () => {
   await jana.api.unsubscribePush(janaPhone.subscription.endpoint);
   sent.length = 0;

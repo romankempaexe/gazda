@@ -158,6 +158,26 @@ export async function notifyAssigned(c, cinnost, priestor) {
   else await work;
 }
 
+/** Nový komentár: upozorní riešiteľa (pri spoločnej / nepriradenej činnosti všetkých) okrem autora. */
+export async function notifyComment(c, cinnost, text) {
+  const work = (async () => {
+    const message = {
+      title: '💬 ' + (await displayName(c.db, c.email)) + ': ' + cinnost.name,
+      body: text,
+      tag: 'comment-' + cinnost.id,
+      url: '/',
+    };
+    const everyone = !cinnost.assigned_to || cinnost.assigned_to === ALL;
+    const { results } = await c.db
+      .prepare('SELECT email FROM members WHERE household_id = ? AND email <> ? AND (? OR email = ?)')
+      .bind(cinnost.household_id, c.email, everyone ? 1 : 0, cinnost.assigned_to)
+      .all();
+    for (const m of results) await sendToUser(c.db, m.email, message);
+  })().catch((err) => console.warn('Upozornenie o komentári sa nepodarilo odoslať: ' + err));
+  if (c.waitUntil) c.waitUntil(work);
+  else await work;
+}
+
 // ---- Ranný prehľad --------------------------------------------------------------
 
 function localHour(date) {

@@ -5,7 +5,7 @@
 // Používateľ je prihlásený Google účtom; domácnosti zdieľa podľa e-mailu.
 // Zápisy, ktoré patria k sebe, idú jedným db.batch() – D1 ich vykoná ako jednu transakciu.
 
-import { notifyAssigned, rememberOrigin, saveSubscription, sendToUser, vapidKeys } from './notifications.js';
+import { notifyAssigned, notifyComment, rememberOrigin, saveSubscription, sendToUser, vapidKeys } from './notifications.js';
 import {
   ALL,
   AppError,
@@ -185,6 +185,7 @@ export async function deleteHousehold(c, householdId) {
   const del = (table, column = 'household_id') => c.db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(householdId);
   await c.db.batch([
     del('polozky'),
+    del('komentare'),
     del('item_images'),
     del('historia'),
     del('obchody'),
@@ -214,7 +215,7 @@ export async function getStartData(c) {
 export async function getHouseholdData(c, householdId) {
   const member = await requireMember(c, householdId);
   const q = (sql) => c.db.prepare(sql).bind(householdId);
-  const [household, members, priestory, cinnosti, polozky, obchody, produkty] = await c.db.batch([
+  const [household, members, priestory, cinnosti, polozky, obchody, produkty, komentare] = await c.db.batch([
     q('SELECT * FROM households WHERE id = ?'),
     q(MEMBERS_SQL + ' WHERE m.household_id = ? ORDER BY m.rowid'),
     q('SELECT * FROM priestory WHERE household_id = ? ORDER BY rowid'),
@@ -222,6 +223,7 @@ export async function getHouseholdData(c, householdId) {
     q(ITEMS_SQL + ' WHERE p.household_id = ? ORDER BY p.position, p.rowid'),
     q('SELECT name FROM obchody WHERE household_id = ?'),
     q('SELECT name FROM produkty WHERE household_id = ? ORDER BY uses DESC, last_used DESC LIMIT 500'),
+    q('SELECT cinnost_id, COUNT(*) AS n FROM komentare WHERE household_id = ? GROUP BY cinnost_id'),
     // Zapamätaj naposledy otvorenú domácnosť (pri ďalšom spustení sa otvorí rovno ona).
     c.db
       .prepare('UPDATE users SET last_household_id = ? WHERE email = ? AND last_household_id <> ?')
@@ -229,6 +231,7 @@ export async function getHouseholdData(c, householdId) {
   ]);
   if (!household.results.length) throw new AppError('Domácnosť neexistuje.', 404);
 
+  const commentsByTask = new Map(komentare.results.map((k) => [k.cinnost_id, k.n]));
   const itemsByTask = new Map();
   for (const i of polozky.results) {
     if (!itemsByTask.has(i.cinnost_id)) itemsByTask.set(i.cinnost_id, []);
@@ -240,7 +243,10 @@ export async function getHouseholdData(c, householdId) {
     household: toHousehold(household.results[0]),
     members: members.results.map(toMember),
     priestory: priestory.results.map(toPriestor),
-    cinnosti: cinnosti.results.map((r) => toCinnost(r, itemsByTask.get(r.id) || [])),
+    cinnosti: cinnosti.results.map((r) => ({
+      ...toCinnost(r, itemsByTask.get(r.id) || []),
+      ...(commentsByTask.get(r.id) && { comments: commentsByTask.get(r.id) }),
+    })),
     stores: obchody.results.map((o) => o.name).sort((a, b) => a.localeCompare(b, 'sk')),
     products: produkty.results.map((p) => p.name),
   };
@@ -420,6 +426,43 @@ function rememberShoppingStatements(c, householdId, store, texts) {
  * Zapamätá nové produkty hneď, keď ich niekto napíše do zoznamu (aj keď činnosť ešte
  * neuložil), aby ich našepkávanie ponúklo nabudúce. Počet použití pribudne až pri uložení.
  */
+// ---- Komentáre pri činnosti -----------------------------------------------------
+
+const MAX_COMMENT = 500;
+const toComment = (r) => ({ id: r.id, author: r.author, text: r.text, createdAt: r.created_at });
+
+export async function getComments(c, cinnostId) {
+  const cinnost = await findCinnost(c, cinnostId);
+  const { results } = await c.db
+    .prepare('SELECT * FROM komentare WHERE cinnost_id = ? ORDER BY created_at, rowid LIMIT 200')
+    .bind(cinnost.id)
+    .all();
+  return results.map(toComment);
+}
+
+/** Pridá komentár; upozorní toho, komu činnosť patrí (pri spoločnej / nepriradenej všetkých). */
+export async function addComment(c, cinnostId, text) {
+  const cinnost = await findCinnost(c, cinnostId);
+  text = requireText(text, 'Napíš komentár.').slice(0, MAX_COMMENT);
+  const row = { id: uuid(), household_id: cinnost.household_id, cinnost_id: cinnost.id, author: c.email, text, created_at: nowIso() };
+  await c.db
+    .prepare('INSERT INTO komentare (id, household_id, cinnost_id, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(row.id, row.household_id, row.cinnost_id, row.author, row.text, row.created_at)
+    .run();
+  await notifyComment(c, cinnost, text);
+  return toComment(row);
+}
+
+/** Zmaže vlastný komentár. */
+export async function deleteComment(c, commentId) {
+  const row = await c.db.prepare('SELECT * FROM komentare WHERE id = ?').bind(String(commentId ?? '')).first();
+  if (!row) throw new AppError('Komentár už neexistuje.', 404);
+  await requireMember(c, row.household_id);
+  if (row.author !== c.email) throw new AppError('Zmazať môžeš len svoj komentár.', 403);
+  await c.db.prepare('DELETE FROM komentare WHERE id = ?').bind(row.id).run();
+  return { ok: true };
+}
+
 /** Verzia domácnosti (mení sa pri každej zmene) – lacná kontrola, či treba načítať údaje. */
 export async function getRev(c, householdId) {
   await requireMember(c, householdId);
@@ -544,6 +587,7 @@ export async function setItemPrice(c, itemId, price) {
 export async function deleteCinnost(c, cinnostId) {
   const cinnost = await findCinnost(c, cinnostId);
   await c.db.batch([
+    c.db.prepare('DELETE FROM komentare WHERE cinnost_id = ?').bind(cinnost.id),
     c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
     c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
     c.db.prepare(IMAGES_CLEANUP_SQL),
@@ -562,6 +606,7 @@ export async function completeCinnost(c, cinnostId) {
   if (!PERIODICITIES.includes(cinnost.periodicity) || cinnost.periodicity === 'none') {
     await c.db.batch([
       history,
+      c.db.prepare('DELETE FROM komentare WHERE cinnost_id = ?').bind(cinnost.id),
       c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
       c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
       c.db.prepare(IMAGES_CLEANUP_SQL),

@@ -595,6 +595,15 @@ function assigneeIcon(email) {
   return email === ALL ? 'group' : 'person';
 }
 
+/** Čas komentára: dnes len hodiny, inak deň. */
+function commentTime(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  const time = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const day = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  return day === todayYmd() ? time : formatDateShort(day) + ' ' + time;
+}
+
 function shortName(email) {
   if (!email) return 'Nepriradené';
   if (email === ALL) return 'Všetci';
@@ -1208,6 +1217,7 @@ function taskCard(c, mode) {
     );
   }
   if (c.dueTime) info.push(tag('alarm', c.dueTime));
+  if (c.comments) info.push(tag('chat', String(c.comments)));
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
@@ -2398,6 +2408,9 @@ function showTaskDetail(id) {
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
       '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="checklist"></div></div>' +
+      '<div class="field comments"><label><span class="ms">chat</span>Komentáre</label><div id="commentList"><div class="hint">Načítavam…</div></div>' +
+      '<div class="item-add"><input id="commentInput" maxlength="500" autocomplete="off" placeholder="Napíš komentár pre ostatných…">' +
+      '<button type="button" class="btn tonal small" id="commentSend" title="Poslať"><span class="ms">send</span></button></div></div>' +
       '<div class="actions">' +
       '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
       (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
@@ -2445,12 +2458,77 @@ function showTaskDetail(id) {
       };
 
       const toggle = (itemId) => toggleChecklistItem(c, itemId, renderList);
+      // Komentáre
+      const commentList = root.querySelector('#commentList');
+      const commentInput = root.querySelector('#commentInput');
+      const renderComments = (list) => {
+        commentList.innerHTML = list.length
+          ? list
+              .map(
+                (k) =>
+                  '<div class="comment' + (k.author === state.email ? ' mine' : '') + '"><div class="comment-head"><b>' + esc(shortName(k.author)) +
+                  '</b><span class="hint">' + esc(commentTime(k.createdAt)) + '</span>' +
+                  (k.author === state.email
+                    ? '<button type="button" class="icon-btn small" data-del-comment="' + esc(k.id) + '" title="Zmazať"><span class="ms">close</span></button>'
+                    : '') +
+                  '</div><div class="comment-text">' + esc(k.text) + '</div></div>'
+              )
+              .join('')
+          : '<div class="hint">Zatiaľ žiadne. Napíš napr. „kúp radšej polotučné“.</div>';
+        commentList.querySelectorAll('[data-del-comment]').forEach((b) => {
+          b.onclick = async () => {
+            try {
+              await api('deleteComment', b.dataset.delComment);
+              c.comments = Math.max(0, (c.comments || 1) - 1);
+              loadComments();
+            } catch (err) {
+              showError(err);
+            }
+          };
+        });
+      };
+      const loadComments = async () => {
+        try {
+          const list = await apiQuiet('getComments', c.id);
+          if (root.querySelector('#commentList') === commentList) renderComments(list);
+        } catch {
+          commentList.innerHTML = '<div class="hint">Komentáre sa nepodarilo načítať.</div>';
+        }
+      };
+      const sendComment = async () => {
+        const text = commentInput.value.trim();
+        if (!text) return;
+        const btn = root.querySelector('#commentSend');
+        btn.disabled = true;
+        try {
+          await api('addComment', c.id, text);
+          commentInput.value = '';
+          c.comments = (c.comments || 0) + 1;
+          await loadComments();
+        } catch (err) {
+          showError(err);
+        }
+        btn.disabled = false;
+      };
+      root.querySelector('#commentSend').onclick = sendComment;
+      commentInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendComment();
+        }
+      });
+      if (String(c.id).startsWith('tmp-')) commentList.innerHTML = '<div class="hint">Ukladá sa…</div>';
+      else loadComments();
+
       // nákup naživo: zmeny od ostatných sa prekreslia priamo v otvorenom detaile
       state.openTask = {
         id: c.id,
         update: (fresh) => {
+          const newComments = (fresh.comments || 0) !== (c.comments || 0);
+          if (!fresh.comments) delete c.comments;
           Object.assign(c, fresh);
           renderList();
+          if (newComments) loadComments();
         },
       };
       if (root.querySelector('#sortMode')) {

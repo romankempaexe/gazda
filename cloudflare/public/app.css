@@ -2805,3 +2805,80 @@ input.lf-pageno::-webkit-inner-spin-button {
   vertical-align: -3px;
   margin-right: 4px;
 }
+
+/* ------------------------------------------------ Komentáre */
+.comments > label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comments > label .ms {
+  font-size: 17px;
+  color: var(--primary-strong);
+}
+
+#commentList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.comment {
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--surface-2);
+}
+
+.comment.mine {
+  align-self: flex-end;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--primary-soft);
+}
+
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.comment-head .hint {
+  margin: 0;
+}
+
+.comment-head .icon-btn {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+}
+
+.comment-head .icon-btn .ms {
+  font-size: 15px;
+}
+
+.comment-text {
+  font-size: 14.5px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comments .item-add > input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 11px 14px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.comments .item-add > input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}

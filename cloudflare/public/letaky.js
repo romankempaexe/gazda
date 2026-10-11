@@ -592,7 +592,8 @@ function lfShoppingTasks() {
   const same = (c) => lfStoreFor(c.store) === lf.store;
   return state.detail.cinnosti
     .filter((c) => c.kind === 'nakup' && !c.pending)
-    .sort((a, b) => Number(same(b)) - Number(same(a)) || a.dueDate.localeCompare(b.dueDate));
+    // s termínom podľa dátumu, bez termínu na koniec
+    .sort((a, b) => Number(same(b)) - Number(same(a)) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
 }
 
 /** Cena „2.49“ → „2,49“ (do poľa) */

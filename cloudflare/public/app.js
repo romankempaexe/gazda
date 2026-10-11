@@ -2271,23 +2271,71 @@ function rememberProduct(text) {
 // ---- Hlasové pridávanie (rozpoznávanie reči v telefóne, bez AI) -----------------
 
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+// slovné počty (bez diakritiky, ako ich vráti normalizeText)
 const NUMBER_WORDS = {
-  jeden: 1, jedna: 1, jedno: 1, jednu: 1, dva: 2, dve: 2, tri: 3, styri: 4, pat: 5, sest: 6,
-  sedem: 7, osem: 8, devat: 9, desat: 10, pol: 0.5,
+  jeden: 1, jedna: 1, jedno: 1, jednu: 1, jednej: 1, dva: 2, dve: 2, dvoch: 2, tri: 3, troch: 3,
+  styri: 4, styroch: 4, pat: 5, sest: 6, sedem: 7, osem: 8, devat: 9, desat: 10, pol: 0.5,
+  jedenast: 11, dvanast: 12, patnast: 15, dvadsat: 20,
 };
+// jednotky: „kilo papriky“, „pol kila syra“, „dve balenia“, „liter mlieka“
+const SPOKEN_UNITS = [
+  [/^(kilo|kila|kil|kilogram\w*)$/, 'kg'],
+  [/^(deka|dkg|dekagram\w*)$/, 'dkg'],
+  [/^(gram|gramy|gramov)$/, 'g'],
+  [/^(liter|litre|litra|litrov)$/, 'l'],
+  [/^(deci|decilit\w*)$/, 'dl'],
+  [/^(balenie|balenia|baleni|balik|baliky|balikov)$/, 'bal.'],
+  [/^(kus|kusy|kusov|kusok|kusky)$/, 'ks'],
+];
 
-/** „mlieko, dva chleby a maslo“ → ['Mlieko', '2 chleby', 'Maslo'] */
+// slovenské tvary: rožok/rožky, chlieb/chleby, vajce/vajec – porovnáva sa viac podôb slova
+const wordForms = (w) => [w, w.replace(/ie/g, 'e'), w.replace(/[eo]([^aeiouy])$/, '$1')];
+const spokenStem = (w) => (w.length <= 3 ? w : w.slice(0, w.length >= 6 ? w.length - 2 : w.length - 1));
+
+/** Hovorený názov → známy produkt (najprv z domácnosti, potom zo zoznamu): „papriky“ → „Paprika“. */
+function knownProduct(words) {
+  const spoken = words.map((w) => wordForms(normalizeText(w)).map(spokenStem));
+  const fits = (name) => {
+    const pw = normalizeText(name).split(/\s+/);
+    if (pw.length !== words.length) return false; // „jogurty“ nie je „Jogurt biely“
+    const forms = pw.flatMap(wordForms);
+    return spoken.every((stems) => stems.some((st) => forms.some((f) => f.startsWith(st))));
+  };
+  for (const list of productSources()) {
+    const hits = list.filter(fits).sort((a, b) => a.length - b.length);
+    if (hits.length) return hits[0];
+  }
+  return '';
+}
+
+/** Jedna hovorená vec → „Názov počet“: „kilo papriky“ → „Paprika 1 kg“, „tri rožky“ → „Rožky 3 ks“. */
+function parseSpokenItem(part) {
+  const words = part.trim().split(/\s+/).filter(Boolean);
+  let num = null;
+  let unit = '';
+  const first = normalizeText(words[0] || '');
+  if (/^\d+([.,]\d+)?$/.test(first)) num = Number(first.replace(',', '.'));
+  else if (NUMBER_WORDS[first] !== undefined) num = NUMBER_WORDS[first];
+  if (num !== null) words.shift();
+  const maybeUnit = normalizeText(words[0] || '');
+  const u = SPOKEN_UNITS.find(([re]) => re.test(maybeUnit));
+  if (u && words.length > 1) {
+    unit = u[1];
+    words.shift();
+    if (num === null) num = 1; // „kilo papriky“ = 1 kg
+  }
+  if (!words.length) return '';
+  const spoken = words.join(' ');
+  const name = knownProduct(words) || spoken.charAt(0).toUpperCase() + spoken.slice(1);
+  if (num === null) return name;
+  return name + ' ' + String(num).replace('.', ',') + ' ' + (unit || 'ks');
+}
+
+/** „mlieko, kilo papriky a tri rožky“ → ['Mlieko', 'Paprika 1 kg', 'Rožky 3 ks'] */
 function splitSpoken(text) {
   return String(text)
-    .split(/,|;|\s+(?:a|aj|potom|plus|tiez|ešte|este|a tiež|a este)\s+/i)
-    .map((part) => {
-      const words = part.trim().split(/\s+/).filter(Boolean);
-      if (!words.length) return '';
-      const n = NUMBER_WORDS[normalizeText(words[0])];
-      if (n !== undefined && words.length > 1) words[0] = String(n);
-      const t = words.join(' ');
-      return t.charAt(0).toUpperCase() + t.slice(1);
-    })
+    .split(/,|;|\s+(?:a|aj|potom|plus|tiez|ešte|este)\s+/i)
+    .map(parseSpokenItem)
     .filter(Boolean);
 }
 
@@ -2321,7 +2369,8 @@ function attachVoice(input, add) {
     input.placeholder = placeholder;
     input.value = '';
     if (rec) rec.stop();
-    if (added) toast('Pridaných hlasom: ' + added);
+    // počet až po pridaní posledných položiek (pridávajú sa postupne)
+    queue.then(() => added && toast('Pridaných hlasom: ' + added));
   };
 
   const handle = (text) => {

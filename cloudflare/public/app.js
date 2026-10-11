@@ -2291,53 +2291,104 @@ function splitSpoken(text) {
     .filter(Boolean);
 }
 
-/** Mikrofón vedľa poľa na pridanie: čo človek povie, pridá sa ako položky (každá cez add). */
+const STOP_WORDS = /^(hotovo|koniec|stop|stačí|staci|to je všetko|to je vsetko)[.!]?$/i;
+const VOICE_IDLE_MS = 30000; // bez reči 30 s – mikrofón sa sám vypne
+
+/**
+ * Mikrofón vedľa poľa na pridanie: jedným ťuknutím sa zapne a počúva stále – každá
+ * povedaná vec (po krátkej pauze) sa hneď pridá. Vypne sa ďalším ťuknutím, slovom
+ * „hotovo“, zatvorením okna alebo po 30 s ticha.
+ */
 function attachVoice(input, add) {
   if (!SpeechRec || !input || input.parentNode.querySelector('.mic')) return;
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn tonal small mic';
-  btn.title = 'Povedať položky';
+  btn.title = 'Hovoriť položky (ťukni znova na koniec)';
   btn.innerHTML = '<span class="ms">mic</span>';
   input.after(btn);
+  const placeholder = input.placeholder;
+  let active = false;
   let rec = null;
-  btn.onclick = () => {
-    if (rec) return rec.stop();
+  let lastSpeech = 0;
+  let queue = Promise.resolve();
+  let added = 0;
+
+  const stop = () => {
+    if (!active) return;
+    active = false;
+    btn.classList.remove('listening');
+    input.placeholder = placeholder;
+    input.value = '';
+    if (rec) rec.stop();
+    if (added) toast('Pridaných hlasom: ' + added);
+  };
+
+  const handle = (text) => {
+    text = text.trim();
+    if (!text) return;
+    lastSpeech = Date.now();
+    if (STOP_WORDS.test(text)) return stop();
+    // „…a hotovo“ na konci vety: pridaj, čo bolo pred tým, a skonči
+    const end = text.match(/^(.*?)[,\s]+(?:a\s+)?(hotovo|koniec|to je všetko)[.!]?$/i);
+    const items = splitSpoken(end ? end[1] : text);
+    for (const item of items) {
+      queue = queue.then(() => add(item)).then(() => added++).catch(() => {});
+    }
+    if (end) stop();
+  };
+
+  const listen = () => {
     rec = new SpeechRec();
     rec.lang = 'sk-SK';
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
-    const before = input.placeholder;
-    btn.classList.add('listening');
-    input.placeholder = 'Počúvam… napr. „mlieko, dva chleby a maslo“';
-    let finalText = '';
+    const done = new Set(); // Android niekedy pošle ten istý výsledok znova
     rec.onresult = (e) => {
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalText += e.results[i][0].transcript + ' ';
-        else interim += e.results[i][0].transcript;
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          if (!done.has(i)) {
+            done.add(i);
+            handle(t);
+          }
+        } else interim += t;
       }
-      input.value = (finalText + interim).trim();
+      if (active) input.value = interim.trim();
     };
     rec.onerror = (e) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') toast('Povoľ Gazde mikrofón v nastaveniach prehliadača.', true);
-      else if (e.error !== 'no-speech' && e.error !== 'aborted') toast('Hlas sa nepodarilo rozpoznať. Skús znova.', true);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        toast('Povoľ Gazde mikrofón v nastaveniach prehliadača.', true);
+        stop();
+      } else if (e.error === 'network') {
+        toast('Rozpoznávanie reči potrebuje internet.', true);
+        stop();
+      }
     };
-    rec.onend = async () => {
+    rec.onend = () => {
       rec = null;
-      btn.classList.remove('listening');
-      input.placeholder = before;
-      const items = splitSpoken(finalText || input.value);
-      input.value = '';
-      for (const item of items) await add(item);
-      if (items.length) toast('Pridané: ' + items.join(', '));
+      // telefón po chvíli ticha počúvanie ukončí – kým je zapnuté, pokračuj
+      if (!active) return;
+      if (!input.isConnected || Date.now() - lastSpeech > VOICE_IDLE_MS) return stop();
+      setTimeout(() => active && !rec && listen(), 200);
     };
     try {
       rec.start();
     } catch {
-      rec = null;
-      btn.classList.remove('listening');
+      stop();
     }
+  };
+
+  btn.onclick = () => {
+    if (active) return stop();
+    active = true;
+    added = 0;
+    lastSpeech = Date.now();
+    btn.classList.add('listening');
+    input.placeholder = 'Počúvam… hovor položky, „hotovo“ ukončí';
+    listen();
   };
 }
 

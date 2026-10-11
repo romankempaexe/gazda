@@ -18,7 +18,7 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
-import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage } from './leaflets.js';
+import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
@@ -42,6 +42,7 @@ const METHODS = {
   addComment: api.addComment,
   deleteComment: api.deleteComment,
   getOffers,
+  parseShoppingText,
   setItemPrice: api.setItemPrice,
   restoreHistory: api.restoreHistory,
   deleteCinnost: api.deleteCinnost,
@@ -90,6 +91,11 @@ async function handleApi(request, env, url, ctx) {
     if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
+    }
+    // DOČASNÉ (len náhľad): sonda AI rozdelenia nadiktovaného zoznamu
+    if (url.pathname === '/api/debug/voice' && url.hostname.startsWith('gazda-preview')) {
+      const { probeShoppingText } = await import('./leaflets.js');
+      return json(await probeShoppingText({ ai: env.AI }, url.searchParams.get('t') || ''));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));

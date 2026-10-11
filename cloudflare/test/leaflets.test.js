@@ -529,3 +529,21 @@ test('akcie produktu: výraz z položky, ponuky z Kimbina (platné, najlacnejši
   assert.deepEqual(none.offers, []);
   assert.deepEqual(calls.filter((u) => u.includes('q=xyz')).length, 2);
 });
+
+test('nadiktovaný zoznam: AI rozdelí text na položky (základný tvar, počet), pri chybe null', async () => {
+  await t.env.DB.prepare("DELETE FROM config WHERE key = 'ai_neurons'").run();
+  await roman.api.rememberProducts(hid, ['Rožok']);
+  aiCalls.length = 0;
+  aiAnswer = 'Tu je zoznam:\n[{"name":"paprika","qty":"1 kg"},{"name":"Rožok","qty":"3 ks"},{"name":"Maslo","qty":""},{"name":"Syr","qty":"pol kila"},{"name":"","qty":"2 ks"}]';
+  const items = await roman.api.parseShoppingText(hid, 'treba kilo papriky a tri rožky maslo a syr');
+  assert.deepEqual(items, ['Paprika 1 kg', 'Rožok 3 ks', 'Maslo', 'Syr']);
+  const prompt = aiCalls[0].input.messages[0].content;
+  assert.match(prompt, /treba kilo papriky/);
+  assert.match(prompt, /Rožok/); // názvy, ktoré domácnosť používa
+  assert.deepEqual(await roman.api.parseShoppingText(hid, '   '), []);
+  await assert.rejects(cudzi.api.parseShoppingText(hid, 'mlieko'), /nemáš prístup/);
+  aiAnswer = new Error('AiError: 3040: capacity');
+  assert.equal(await roman.api.parseShoppingText(hid, 'mlieko'), null);
+  aiAnswer = 'neviem';
+  assert.equal(await roman.api.parseShoppingText(hid, 'mlieko'), null);
+});

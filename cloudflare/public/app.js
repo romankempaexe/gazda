@@ -2581,7 +2581,14 @@ function attachVoice(input, add) {
     }
     const all = (text + ' ' + current).replace(STOP_WORDS, '').trim();
     current = '';
-    showPreview(splitSpoken(all));
+    if (!all) return showPreview([]);
+    // AI (Workers AI) rozdelí text na položky; bez nej (limit, výpadok) vlastné rozdelenie
+    preview.classList.remove('hidden');
+    preview.innerHTML = '<div class="voice-head"><span class="ms">auto_awesome</span>Analyzujem: „' + esc(all) + '“…</div>';
+    const fallback = () => showPreview(splitSpoken(all));
+    apiQuiet('parseShoppingText', state.detail.household.id, all)
+      .then((items) => (Array.isArray(items) ? showPreview(items) : fallback()))
+      .catch(fallback);
   };
 
   let current = ''; // rozpracovaný úsek (aktuálne počúvanie)

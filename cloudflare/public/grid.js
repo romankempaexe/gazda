@@ -30,6 +30,11 @@
     if (app === 'quickstash') {
       return o.entries ? { text: plural(o.entries, 'položka', 'položky', 'položiek') } : '';
     }
+    if (app === 'financie') {
+      if (o.remaining === undefined) return '';
+      const eur = Math.round(Math.abs(o.remaining) / 100).toLocaleString('sk-SK') + ' €';
+      return o.remaining < 0 ? { text: 'Chýba ' + eur + ' / mes.', warn: true } : { text: 'Zostáva ' + eur + ' / mes.' };
+    }
     return '';
   }
 

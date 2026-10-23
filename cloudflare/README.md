@@ -22,6 +22,7 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 | `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) – pozri nižšie |
 | `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
 | `/quickstash/` | QuickStash – texty, odkazy a heslá na skopírovanie (`public/quickstash/`, `src/quickstash/`) – pozri nižšie |
+| `/financie/` | Financie – rodinný rozpočet podľa tabuľky Financie (`public/financie/`, `src/financie/`) – pozri nižšie |
 
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
   (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
@@ -32,20 +33,20 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
   všetky podaplikácie). Family Grid sa zdieľa ako **rodina** (`households`, `members` – tie isté
   ako domácnosti v Gazde): na rozcestníku ťukni na rodinu nad kartami (alebo *Môj účet →
   Rodina a zdieľanie*), zadaj Google e-mail a pošli pozvánku. Člen rodiny vidí a mení údaje
-  Gazdy, Zdravka, Skládka aj spoločné položky QuickStashu tejto rodiny. Zakladateľ môže členov odobrať (`removeFamilyMember`),
+  Gazdy, Zdravka, Skládka, Financií aj spoločné položky QuickStashu tejto rodiny. Zakladateľ môže členov odobrať (`removeFamilyMember`),
   člen môže z rodiny odísť; rodinu sa dá premenovať (`renameFamily`) a vymazať (zmaže údaje
   všetkých podaplikácií).
 - **Zvolená rodina** je spoločná pre všetky podaplikácie (`setCurrentFamily` →
   `users.last_household_id`, podľa nej sa otvorí aj Gazda); kto má viac rodín, prepne ich v
   dialógu rodiny alebo v Gazde.
-- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `quickstash` | `family`);
+- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `quickstash` | `financie` | `family`);
   service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
   a po ťuknutí otvorí `/<app>/`.
 - **Spoločný kód v prehliadači:** `public/shared/app.css` (vzhľad), `public/shared/fg.css`
   (farby podaplikácií, dlaždice) a `public/shared/fg.js` (server, prihlásenie, okná,
   upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
-  (priečinky `family`, `gazda`, `zdravko`, `skladko`, `quickstash`).
+  (priečinky `family`, `gazda`, `zdravko`, `skladko`, `quickstash`, `financie`).
 
 ## Kalendár na plochu (Google Kalendár / iPhone)
 
@@ -124,6 +125,29 @@ desktopového QuickStashu (repozitár `quickstash`, PySide6 a Apps Script) ako p
 - **Bezpečnosť:** heslá sú v D1 (šifrovaná na disku Cloudflare) a v pamäti telefónu (posledné
   údaje na otvorenie bez internetu) – pri odhlásení sa zmažú.
 - Tabuľka `quickstash_entries` (migrácia 0016), funkcie `POST /api/quickstash/<funkcia>` v `src/quickstash/api.js`.
+
+## Financie (`/financie/`)
+
+Rodinný rozpočet – webová verzia tabuľky **Financie** (Excel) ako podaplikácia Family Grid.
+Údaje patria rodine, vidia a menia ich všetci jej členovia, zmeny od ostatných sa ukážu samé
+(`financie/getRev`, `households.financie_rev`).
+
+- **Príjmy, mesačné výdavky** (s kategóriou) a **ročné výdavky** (so splatnosťou a „sporiť mesačne“ = suma / 12).
+- **Prehľad** počíta to isté ako vzorce v tabuľke: príjem za mesiac a rok, výdavky spolu prepočítané
+  na mesiac (mesačné + ročné / 12), koľko zostáva, % výdavkov z príjmu, výdavky podľa kategórií
+  (ťuknutím detail) a najbližšie ročné platby.
+- **Finančné zdravie:** bežné výdavky bez sporenia voči príjmu – do 50 % *Výborné*, do 70 % *Dobré*,
+  do 90 % *Na hrane*, inak (alebo keď výdavky prevyšujú príjem) *Zlé*. Ktoré kategórie sú sporenie,
+  sa nastaví pri kategórii (pri importe sa označí „Sporenie“, „Investície“…).
+- **Núdzová rezerva:** aktuálna suma, cieľ N× mesačné výdavky (predvolene 6), na koľko mesiacov vydrží, naplnenie.
+- **Import z Excelu:** *Môj účet → Import z Excelu* (alebo tlačidlo na prázdnom prehľade) načíta `.xlsx`
+  priamo na serveri (`src/financie/xlsx.js` – ZIP + XML bez knižníc, `src/financie/excel.js`): na liste nájde
+  nadpisy *Príjmy*, *Mesačné výdavky*, *Ročné výdavky*, *Kategórie výdavkov*, pod nimi hlavičku („Názov“,
+  „Suma (€)“, „Kategória“, „Splatnosť“) a riadky po „Spolu“; zo súhrnu *Aktuálna rezerva*. Na presnej polohe
+  tabuliek nezáleží. Import nahradí doterajšie položky a kategórie rodiny.
+- **Dlaždica** na rozcestníku: koľko mesačne zostáva (zvolená rodina).
+- Sumy sú v centoch. Tabuľky `financie_items`, `financie_categories` a stĺpce `households.financie_*`
+  (migrácia 0017), funkcie `POST /api/financie/<funkcia>` v `src/financie/api.js`.
 
 ## Zdravko (`/zdravko/`)
 

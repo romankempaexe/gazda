@@ -1,6 +1,7 @@
 /**
  * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/),
- * Zdravko (/zdravko/), Skládko (/skladko/) a QuickStash (/quickstash/) – jedno prihlásenie, jedna databáza.
+ * Zdravko (/zdravko/), Skládko (/skladko/), QuickStash (/quickstash/) a Financie (/financie/) – jedno prihlásenie,
+ * jedna databáza.
  *
  * Statické súbory (public/) obsluhuje Cloudflare priamo, sem prichádzajú len
  * požiadavky na /api/* a manifest. Údaje sú v databáze D1 (env.DB).
@@ -28,6 +29,7 @@ import * as zdravko from './zdravko/api.js';
 import { importFirebase as zdravkoImport } from './zdravko/import.js';
 import { sendZdravkoReminders } from './zdravko/notifications.js';
 import * as quickstash from './quickstash/api.js';
+import * as financie from './financie/api.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
@@ -112,10 +114,20 @@ const METHODS = {
   'quickstash/saveEntry': quickstash.saveEntry,
   'quickstash/deleteEntry': quickstash.deleteEntry,
   'quickstash/importEntries': quickstash.importEntries,
+  // Financie
+  'financie/getData': financie.getData,
+  'financie/getRev': financie.getRev,
+  'financie/saveItem': financie.saveItem,
+  'financie/deleteItem': financie.deleteItem,
+  'financie/moveItem': financie.moveItem,
+  'financie/saveCategory': financie.saveCategory,
+  'financie/deleteCategory': financie.deleteCategory,
+  'financie/setReserve': financie.setReserve,
+  'financie/importExcel': financie.importExcel,
 };
 
-// Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači) a import zálohy QuickStashu.
-const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage', 'quickstash/importEntries']);
+// Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači), import zálohy QuickStashu a Excelu Financií.
+const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage', 'quickstash/importEntries', 'financie/importExcel']);
 const MAX_LARGE_BODY = 1024 * 1024;
 
 const MAX_BODY = 256 * 1024;
@@ -261,7 +273,7 @@ function manifest() {
     id: '/',
     name: 'Family Grid',
     short_name: 'Family Grid',
-    description: 'Rodinné aplikácie na jednom mieste – Gazda, Zdravko, Skládko a QuickStash',
+    description: 'Rodinné aplikácie na jednom mieste – Gazda, Zdravko, Skládko, QuickStash a Financie',
     lang: 'sk',
     start_url: '/',
     scope: '/',
@@ -280,6 +292,7 @@ function manifest() {
       { name: 'Zdravko', short_name: 'Zdravko', url: '/zdravko/', icons: icon('zdravko') },
       { name: 'Skládko', short_name: 'Skládko', url: '/skladko/', icons: icon('skladko') },
       { name: 'QuickStash', short_name: 'QuickStash', url: '/quickstash/', icons: icon('quickstash') },
+      { name: 'Financie', short_name: 'Financie', url: '/financie/', icons: icon('financie') },
     ],
   };
   return new Response(JSON.stringify(body), {

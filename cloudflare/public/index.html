@@ -13,6 +13,8 @@
         var last = null;
         try {
           last = localStorage.getItem('fg.lastApp');
+          // doterajší používateľ Gazdy (má v telefóne jej údaje) – otvor mu rovno Gazdu
+          if (!last && localStorage.getItem('gazda.snap')) last = 'gazda';
           var t = localStorage.getItem('gazda.theme');
           if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
         } catch (e) {}

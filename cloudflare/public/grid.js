@@ -27,6 +27,9 @@
       if (o.low) return { text: 'Dochádza: ' + o.low, warn: true };
       return o.items ? { text: plural(o.items, 'vec', 'veci', 'vecí') } : '';
     }
+    if (app === 'quickstash') {
+      return o.entries ? { text: plural(o.entries, 'položka', 'položky', 'položiek') } : '';
+    }
     return '';
   }
 

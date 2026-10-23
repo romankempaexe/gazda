@@ -1,0 +1,158 @@
+/* QuickStash – zoznam textov, odkazov a hesiel na skopírovanie. */
+
+.qs-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+}
+.qs-search input {
+  padding-left: 42px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.qs-search > .ms {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.qs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 96px; /* miesto pre tlačidlo Pridať */
+}
+
+.qs-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  animation: rise 0.2s ease both;
+}
+
+.qs-kind {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+.qs-kind.password {
+  background: rgba(147, 51, 234, 0.12);
+  color: #9333ea;
+}
+.qs-kind.link {
+  background: rgba(29, 114, 184, 0.12);
+  color: #1d72b8;
+}
+
+.qs-body {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+}
+.qs-name {
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.qs-name .ms {
+  font-size: 15px;
+  color: var(--muted);
+}
+.qs-value {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.qs-value.secret {
+  letter-spacing: 0.12em;
+}
+.qs-value.revealed {
+  color: var(--text);
+  letter-spacing: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.qs-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+.qs-actions .icon-btn.on {
+  color: var(--primary);
+}
+
+.qs-value-field {
+  position: relative;
+}
+.qs-value-field input {
+  padding-right: 92px;
+}
+.qs-value-field .qs-inline {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+}
+
+.qs-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+.qs-check input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+.qs-check small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* prepínač Text / Heslo vo formulári */
+.chips.seg.qs-seg {
+  grid-template-columns: repeat(2, 1fr);
+  background: var(--surface-2);
+}
+.qs-seg .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.qs-seg .chip .ms {
+  font-size: 18px;
+}

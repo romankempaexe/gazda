@@ -19,7 +19,7 @@
           if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
         } catch (e) {}
         if (p.has('akcia')) location.replace('/gazda/' + location.search);
-        else if (!p.has('grid') && location.hash !== '#kalendar' && /^(gazda|zdravko|skladko)$/.test(last || '')) location.replace('/' + last + '/');
+        else if (!p.has('grid') && location.hash !== '#kalendar' && /^(gazda|zdravko|skladko|quickstash)$/.test(last || '')) location.replace('/' + last + '/');
         else if (p.has('grid')) {
           window.FG_GRID = true; // rozcestník si človek vyžiadal – nepresmerovať
           history.replaceState(null, '', '/' + location.hash);

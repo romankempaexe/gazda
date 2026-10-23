@@ -1,6 +1,6 @@
 name: Nasadenie Cloudflare
 
-# Family Grid (Gazda, Zdravko, Skládko) na Cloudflare Workers + D1 (priečinok cloudflare/).
+# Family Grid (Gazda, Zdravko, Skládko, QuickStash) na Cloudflare Workers + D1 (priečinok cloudflare/).
 # - pull request: testy a nasadenie na náhľad (worker „gazda-preview“, vlastná databáza)
 # - push do main: testy, migrácie databázy a nasadenie (worker „gazda“)
 # Bez nastavených secrets CLOUDFLARE_API_TOKEN a CLOUDFLARE_ACCOUNT_ID sa

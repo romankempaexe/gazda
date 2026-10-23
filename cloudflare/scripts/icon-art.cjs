@@ -46,6 +46,17 @@ const APPS = {
       `<rect x="132" y="228" width="248" height="178" rx="26" fill="${w}"/>`,
     stroke: 'M204 316 L240 352 L310 282',
   },
+  // QuickStash: dva prekryté listy (kopírovanie) s kľúčom
+  quickstash: {
+    bg: ['#5eead4', '#0f766e'],
+    mark: ['#2dd4bf', '#0f766e'],
+    shadow: '#042f2e',
+    shape: (w) =>
+      `<rect x="112" y="112" width="208" height="232" rx="36" fill="${w}" opacity=".55"/>` +
+      `<rect x="176" y="168" width="224" height="248" rx="38" fill="${w}"/>`,
+    stroke: 'M248 268 m-34 0 a34 34 0 1 0 68 0 a34 34 0 1 0 -68 0 M282 268 L346 268 M322 268 L322 300 M346 268 L346 292',
+    strokeWidth: 22,
+  },
 };
 
 function art({ app = 'gazda', scale = 1, background = 'rounded', mono = false } = {}) {

@@ -1,6 +1,6 @@
 // Push notifikácie Gazdu:
 // - nová pridelená úloha (hneď, s obchodom, termínom a checklistom),
-// - ranný prehľad o 8:00 (úlohy na dnes) a úlohy po termíne (spúšťa cron každých 15 min).
+// - ranný prehľad o 8:00 (úlohy na dnes) a úlohy po termíne (spúšťa cron každých 5 min).
 
 import { ALL, DATE_RE, TIME_ZONE, nowIso, todayYmd } from './domain.js';
 import { generateVapidKeys, sendWebPush } from './webpush.js';
@@ -186,7 +186,7 @@ function localHour(date) {
   return Number(new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: 'numeric', hourCycle: 'h23' }).format(date));
 }
 
-/** Spúšťa cron každých 15 minút: ranný prehľad raz denne medzi 8:00 a 11:59. */
+/** Spúšťa cron každých 5 minút: ranný prehľad raz denne medzi 8:00 a 11:59. */
 export async function scheduledTick(db, now = new Date()) {
   const reminders = await sendTimedReminders(db, now);
   const hour = localHour(now);
@@ -209,7 +209,7 @@ function localTime(date) {
 }
 
 /**
- * Pripomienky v zadaný čas (cron každých 15 min): dnešné činnosti s časom, ktorý už nastal,
+ * Pripomienky v zadaný čas (cron každých 5 min): dnešné činnosti s časom, ktorý už nastal,
  * a pripomienka pre tento termín a čas ešte neodišla. Najprv sa označia (aby neodišli dvakrát).
  */
 export async function sendTimedReminders(db, now = new Date()) {

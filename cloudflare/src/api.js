@@ -185,6 +185,10 @@ export async function deleteHousehold(c, householdId) {
   const del = (table, column = 'household_id') => c.db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(householdId);
   await c.db.batch([
     // Family Grid: údaje Skládka a Zdravka tejto rodiny
+    del('zdravko_reminders'),
+    del('zdravko_records'),
+    del('zdravko_measurements'),
+    del('zdravko_members'),
     del('skladko_images'),
     del('skladko_items'),
     del('skladko_groups'),

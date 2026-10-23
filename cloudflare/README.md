@@ -19,7 +19,7 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 |---|---|
 | `/` | rozcestník Family Grid (`public/index.html`, `public/grid.js`) |
 | `/gazda/` | Gazda (`public/gazda/`) |
-| `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) |
+| `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) – pozri nižšie |
 | `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
 
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
@@ -50,7 +50,7 @@ ako podaplikácia Family Grid. Sklady (špajza, chladnička…) → skupiny (ľu
   príde upozornenie a vec je v *Dochádza a trvanlivosť* (filter 🔽). Tam je aj posuvník
   „aj veci, ktorých je najviac N ks“ ako v mobilnom Skládku.
 - **Trvanlivosť:** farebný štítok na karte (zelená / o pár dní / dnes alebo prešla) a upozornenie
-  3 dni pred dátumom (každý dátum raz, cez deň 8:00–20:59, cron každých 15 min).
+  3 dni pred dátumom (každý dátum raz, cez deň 8:00–20:59, cron každých 5 min).
 - **Do nákupu v Gazde:** v detaile veci – pridá ju do nákupu rodiny v Gazde (keď žiadny nie je, vytvorí „Nákup“).
 - **Presun:** vec aj celú skupinu (s obsahom) – *Presunúť* → otvor cieľ → *Vložiť sem*.
   (Mobilný Skládko pri presune v rámci jedného skladu vec omylom zmazal – tu je to jeden `UPDATE`.)
@@ -79,6 +79,52 @@ Veci a skupiny, ktorých skupinu mobilný Skládko „zmazal“, sa objavia v sk
    `FIREBASE_SKLADKO_SA` = celý obsah JSON súboru. Pri ďalšom nasadení ho CI uloží do Workera
    (`wrangler secret bulk`). Alebo priamo: `npx wrangler secret put FIREBASE_SKLADKO_SA`.
 3. Po prenose všetkých ľudí môžeš kľúč vo Firebase zmazať (a secret odstrániť).
+
+## Zdravko (`/zdravko/`)
+
+Zdravie rodiny – webová verzia mobilného Zdravka (Flutter + Firebase) ako podaplikácia
+Family Grid. Údaje patria rodine, vidia ich oba rodičia (mobilný Zdravko bol len pre jeden
+Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
+
+- **Členovia:** meno, dátum narodenia (vek „2 roky, 3 mesiace a 5 dní“), váha, výška, krvná
+  skupina, pohlavie, e-mail, dieťa. Na karte posledná teplota a liek (48 h) a najbližšia udalosť.
+- **Choroba:** obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
+  (do 37,2 zelená, do 38 oranžová, nad 38 červená) alebo tabuľka; lieky za 3 dni a kedy sa
+  ibuprofen/paracetamol smie podať znova (8 h); časová os záznamov. Jeden záznam = teplota,
+  liek a fyzikálna metóda naraz (ako v mobilnom), čas sa dá posunúť (−10 / −30 min).
+- **Kalendár:** návštevy lekára, vyšetrenia a očkovania (podtypy z mobilného Zdravka),
+  pripomienky týždeň / deň / hodinu pred **všetkým v rodine**, cena, poznámky. Do kalendára
+  v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
+  prihlasovania a bez duplikátov ako v mobilnom.
+- **Dávkovanie:** kalkulačka ibuprofen/paracetamol podľa váhy (sirup, čípky, tablety) –
+  rovnaký výpočet ako v mobilnom Zdravkovi (`public/zdravko/data.js` z `assets/*.json`).
+- **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
+  *Nastaviť ako aktuálne*.
+- **Upozornenia (ikona Zdravka):** nová udalosť a podaný liek hneď ostatným v rodine;
+  pripomienky udalostí; pri ibuprofene/paracetamole o 4 h „môžeš podať ten druhý“ a o 8 h
+  „znova ten istý“ (ďalšia dávka staré pripomienky nahradí). Posiela ich cron každých 5 minút
+  (`zdravko_reminders`; zmeškané o viac ako 6 h sa už neposielajú).
+- Tabuľky `zdravko_members`, `zdravko_records`, `zdravko_measurements`, `zdravko_reminders`
+  (migrácia 0014), funkcie `POST /api/zdravko/<funkcia>` v `src/zdravko/api.js`.
+
+### Prenos z mobilného Zdravka (Firebase)
+
+V Zdravkovi: **Môj účet → Preniesť z mobilného Zdravka**. Server nájde vo Firebase projekte
+`zdravko-f4ac5` účet s rovnakým e-mailom a prenesie členov, záznamy, udalosti (aj
+s pripomienkami do budúcnosti) a miery do zvolenej rodiny. Časy z mobilnej aplikácie
+(miestny čas bez pásma aj UTC) sa prevedú správne. Záznamy vymazaných členov sa
+nepreniesú; najstaršie záznamy bez člena dostane člen, ak je v rodine jediný.
+Opakovaný prenos nič nezdvojí (`fb-<id>`).
+
+**Nastavenie (raz):** rovnako ako pri Skládku – GitHub secret **`FIREBASE_ZDRAVKO_SA`** = JSON
+servisného účtu projektu `zdravko-f4ac5` (Firebase → Nastavenia projektu → Servisné účty →
+Vygenerovať nový súkromný kľúč).
+
+> ⚠️ **Bezpečnosť:** mobilný Zdravko má súkromný kľúč servisného účtu priamo v repozitári
+> (`family_mobile_app/assets/service-account.json`) a v každej nainštalovanej aplikácii – kto má
+> APK, má plný prístup k Firebase projektu. Na prenos ho nepoužívaj: vygeneruj nový kľúč, ulož ho
+> len ako GitHub secret a starý kľúč vo Google Cloud (IAM → Servisné účty → Kľúče) **zruš**.
+> Po zrušení prestanú fungovať push správy mobilného Zdravka – čo nevadí, keď ho nahradí web.
 
 ## Súbory
 
@@ -221,7 +267,7 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 
 ## Pripomienky, šablóny, vzhľad, skratky
 
-- Činnosť môže mať čas (`due_time`, migrácia 0010); cron každých 15 min pošle pripomienku
+- Činnosť môže mať čas (`due_time`, migrácia 0010); cron každých 5 min pošle pripomienku
   v ten čas (raz pre daný termín a čas).
 - Sprievodca novou činnosťou ponúka šablóny (`SABLONY` v `app.js`).
 - Vzhľad v účte: podľa telefónu / svetlý / tmavý (`data-theme` na `<html>`).
@@ -248,7 +294,7 @@ pre každé zariadenie zvlášť. Chodia, aj keď Gazda nie je otvorená:
 - Kľúče VAPID si server vytvorí sám pri prvom použití (tabuľka `config`); súkromný
   kľúč neopustí Cloudflare, nič netreba nastavovať. Neplatné odbery (zariadenie
   odinštalované, upozornenia vypnuté) sa pri odoslaní automaticky zmažú.
-- Ranný prehľad spúšťa **cron** Cloudflare každých 15 minút (`wrangler.json` → `triggers`);
+- Ranný prehľad spúšťa **cron** Cloudflare každých 5 minút (`wrangler.json` → `triggers`);
   pošle sa raz denne (dátum posledného je v tabuľke `config`).
 - Pri odhlásení sa upozornenia na danom zariadení vypnú.
 

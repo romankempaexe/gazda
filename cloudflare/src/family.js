@@ -20,7 +20,7 @@ export async function requireFamilyMember(c, householdId) {
 /** Údaje pre rozcestník: používateľ, rodiny, posledná podaplikácia a prehľad dlaždíc. */
 export async function getFamily(c) {
   const res = await getHouseholds(c);
-  const [user, gazda, skladko] = await c.db.batch([
+  const [user, gazda, skladko, zdravko] = await c.db.batch([
     c.db.prepare('SELECT last_app, last_household_id FROM users WHERE email = ?').bind(c.email),
     // Gazda: moje úlohy (aj spoločné) na dnes a po termíne – ako „Môj rozpis“.
     c.db
@@ -38,10 +38,19 @@ export async function getFamily(c) {
          FROM skladko_items i JOIN members m ON m.household_id = i.household_id AND m.email = ?2`
       )
       .bind(c.today, c.email),
+    // Zdravko: najbližšia udalosť (lekár, vyšetrenie, očkovanie) od teraz.
+    c.db
+      .prepare(
+        `SELECT COUNT(*) AS upcoming, MIN(r.event_at) AS next_at FROM zdravko_records r
+         JOIN members m ON m.household_id = r.household_id AND m.email = ?2
+         WHERE r.type = 'calendar_event' AND r.event_at >= ?1`
+      )
+      .bind(new Date().toISOString(), c.email),
   ]);
   const u = user.results[0] || {};
   const g = gazda.results[0] || {};
   const k = skladko.results[0] || {};
+  const z = zdravko.results[0] || {};
   return {
     ...res,
     lastApp: APPS.includes(u.last_app) ? u.last_app : '',
@@ -49,6 +58,7 @@ export async function getFamily(c) {
     overview: {
       gazda: { today: g.today || 0, overdue: g.overdue || 0 },
       skladko: { items: k.items || 0, low: k.low || 0, expiring: k.expiring || 0 },
+      zdravko: { upcoming: z.upcoming || 0, nextAt: z.next_at || '' },
     },
   };
 }

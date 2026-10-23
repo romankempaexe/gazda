@@ -1,0 +1,331 @@
+/* Zdravko – členovia, záznam choroby, graf teploty, udalosti, miery. */
+
+.t-ok { color: #16a34a; }
+.t-warn { color: #ea8a00; }
+.t-bad { color: #dc2626; }
+
+.zd-member {
+  cursor: pointer;
+  align-items: flex-start;
+}
+.zd-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+.zd-avatar.child {
+  background: #fde7f3;
+  color: #c0267a;
+}
+.zd-avatar .ms {
+  font-size: 26px;
+}
+.zd-go {
+  color: var(--muted);
+  align-self: center;
+}
+.zd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.zd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px 3px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.zd-chip .ms {
+  font-size: 16px;
+}
+.zd-chip.ok { background: rgba(22, 163, 74, 0.12); color: #15803d; }
+.zd-chip.warn { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.zd-chip.bad { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+.zd-chip.event { background: var(--primary-soft); color: var(--primary-strong); }
+
+.zd-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 2px 16px;
+}
+.zd-head > div:nth-child(2) {
+  flex: 1;
+}
+
+.zd-period {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.zd-period select {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+.zd-date {
+  position: relative;
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+.zd-date input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.zd-period .icon-btn:disabled {
+  opacity: 0.3;
+}
+
+.zd-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 2px 10px;
+  font-weight: 700;
+}
+.zd-sec .ms {
+  font-size: 18px;
+  color: var(--primary);
+}
+.zd-mini {
+  margin: 0 0 0 auto;
+}
+.zd-mini .chip {
+  padding: 4px 10px;
+}
+.zd-mini .chip .ms {
+  font-size: 18px;
+  color: inherit;
+}
+.chip.active,
+.zd-seg .chip.active,
+.zd-types .chip.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+
+.zd-chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 8px 8px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 10px;
+}
+.zd-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.zd-chart .b-ok { fill: rgba(22, 163, 74, 0.1); }
+.zd-chart .b-warn { fill: rgba(245, 158, 11, 0.12); }
+.zd-chart .b-bad { fill: rgba(220, 38, 38, 0.09); }
+.zd-chart .grid { stroke: var(--border); stroke-width: 1; }
+.zd-chart text { fill: var(--muted); font-size: 12px; font-family: inherit; }
+.zd-chart .yl { text-anchor: end; }
+.zd-chart .xl { text-anchor: middle; }
+.zd-chart .line { fill: none; stroke: #f59e0b; stroke-width: 2.5; stroke-linejoin: round; }
+.zd-chart .line.growth { stroke: var(--primary); }
+.zd-chart circle { stroke: var(--surface); stroke-width: 2; }
+.zd-chart circle.t-ok { fill: #16a34a; }
+.zd-chart circle.t-warn { fill: #f59e0b; }
+.zd-chart circle.t-bad { fill: #dc2626; }
+.zd-chart circle.g { fill: var(--primary); }
+.zd-chart-note,
+.zd-chart-title {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 8px 0;
+}
+.zd-chart-title {
+  font-weight: 700;
+  color: var(--text);
+  padding: 0 8px 4px;
+}
+
+.zd-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 14px;
+}
+.zd-table div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 14px;
+}
+.zd-table div + div {
+  border-top: 1px solid var(--border);
+}
+
+.zd-day {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 14px 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.zd-tl {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.zd-time {
+  flex: 0 0 46px;
+  font-weight: 700;
+  font-size: 14px;
+  padding-top: 10px;
+  text-align: right;
+}
+.zd-tl-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+.zd-rec {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 6px 6px 6px 12px;
+  font-size: 14px;
+}
+.zd-rec > div {
+  flex: 1;
+}
+.zd-rec > .ms {
+  font-size: 20px;
+  color: var(--primary);
+}
+.zd-rec.medicine > .ms { color: #7c3aed; }
+.zd-rec.rest > .ms { color: #0891b2; }
+.zd-rec.temperature.t-ok > .ms, .zd-rec.temperature.t-ok b { color: #16a34a; }
+.zd-rec.temperature.t-warn > .ms { color: #ea8a00; }
+.zd-rec.temperature.t-bad > .ms { color: #dc2626; }
+.zd-rec .icon-btn {
+  color: var(--muted);
+}
+
+.zd-temp input {
+  flex: 1 1 110px;
+}
+.zd-temp .chip {
+  flex: 0 0 auto;
+}
+.zd-warn {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  color: #b45309;
+  margin-bottom: 8px;
+}
+.zd-warn .ms {
+  font-size: 18px;
+}
+.zd-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.zd-check input {
+  accent-color: var(--primary);
+  margin: 0;
+}
+.zd-types .chip .ms {
+  font-size: 17px;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+
+.cal-day .dot.none {
+  background: transparent;
+}
+.cal-day .dot.sick {
+  background: #dc2626;
+}
+.zd-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: -12px 4px 14px;
+}
+.zd-legend .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 5px;
+}
+.zd-legend .dot.sick {
+  background: #dc2626;
+}
+
+.zd-event {
+  cursor: pointer;
+}
+.zd-event.past {
+  opacity: 0.6;
+}
+.zd-ev-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ev);
+  background: color-mix(in srgb, var(--ev) 14%, transparent);
+}
+
+.zd-dose {
+  background: var(--primary-soft);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 8px 0 4px;
+}
+.zd-dose b {
+  display: block;
+  font-size: 18px;
+  margin-top: 4px;
+  color: var(--primary-strong);
+}
+
+.zd-meas .icon-btn {
+  color: var(--muted);
+}
+
+.pick-list a.btn {
+  text-decoration: none;
+}

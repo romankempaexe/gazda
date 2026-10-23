@@ -5,7 +5,7 @@
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v2';
+const CACHE = 'family-grid-v3';
 const APPS = ['family', 'gazda', 'zdravko', 'skladko'];
 const SHELL = [
   '/',
@@ -20,6 +20,10 @@ const SHELL = [
   '/skladko/',
   '/skladko/app.js',
   '/skladko/skladko.css',
+  '/zdravko/',
+  '/zdravko/app.js',
+  '/zdravko/data.js',
+  '/zdravko/zdravko.css',
   ...APPS.flatMap((a) => ['/icons/' + a + '/icon.svg', '/icons/' + a + '/icon-192.png', '/icons/' + a + '/badge-96.png']),
 ];
 

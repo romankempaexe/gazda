@@ -1,4 +1,4 @@
-// Upozornenia Skládka (cron každých 15 minút, cez deň 8:00–20:59):
+// Upozornenia Skládka (cron každých 5 minút, cez deň 8:00–20:59):
 // - končí trvanlivosť: položka, ktorej dátum spotreby je do 3 dní (každý dátum raz),
 // - dochádza: množstvo kleslo na hranicu „dochádza“ (raz, kým sa nedoplní).
 // Dostanú ich všetci členovia rodiny so zapnutými upozorneniami, s ikonou Skládka.

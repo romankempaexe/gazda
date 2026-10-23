@@ -23,6 +23,9 @@ import { getFamily, setLastApp } from './family.js';
 import * as skladko from './skladko/api.js';
 import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
 import { sendSkladkoAlerts } from './skladko/notifications.js';
+import * as zdravko from './zdravko/api.js';
+import { importFirebase as zdravkoImport } from './zdravko/import.js';
+import { sendZdravkoReminders } from './zdravko/notifications.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
@@ -83,6 +86,18 @@ const METHODS = {
   'skladko/importFirebase': skladkoImport,
   'skladko/pendingImages': skladkoPendingImages,
   'skladko/skipImportImage': skladkoSkipImage,
+  // Zdravko
+  'zdravko/getData': zdravko.getData,
+  'zdravko/getRev': zdravko.getRev,
+  'zdravko/saveMember': zdravko.saveMember,
+  'zdravko/deleteMember': zdravko.deleteMember,
+  'zdravko/addRecords': zdravko.addRecords,
+  'zdravko/deleteRecord': zdravko.deleteRecord,
+  'zdravko/saveEvent': zdravko.saveEvent,
+  'zdravko/saveMeasurement': zdravko.saveMeasurement,
+  'zdravko/deleteMeasurement': zdravko.deleteMeasurement,
+  'zdravko/setCurrentMeasurement': zdravko.setCurrentMeasurement,
+  'zdravko/importFirebase': zdravkoImport,
 };
 
 // Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači).
@@ -104,7 +119,7 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  // Cron (wrangler.json „triggers“): každých 15 minút – ranný prehľad raz denne o 8:00.
+  // Cron (wrangler.json „triggers“): každých 5 minút – ranný prehľad Gazdy, pripomienky, akcie, Skládko a Zdravko.
   async scheduled(event, env, ctx) {
     const now = new Date(event.scheduledTime);
     ctx.waitUntil(
@@ -115,6 +130,8 @@ export default {
         .catch((err) => console.error('Akcie: ' + err))
         .then(() => sendSkladkoAlerts(env.DB, now))
         .catch((err) => console.error('Skládko: ' + err))
+        .then(() => sendZdravkoReminders(env.DB, now))
+        .catch((err) => console.error('Zdravko: ' + err))
     );
   },
 };

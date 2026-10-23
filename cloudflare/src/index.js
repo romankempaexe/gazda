@@ -19,7 +19,7 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
-import { getFamily, setLastApp } from './family.js';
+import { getFamily, removeFamilyMember, renameFamily, setCurrentFamily, setLastApp } from './family.js';
 import * as skladko from './skladko/api.js';
 import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
 import { sendSkladkoAlerts } from './skladko/notifications.js';
@@ -33,6 +33,9 @@ const METHODS = {
   // Family Grid (rozcestník)
   getFamily,
   setLastApp,
+  setCurrentFamily,
+  renameFamily,
+  removeFamilyMember,
   // Gazda
   getHouseholds: api.getHouseholds,
   setNickname: api.setNickname,

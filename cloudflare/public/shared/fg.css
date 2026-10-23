@@ -173,3 +173,63 @@
 :root[data-app] .btn.danger {
   box-shadow: 0 6px 16px rgba(220, 38, 38, 0.25);
 }
+
+/* Rodina nad kartami rozcestníka: komu je Family Grid zdieľaný. */
+.fg-family {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 480px;
+  width: 100%;
+  margin: 4px auto 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.fg-family b {
+  flex: 1;
+  text-align: left;
+  font-size: 15px;
+}
+.fg-family > .ms {
+  color: var(--primary);
+}
+.fg-faces {
+  display: inline-flex;
+}
+.fg-faces i {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--primary);
+  border: 2px solid var(--surface);
+}
+.fg-faces i + i {
+  margin-left: -8px;
+}
+.fg-faces i:nth-child(2) { background: #16a34a; }
+.fg-faces i:nth-child(3) { background: #ea580c; }
+.fg-faces i:nth-child(4) { background: #1d72b8; }
+.fg-faces i:nth-child(5) { background: #9333ea; }
+
+.fg-members .fg-m-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.fg-members small {
+  color: var(--muted);
+  font-size: 12px;
+}

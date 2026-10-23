@@ -217,12 +217,12 @@ function showLogin(expired) {
   ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id).classList.add('hidden'));
   $('brand').classList.remove('hidden');
   document.body.classList.remove('with-tabs');
-  $('title').textContent = 'Gazda';
+  $('title').textContent = 'Family Grid';
   $('view').innerHTML =
-    '<div class="empty login"><img class="login-logo" src="/icons/gazda/icon.svg" alt="">' +
-    '<h2>Prihlás sa do Gazdu</h2>' +
+    '<div class="empty login"><img class="login-logo" src="/icons/family/icon.svg" alt="">' +
+    '<h2>Prihlás sa do Family Grid</h2>' +
     '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
-    'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal domácnosť.</div>' +
+    'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre Gazdu, Zdravka aj Skládko.</div>' +
     '<div id="googleBtn" class="google-btn"></div>' +
     '<div class="hint" id="loginHint"></div></div>';
   renderGoogleButton();
@@ -347,7 +347,7 @@ function showInviteInfo(emails) {
   const url = location.origin + '/';
   openModal(
     '<h2>Daj im vedieť</h2>' +
-      '<div class="subtitle">' + esc(emails.join(', ')) + ' sa do Gazdu prihlási svojím Google účtom ' +
+      '<div class="subtitle">' + esc(emails.join(', ')) + ' sa do Family Grid prihlási svojím Google účtom ' +
       '(tým e-mailom). Pošli ' + (emails.length === 1 ? 'mu' : 'im') + ' adresu aplikácie:</div>' +
       '<div class="field"><div class="row" style="align-items:center">' +
       '<input readonly id="appUrl" value="' + esc(url) + '" style="flex:3">' +
@@ -360,10 +360,10 @@ function showInviteInfo(emails) {
       root.querySelector('#done').onclick = closeModal;
       root.querySelector('#copy').onclick = () => copyText(root.querySelector('#appUrl'));
       root.querySelector('#send').onclick = async () => {
-        const text = 'Pridal som ťa do aplikácie Gazda. Otvor ' + url + ' a prihlás sa Google účtom.';
+        const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko). Otvor ' + url + ' a prihlás sa Google účtom.';
         if (navigator.share) {
           try {
-            await navigator.share({ title: 'Gazda', text });
+            await navigator.share({ title: 'Family Grid', text });
             return;
           } catch (e) {
             if (e && e.name === 'AbortError') return;

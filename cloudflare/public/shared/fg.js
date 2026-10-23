@@ -217,18 +217,20 @@
   // ---- Prihlásenie Google účtom ------------------------------------------------------------
 
   const loginListeners = [];
+  // Po zmene rodiny (prepnutie, nový člen…) sa stránka znova načíta zo servera.
+  let familyChanged = () => loginListeners.forEach((fn) => fn());
 
   function showLogin(expired) {
     closeModal(true);
     state.email = '';
     ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id) && $(id).classList.add('hidden'));
     document.body.classList.remove('with-tabs');
-    const name = appId === 'family' ? 'Family Grid' : APPS[appId].name;
+    // Prihlásenie je spoločné pre celý Family Grid (Gazda, Zdravko, Skládko).
     $('view').innerHTML =
-      '<div class="empty login"><img class="login-logo" src="/icons/' + appId + '/icon.svg" alt="">' +
-      '<h2>Prihlás sa do ' + esc(appId === 'family' ? 'Family Grid' : name + 'a') + '</h2>' +
+      '<div class="empty login"><img class="login-logo" src="/icons/family/icon.svg" alt="">' +
+      '<h2>Prihlás sa do Family Grid</h2>' +
       '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
-      'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal rodinu (domácnosť).</div>' +
+      'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre Gazdu, Zdravka aj Skládko.</div>' +
       '<div id="googleBtn" class="google-btn"></div>' +
       '<div class="hint" id="loginHint"></div></div>';
     renderGoogleButton();
@@ -369,14 +371,21 @@
   }
 
   /** Rodina, v ktorej podaplikácia pracuje (naposledy zvolená, inak prvá). */
+  // Zvolená rodina je spoločná pre celý Family Grid: v zariadení fg.household,
+  // na serveri users.last_household_id (podľa nej sa otvorí aj Gazda).
   function currentHousehold() {
-    const key = appId + '.household';
-    const id = readStore(key);
+    // server má prednosť (rodinu mohol prepnúť aj v Gazde alebo na inom zariadení)
+    const id = (state.family && state.family.lastHouseholdId) || readStore('fg.household');
     return state.households.find((h) => h.id === id) || state.households[0] || null;
   }
 
   function setHousehold(id) {
-    writeStore(appId + '.household', id);
+    const changed = readStore('fg.household') !== id;
+    writeStore('fg.household', id);
+    if (changed || (state.family && state.family.lastHouseholdId !== id)) {
+      if (state.family) state.family.lastHouseholdId = id;
+      apiQuiet('setCurrentFamily', id).catch(() => {});
+    }
   }
 
   /** Tlačidlo s menom rodiny (len keď ich je viac) – po výbere zavolá onChange(id). */
@@ -389,28 +398,7 @@
 
   function bindHouseholdPicker(onChange) {
     const btn = $('familyPick');
-    if (!btn) return;
-    btn.onclick = () => {
-      const cur = currentHousehold();
-      openModal(
-        '<h2>Rodina</h2><div class="subtitle">Vyber, ktorej rodiny údaje chceš vidieť.</div><div class="pick-list">' +
-          state.households
-            .map((h) => '<button type="button" class="btn ' + (cur && cur.id === h.id ? '' : 'tonal') + '" data-id="' + esc(h.id) + '">' + esc(h.name) + '</button>')
-            .join('') +
-          '</div><div class="actions"><button type="button" class="btn text" id="cancel">Zavrieť</button></div>',
-        (root) => {
-          root.querySelector('#cancel').onclick = closeModal;
-          root.querySelectorAll('[data-id]').forEach((b) => {
-            b.onclick = () => {
-              setHousehold(b.dataset.id);
-              closeModal();
-              onChange(b.dataset.id);
-            };
-          });
-        },
-        { focus: false }
-      );
-    };
+    if (btn) btn.onclick = () => showFamily(() => onChange(currentHousehold() && currentHousehold().id));
   }
 
   /** Používateľ zatiaľ nemá žiadnu rodinu – ponuka vytvoriť ju (zdieľa sa ako domácnosť v Gazde). */
@@ -424,30 +412,213 @@
 
   function bindEmptyFamily(onCreated) {
     const btn = $('newFamily');
-    if (!btn) return;
-    btn.onclick = () =>
-      openModal(
-        '<h2>Nová rodina</h2><form id="f"><div class="field"><label>Názov</label>' +
-          '<input name="name" required maxlength="60" placeholder="napr. Novákovci"></div>' +
-          '<div class="field"><label>Zdieľať s (e-maily, nepovinné)</label>' +
-          '<input name="emails" placeholder="mama@gmail.com, ocko@gmail.com"></div>' +
-          '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Vytvoriť</button></div></form>',
-        (root) => {
-          root.querySelector('#cancel').onclick = closeModal;
-          root.querySelector('#f').onsubmit = async (e) => {
-            e.preventDefault();
+    if (btn) btn.onclick = () => newFamilyForm(onCreated);
+  }
+
+  // ---- Rodina a zdieľanie Family Grid ---------------------------------------------------------
+
+  /**
+   * Rodina = komu je Family Grid zdieľaný. Všetci jej členovia vidia a menia údaje Gazdy,
+   * Zdravka aj Skládka tejto rodiny. onChange() sa zavolá po zmene (iná rodina, nový člen…).
+   */
+  function showFamily(onChange) {
+    const done = () => {
+      if (onChange) onChange();
+    };
+    const h = currentHousehold();
+    if (!h) {
+      return newFamilyForm(done);
+    }
+    const me = h.members.find((m) => m.email === state.email) || {};
+    const owner = me.role === 'owner';
+    const others = state.households.filter((x) => x.id !== h.id);
+    openModal(
+      '<h2>' + esc(h.name) + '</h2><div class="subtitle">Family Grid je zdieľaný s týmito ľuďmi – všetci vidia Gazdu, Zdravka aj Skládko tejto rodiny.</div>' +
+        '<div class="members fg-members">' +
+        h.members
+          .map((m) =>
+            '<div><span class="ms">' + (m.role === 'owner' ? 'star' : 'person') + '</span><span class="fg-m-name">' + esc(m.nickname || m.email) +
+            (m.nickname ? '<small>' + esc(m.email) + '</small>' : '') + (m.joined ? '' : '<small>ešte sa neprihlásil(a)</small>') + '</span>' +
+            ((owner && m.email !== state.email && m.role !== 'owner') ? '<button type="button" class="icon-btn small" data-remove="' + esc(m.email) + '" title="Odobrať"><span class="ms">close</span></button>' : '') +
+            '</div>')
+          .join('') +
+        '</div>' +
+        '<form id="share" class="row" style="align-items:flex-end"><div class="field" style="flex:1;margin:0"><label>Zdieľať s (Google e-mail)</label>' +
+        '<input type="email" name="email" required placeholder="napr. mama@gmail.com" autocomplete="email"></div>' +
+        '<button class="btn" style="flex:0 0 auto"><span class="ms">person_add</span>Pridať</button></form>' +
+        '<div class="pick-list" style="margin-top:16px">' +
+        others.map((x) => '<button type="button" class="btn tonal" data-switch="' + esc(x.id) + '"><span class="ms">swap_horiz</span>Prepnúť na ' + esc(x.name) + '</button>').join('') +
+        '<button type="button" class="btn tonal" id="invite"><span class="ms">share</span>Poslať pozvánku</button></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="more" style="margin-right:auto"><span class="ms">more_horiz</span>Ďalšie</button>' +
+        '<button type="button" class="btn" id="close">Hotovo</button></div>',
+      (root) => {
+        root.querySelector('#close').onclick = closeModal;
+        root.querySelector('#share').onsubmit = async (e) => {
+          e.preventDefault();
+          const email = e.target.email.value.trim().toLowerCase();
+          try {
+            const res = await api('shareHousehold', h.id, email);
+            state.households = res.households;
+            done();
+            invite([email]);
+          } catch (err) {
+            showError(err);
+          }
+        };
+        root.querySelector('#invite').onclick = () => invite(h.members.filter((m) => !m.joined).map((m) => m.email));
+        root.querySelectorAll('[data-switch]').forEach((b) => {
+          b.onclick = () => {
+            setHousehold(b.dataset.switch);
+            closeModal();
+            toast('Rodina: ' + state.households.find((x) => x.id === b.dataset.switch).name);
+            done();
+          };
+        });
+        root.querySelectorAll('[data-remove]').forEach((b) => {
+          b.onclick = async () => {
+            const email = b.dataset.remove;
+            if (!(await confirmDialog('Odobrať ' + email + '?', 'Prestane vidieť Gazdu, Zdravka aj Skládko tejto rodiny.', 'Odobrať', true))) return showFamily(onChange);
             try {
-              const res = await api('createHousehold', e.target.name.value, e.target.emails.value);
+              const res = await api('removeFamilyMember', h.id, email);
               state.households = res.households;
-              setHousehold(res.households[res.households.length - 1].id);
-              closeModal();
-              onCreated();
+              done();
+              showFamily(onChange);
+            } catch (err) {
+              showError(err);
+            }
+          };
+        });
+        root.querySelector('#more').onclick = () => familyMore(h, owner, onChange);
+      },
+      { focus: false }
+    );
+  }
+
+  function familyMore(h, owner, onChange) {
+    const done = () => onChange && onChange();
+    openModal(
+      '<h2>' + esc(h.name) + '</h2><div class="pick-list">' +
+        '<button type="button" class="btn tonal" id="rename"><span class="ms">edit</span>Premenovať rodinu</button>' +
+        '<button type="button" class="btn tonal" id="new"><span class="ms">group_add</span>Nová rodina</button>' +
+        (owner
+          ? '<button type="button" class="btn tonal danger-text" id="delete"><span class="ms">delete</span>Vymazať rodinu</button>'
+          : '<button type="button" class="btn tonal danger-text" id="leave"><span class="ms">logout</span>Odísť z rodiny</button>') +
+        '</div><div class="actions"><button type="button" class="btn text" id="back">Späť</button></div>',
+      (root) => {
+        root.querySelector('#back').onclick = () => showFamily(onChange);
+        root.querySelector('#new').onclick = () => newFamilyForm(done);
+        root.querySelector('#rename').onclick = () =>
+          openModal(
+            '<h2>Premenovať rodinu</h2><form id="f"><div class="field"><label>Názov</label><input name="name" required maxlength="60" value="' + esc(h.name) + '"></div>' +
+              '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Uložiť</button></div></form>',
+            (r) => {
+              r.querySelector('#cancel').onclick = () => showFamily(onChange);
+              r.querySelector('#f').onsubmit = async (e) => {
+                e.preventDefault();
+                try {
+                  state.households = (await api('renameFamily', h.id, e.target.name.value)).households;
+                  done();
+                  showFamily(onChange);
+                } catch (err) {
+                  showError(err);
+                }
+              };
+            }
+          );
+        const leave = root.querySelector('#leave');
+        if (leave) {
+          leave.onclick = async () => {
+            if (!(await confirmDialog('Odísť z rodiny ' + h.name + '?', 'Prestaneš vidieť jej Gazdu, Zdravka aj Skládko. Vrátiť ťa môže len niekto z rodiny.', 'Odísť', true))) return;
+            try {
+              state.households = (await api('removeFamilyMember', h.id, state.email)).households;
+              writeStore('fg.household', null);
+              done();
             } catch (err) {
               showError(err);
             }
           };
         }
-      );
+        const del = root.querySelector('#delete');
+        if (del) {
+          del.onclick = async () => {
+            if (!(await confirmDialog('Vymazať rodinu ' + h.name + '?', 'Vymažú sa <b>všetky</b> jej údaje – úlohy a nákupy v Gazde, zdravotné záznamy v Zdravkovi aj sklady v Skládku – pre všetkých členov. Nedá sa to vrátiť.', 'Vymazať všetko', true))) return;
+            try {
+              state.households = (await api('deleteHousehold', h.id)).households;
+              writeStore('fg.household', null);
+              done();
+              toast('Rodina vymazaná');
+            } catch (err) {
+              showError(err);
+            }
+          };
+        }
+      },
+      { focus: false }
+    );
+  }
+
+  function newFamilyForm(done) {
+    openModal(
+      '<h2>Nová rodina</h2><div class="subtitle">Vlastný Family Grid s vlastnými údajmi – napr. pre chatu alebo starých rodičov.</div>' +
+        '<form id="f"><div class="field"><label>Názov</label><input name="name" required maxlength="60" placeholder="napr. Novákovci"></div>' +
+        '<div class="field"><label>Zdieľať s (e-maily, nepovinné)</label><input name="emails" placeholder="mama@gmail.com, ocko@gmail.com"></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Vytvoriť</button></div></form>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#f').onsubmit = async (e) => {
+          e.preventDefault();
+          try {
+            const emails = e.target.emails.value;
+            const res = await api('createHousehold', e.target.name.value, emails);
+            state.households = res.households;
+            setHousehold(res.households[res.households.length - 1].id);
+            closeModal();
+            done();
+            const list = emails.split(/[\s,;]+/).filter((x) => x.includes('@'));
+            if (list.length) invite(list);
+          } catch (err) {
+            showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  /** Pozvánka: adresa Family Grid na poslanie (prihlási sa Google účtom s tým e-mailom). */
+  function invite(emails) {
+    const url = location.origin + '/';
+    const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko). Otvor ' + url + ' a prihlás sa Google účtom' +
+      (emails.length === 1 ? ' ' + emails[0] : '') + '.';
+    openModal(
+      '<h2>Daj im vedieť</h2><div class="subtitle">' + (emails.length ? esc(emails.join(', ')) + ' sa prihlási' + (emails.length > 1 ? 'a' : '') + ' Google účtom s tým e-mailom. ' : '') +
+        'Pošli adresu Family Grid:</div>' +
+        '<div class="field"><div class="row" style="align-items:center"><input readonly id="appUrl" value="' + esc(url) + '" style="flex:3">' +
+        '<button type="button" class="btn tonal small" id="copy" style="flex:0 0 auto"><span class="ms">content_copy</span></button></div></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="done">Hotovo</button><button type="button" class="btn" id="send"><span class="ms">share</span>Poslať</button></div>',
+      (root) => {
+        root.querySelector('#done').onclick = closeModal;
+        root.querySelector('#copy').onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(url);
+            toast('Skopírované');
+          } catch (e) {
+            root.querySelector('#appUrl').select();
+          }
+        };
+        root.querySelector('#send').onclick = async () => {
+          if (navigator.share) {
+            try {
+              await navigator.share({ title: 'Family Grid', text });
+              return;
+            } catch (e) {
+              if (e && e.name === 'AbortError') return;
+            }
+          }
+          window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+        };
+      },
+      { focus: false }
+    );
   }
 
   function showNicknameForm(value, first) {
@@ -492,7 +663,9 @@
           .map(([v, icon, label]) =>
             '<button type="button" class="chip' + (currentTheme() === v ? ' active' : '') + '" data-theme-pick="' + v + '"><span class="ms">' + icon + '</span>' + label + '</button>')
           .join('') +
-        '</div></div>' + (extraHtml || '') +
+        '</div></div>' +
+        '<button type="button" class="btn tonal small" id="family" style="margin:4px 8px 12px 0"><span class="ms">group</span>Rodina a zdieľanie</button>' +
+        (extraHtml || '') +
         '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto"><span class="ms">edit</span>Prezývka</button>' +
         '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
         '<button type="button" class="btn danger" id="logout">Odhlásiť sa</button></div>',
@@ -508,6 +681,7 @@
         });
         const install = root.querySelector('#install');
         if (install) install.onclick = installApp;
+        root.querySelector('#family').onclick = () => showFamily(familyChanged);
         if (bindExtra) bindExtra(root);
       },
       { focus: false }
@@ -778,6 +952,7 @@
     emptyFamilyHtml,
     bindEmptyFamily,
     showAccount,
+    showFamily,
     showNotificationSettings,
     installApp,
     canInstall,

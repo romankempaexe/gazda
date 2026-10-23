@@ -27,8 +27,16 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
   Rozcestník sa ukáže tlačidlom dlaždíc vľavo hore (`/?grid=1`).
 - **Inštalácia:** manifest má stále `id: "/"`, takže doteraz nainštalovaná Gazda sa sama
   zmení na Family Grid (nová ikona a meno). Staré skratky `/?akcia=…` presmerujú na `/gazda/`.
-- **Rodiny** = domácnosti z Gazdy (`households`, `members`). Údaje Zdravka a Skládka patria
-  rodine, takže ich vidia všetci jej členovia.
+- **Prihlásenie a zdieľanie celého Family Grid:** prihlasuje sa raz Google účtom (platí pre
+  všetky podaplikácie). Family Grid sa zdieľa ako **rodina** (`households`, `members` – tie isté
+  ako domácnosti v Gazde): na rozcestníku ťukni na rodinu nad kartami (alebo *Môj účet →
+  Rodina a zdieľanie*), zadaj Google e-mail a pošli pozvánku. Člen rodiny vidí a mení údaje
+  Gazdy, Zdravka aj Skládka tejto rodiny. Zakladateľ môže členov odobrať (`removeFamilyMember`),
+  člen môže z rodiny odísť; rodinu sa dá premenovať (`renameFamily`) a vymazať (zmaže údaje
+  všetkých podaplikácií).
+- **Zvolená rodina** je spoločná pre všetky podaplikácie (`setCurrentFamily` →
+  `users.last_household_id`, podľa nej sa otvorí aj Gazda); kto má viac rodín, prepne ich v
+  dialógu rodiny alebo v Gazde.
 - **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `family`);
   service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
   a po ťuknutí otvorí `/<app>/`.

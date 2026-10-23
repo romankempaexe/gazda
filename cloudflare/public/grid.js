@@ -31,7 +31,13 @@
   }
 
   function render(family) {
+    const h = FG.currentHousehold();
     $('view').innerHTML =
+      (h
+        ? '<button type="button" class="fg-family" id="family"><span class="fg-faces">' +
+          h.members.slice(0, 5).map((m) => '<i>' + esc(FG.memberName(m).charAt(0).toUpperCase()) + '</i>').join('') +
+          '</span><b>' + esc(h.name) + '</b><span class="ms">person_add</span></button>'
+        : '<button type="button" class="fg-family" id="family"><span class="ms">group_add</span><b>Vytvoriť rodinu a zdieľať</b></button>') +
       '<div class="fg-tiles">' +
       Object.entries(APPS)
         .map(([id, a]) => {
@@ -46,6 +52,7 @@
         })
         .join('') +
       '</div>';
+    $('family').onclick = () => FG.showFamily(() => FG.loadFamily(true).then(render).catch(FG.showError));
     // Zapamätaj hneď pri ťuknutí (podaplikácia to potvrdí aj sama po načítaní).
     $('view').querySelectorAll('.fg-tile').forEach((t) => {
       t.addEventListener('click', () => FG.writeStore(FG.LAST_APP_KEY, t.dataset.app));

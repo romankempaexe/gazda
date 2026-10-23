@@ -1,13 +1,13 @@
-// Family Grid – spoločná časť pre všetky podaplikácie (Gazda, Zdravko, Skládko):
+// Family Grid – spoločná časť pre všetky podaplikácie (Gazda, Zdravko, Skládko, QuickStash):
 // kto je prihlásený, jeho rodiny (= domácnosti z Gazdy), naposledy otvorená
 // podaplikácia a krátky prehľad na dlaždice rozcestníka.
 
 import { getHouseholds } from './api.js';
 import { ALL, AppError, requireText } from './domain.js';
 
-export const APPS = ['gazda', 'zdravko', 'skladko'];
+export const APPS = ['gazda', 'zdravko', 'skladko', 'quickstash'];
 
-/** Člen rodiny (domácnosti)? Inak chyba 403. Spoločné pre Zdravka a Skládko. */
+/** Člen rodiny (domácnosti)? Inak chyba 403. Spoločné pre Zdravka, Skládko a QuickStash. */
 export async function requireFamilyMember(c, householdId) {
   const member = await c.db
     .prepare('SELECT * FROM members WHERE household_id = ? AND email = ?')
@@ -20,7 +20,7 @@ export async function requireFamilyMember(c, householdId) {
 /** Údaje pre rozcestník: používateľ, rodiny, posledná podaplikácia a prehľad dlaždíc. */
 export async function getFamily(c) {
   const res = await getHouseholds(c);
-  const [user, gazda, skladko, zdravko] = await c.db.batch([
+  const [user, gazda, skladko, zdravko, quickstash] = await c.db.batch([
     c.db.prepare('SELECT last_app, last_household_id FROM users WHERE email = ?').bind(c.email),
     // Gazda: moje úlohy (aj spoločné) na dnes a po termíne – ako „Môj rozpis“.
     c.db
@@ -46,11 +46,20 @@ export async function getFamily(c) {
          WHERE r.type = 'calendar_event' AND r.event_at >= ?1`
       )
       .bind(new Date().toISOString(), c.email),
+    // QuickStash: počet položiek, ktoré používateľ vidí (spoločné a jeho súkromné).
+    c.db
+      .prepare(
+        `SELECT COUNT(*) AS entries FROM quickstash_entries q
+         JOIN members m ON m.household_id = q.household_id AND m.email = ?1
+         WHERE q.owner_email = '' OR q.owner_email = ?1`
+      )
+      .bind(c.email),
   ]);
   const u = user.results[0] || {};
   const g = gazda.results[0] || {};
   const k = skladko.results[0] || {};
   const z = zdravko.results[0] || {};
+  const q = quickstash.results[0] || {};
   return {
     ...res,
     lastApp: APPS.includes(u.last_app) ? u.last_app : '',
@@ -59,6 +68,7 @@ export async function getFamily(c) {
       gazda: { today: g.today || 0, overdue: g.overdue || 0 },
       skladko: { items: k.items || 0, low: k.low || 0, expiring: k.expiring || 0 },
       zdravko: { upcoming: z.upcoming || 0, nextAt: z.next_at || '' },
+      quickstash: { entries: q.entries || 0 },
     },
   };
 }
@@ -89,7 +99,7 @@ export async function renameFamily(c, householdId, name) {
 }
 
 /**
- * Odobratie člena z rodiny (prestane vidieť Gazdu, Zdravka aj Skládko tejto rodiny).
+ * Odobratie člena z rodiny (prestane vidieť Gazdu, Zdravka, Skládko aj QuickStash tejto rodiny).
  * Zakladateľ môže odobrať kohokoľvek okrem seba, ostatní len seba (odísť z rodiny).
  */
 export async function removeFamilyMember(c, householdId, email) {
@@ -104,6 +114,8 @@ export async function removeFamilyMember(c, householdId, email) {
     // jeho úlohy v Gazde ostanú nepridelené
     c.db.prepare("UPDATE cinnosti SET assigned_to = '' WHERE household_id = ? AND assigned_to = ?").bind(householdId, email),
     c.db.prepare("UPDATE users SET last_household_id = '' WHERE email = ? AND last_household_id = ?").bind(email, householdId),
+    // jeho súkromné položky v QuickStashi tejto rodiny už nikto neuvidí
+    c.db.prepare('DELETE FROM quickstash_entries WHERE household_id = ? AND owner_email = ?').bind(householdId, email),
   ]);
   return getFamily(c);
 }

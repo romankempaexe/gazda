@@ -21,6 +21,13 @@
   --primary-gradient: linear-gradient(135deg, #fb923c 0%, #c2410c 100%);
   --bg: #faf6f2;
 }
+:root[data-app='quickstash'] {
+  --primary: #0d9488;
+  --primary-strong: #0f766e;
+  --primary-soft: #ccfbf1;
+  --primary-gradient: linear-gradient(135deg, #2dd4bf 0%, #0f766e 100%);
+  --bg: #f2f8f7;
+}
 
 @media (prefers-color-scheme: dark) {
   :root[data-app='family']:not([data-theme='light']) {
@@ -41,6 +48,12 @@
     --primary-soft: rgba(251, 146, 60, 0.16);
     --bg: #110d0a;
   }
+  :root[data-app='quickstash']:not([data-theme='light']) {
+    --primary: #2dd4bf;
+    --primary-strong: #5eead4;
+    --primary-soft: rgba(45, 212, 191, 0.16);
+    --bg: #0a100f;
+  }
 }
 :root[data-app='family'][data-theme='dark'] {
   --primary: #818cf8;
@@ -59,6 +72,12 @@
   --primary-strong: #fdba74;
   --primary-soft: rgba(251, 146, 60, 0.16);
   --bg: #110d0a;
+}
+:root[data-app='quickstash'][data-theme='dark'] {
+  --primary: #2dd4bf;
+  --primary-strong: #5eead4;
+  --primary-soft: rgba(45, 212, 191, 0.16);
+  --bg: #0a100f;
 }
 
 :root[data-app] .brand {
@@ -159,6 +178,7 @@
 .fg-tile[data-app='gazda'] .info { color: #15803d; }
 .fg-tile[data-app='zdravko'] .info { color: #1d72b8; }
 .fg-tile[data-app='skladko'] .info { color: #c2410c; }
+.fg-tile[data-app='quickstash'] .info { color: #0f766e; }
 .fg-tile .info.warn { color: var(--accent); }
 
 /* Tiene tlačidiel vo farbe podaplikácie (app.css ich má zelené). */

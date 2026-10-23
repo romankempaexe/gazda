@@ -1,4 +1,4 @@
-// Family Grid – spoločná časť pre rozcestník a podaplikácie Zdravko a Skládko
+// Family Grid – spoločná časť pre rozcestník a podaplikácie Zdravko, Skládko a QuickStash
 // (Gazda má svoju vlastnú, staršiu verziu tých istých funkcií v gazda/app.js):
 // volania servera, prihlásenie Google účtom, okná, upozornenia, inštalácia, vzhľad,
 // výber rodiny a zapamätanie poslednej podaplikácie.
@@ -11,8 +11,9 @@
     gazda: { name: 'Gazda', desc: 'Domáce práce, nákupy a letáky', url: '/gazda/' },
     zdravko: { name: 'Zdravko', desc: 'Zdravie rodiny: teplota, lieky, lekári', url: '/zdravko/' },
     skladko: { name: 'Skládko', desc: 'Čo máme doma a kde to je', url: '/skladko/' },
+    quickstash: { name: 'QuickStash', desc: 'Texty, odkazy a heslá na skopírovanie', url: '/quickstash/' },
   };
-  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', zdravko: '#1d72b8', skladko: '#ea580c' };
+  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', zdravko: '#1d72b8', skladko: '#ea580c', quickstash: '#0d9488' };
   const LAST_APP_KEY = 'fg.lastApp';
   const THEME_KEY = 'gazda.theme'; // spoločné s Gazdou
   const LOGGED_OUT_KEY = 'gazda.loggedOut';
@@ -225,12 +226,12 @@
     state.email = '';
     ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id) && $(id).classList.add('hidden'));
     document.body.classList.remove('with-tabs');
-    // Prihlásenie je spoločné pre celý Family Grid (Gazda, Zdravko, Skládko).
+    // Prihlásenie je spoločné pre celý Family Grid (Gazda, Zdravko, Skládko, QuickStash).
     $('view').innerHTML =
       '<div class="empty login"><img class="login-logo" src="/icons/family/icon.svg" alt="">' +
       '<h2>Prihlás sa do Family Grid</h2>' +
       '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
-      'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre Gazdu, Zdravka aj Skládko.</div>' +
+      'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre všetky aplikácie Family Grid.</div>' +
       '<div id="googleBtn" class="google-btn"></div>' +
       '<div class="hint" id="loginHint"></div></div>';
     renderGoogleButton();
@@ -316,7 +317,7 @@
   function forgetDevice() {
     try {
       Object.keys(localStorage)
-        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|zdravko\.|skladko\.)/.test(k))
+        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|zdravko\.|skladko\.|quickstash\.)/.test(k))
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
   }
@@ -433,7 +434,7 @@
     const owner = me.role === 'owner';
     const others = state.households.filter((x) => x.id !== h.id);
     openModal(
-      '<h2>' + esc(h.name) + '</h2><div class="subtitle">Family Grid je zdieľaný s týmito ľuďmi – všetci vidia Gazdu, Zdravka aj Skládko tejto rodiny.</div>' +
+      '<h2>' + esc(h.name) + '</h2><div class="subtitle">Family Grid je zdieľaný s týmito ľuďmi – všetci vidia Gazdu, Zdravka, Skládko aj spoločné položky QuickStashu tejto rodiny.</div>' +
         '<div class="members fg-members">' +
         h.members
           .map((m) =>
@@ -477,7 +478,7 @@
         root.querySelectorAll('[data-remove]').forEach((b) => {
           b.onclick = async () => {
             const email = b.dataset.remove;
-            if (!(await confirmDialog('Odobrať ' + email + '?', 'Prestane vidieť Gazdu, Zdravka aj Skládko tejto rodiny.', 'Odobrať', true))) return showFamily(onChange);
+            if (!(await confirmDialog('Odobrať ' + email + '?', 'Prestane vidieť Gazdu, Zdravka, Skládko aj QuickStash tejto rodiny (jeho súkromné položky v QuickStashi sa zmažú).', 'Odobrať', true))) return showFamily(onChange);
             try {
               const res = await api('removeFamilyMember', h.id, email);
               state.households = res.households;
@@ -528,7 +529,7 @@
         const leave = root.querySelector('#leave');
         if (leave) {
           leave.onclick = async () => {
-            if (!(await confirmDialog('Odísť z rodiny ' + h.name + '?', 'Prestaneš vidieť jej Gazdu, Zdravka aj Skládko. Vrátiť ťa môže len niekto z rodiny.', 'Odísť', true))) return;
+            if (!(await confirmDialog('Odísť z rodiny ' + h.name + '?', 'Prestaneš vidieť jej Gazdu, Zdravka, Skládko aj QuickStash (tvoje súkromné položky QuickStashu v nej sa zmažú). Vrátiť ťa môže len niekto z rodiny.', 'Odísť', true))) return;
             try {
               state.households = (await api('removeFamilyMember', h.id, state.email)).households;
               writeStore('fg.household', null);
@@ -587,7 +588,7 @@
   /** Pozvánka: adresa Family Grid na poslanie (prihlási sa Google účtom s tým e-mailom). */
   function invite(emails) {
     const url = location.origin + '/';
-    const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko). Otvor ' + url + ' a prihlás sa Google účtom' +
+    const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko, QuickStash). Otvor ' + url + ' a prihlás sa Google účtom' +
       (emails.length === 1 ? ' ' + emails[0] : '') + '.';
     openModal(
       '<h2>Daj im vedieť</h2><div class="subtitle">' + (emails.length ? esc(emails.join(', ')) + ' sa prihlási' + (emails.length > 1 ? 'a' : '') + ' Google účtom s tým e-mailom. ' : '') +
@@ -766,7 +767,7 @@
   function showAccount(extraHtml, bindExtra) {
     openModal(
       '<h2>' + esc(state.nickname || state.email) + '</h2><div class="subtitle">' + esc(state.email) + '</div>' +
-        '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom – jedno prihlásenie pre Gazdu, Zdravka aj Skládko.</div></div>' +
+        '<div class="members"><div><span class="ms">lock</span>Prihlásený Google účtom – jedno prihlásenie pre všetky aplikácie Family Grid.</div></div>' +
         (canInstall()
           ? '<button type="button" class="btn small" id="install" style="margin:4px 8px 12px 0"><span class="ms">add</span>Nainštalovať Family Grid</button>'
           : '') +
@@ -889,7 +890,7 @@
         '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto">Vypnúť</button>' + buttons +
         '<button type="button" class="btn tonal" id="test"><span class="ms">send</span>Skúšobné</button>';
     } else {
-      status = 'Upozornenia sú na tomto zariadení vypnuté. Jedno zapnutie platí pre Gazdu, Zdravka aj Skládko.';
+      status = 'Upozornenia sú na tomto zariadení vypnuté. Jedno zapnutie platí pre všetky aplikácie Family Grid.';
       buttons += '<button type="button" class="btn" id="on"><span class="ms">notifications_active</span>Zapnúť</button>';
     }
     openModal(
@@ -980,7 +981,7 @@
     $('view').insertAdjacentHTML(
       'afterbegin',
       '<div class="install-banner" id="installBanner"><img src="/icons/family/icon.svg" alt="">' +
-        '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko a Skládko v jednej aplikácii</div>' +
+        '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko, Skládko a QuickStash v jednej aplikácii</div>' +
         '<button type="button" class="btn small" data-install>Inštalovať</button>' +
         '<button type="button" class="icon-btn small" data-install-close title="Teraz nie"><span class="ms">close</span></button></div>'
     );

@@ -12,7 +12,7 @@ test('health: databáza má všetky tabuľky', async () => {
     assert.equal(body.ok, true);
     assert.deepEqual(body.tables, [
       'calendar_feeds', 'cinnosti', 'config', 'historia', 'households', 'item_images', 'komentare', 'members', 'obchody', 'polozky', 'priestory', 'produkty',
-      'push_subscriptions', 'sessions', 'skladko_groups', 'skladko_images', 'skladko_items', 'skladko_warehouses', 'users', 'zdravko_measurements', 'zdravko_members', 'zdravko_records', 'zdravko_reminders',
+      'push_subscriptions', 'quickstash_entries', 'sessions', 'skladko_groups', 'skladko_images', 'skladko_items', 'skladko_warehouses', 'users', 'zdravko_measurements', 'zdravko_members', 'zdravko_records', 'zdravko_reminders',
     ]);
   } finally {
     await t.dispose();

@@ -21,6 +21,7 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 | `/gazda/` | Gazda (`public/gazda/`) |
 | `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) – pozri nižšie |
 | `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
+| `/quickstash/` | QuickStash – texty, odkazy a heslá na skopírovanie (`public/quickstash/`, `src/quickstash/`) – pozri nižšie |
 
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
   (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
@@ -31,20 +32,20 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
   všetky podaplikácie). Family Grid sa zdieľa ako **rodina** (`households`, `members` – tie isté
   ako domácnosti v Gazde): na rozcestníku ťukni na rodinu nad kartami (alebo *Môj účet →
   Rodina a zdieľanie*), zadaj Google e-mail a pošli pozvánku. Člen rodiny vidí a mení údaje
-  Gazdy, Zdravka aj Skládka tejto rodiny. Zakladateľ môže členov odobrať (`removeFamilyMember`),
+  Gazdy, Zdravka, Skládka aj spoločné položky QuickStashu tejto rodiny. Zakladateľ môže členov odobrať (`removeFamilyMember`),
   člen môže z rodiny odísť; rodinu sa dá premenovať (`renameFamily`) a vymazať (zmaže údaje
   všetkých podaplikácií).
 - **Zvolená rodina** je spoločná pre všetky podaplikácie (`setCurrentFamily` →
   `users.last_household_id`, podľa nej sa otvorí aj Gazda); kto má viac rodín, prepne ich v
   dialógu rodiny alebo v Gazde.
-- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `family`);
+- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `quickstash` | `family`);
   service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
   a po ťuknutí otvorí `/<app>/`.
 - **Spoločný kód v prehliadači:** `public/shared/app.css` (vzhľad), `public/shared/fg.css`
   (farby podaplikácií, dlaždice) a `public/shared/fg.js` (server, prihlásenie, okná,
   upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
-  (priečinky `family`, `gazda`, `zdravko`, `skladko`).
+  (priečinky `family`, `gazda`, `zdravko`, `skladko`, `quickstash`).
 
 ## Kalendár na plochu (Google Kalendár / iPhone)
 
@@ -103,6 +104,26 @@ Veci a skupiny, ktorých skupinu mobilný Skládko „zmazal“, sa objavia v sk
    `FIREBASE_SKLADKO_SA` = celý obsah JSON súboru. Pri ďalšom nasadení ho CI uloží do Workera
    (`wrangler secret bulk`). Alebo priamo: `npx wrangler secret put FIREBASE_SKLADKO_SA`.
 3. Po prenose všetkých ľudí môžeš kľúč vo Firebase zmazať (a secret odstrániť).
+
+## QuickStash (`/quickstash/`)
+
+Texty, odkazy a heslá, ktoré často kopíruješ (Wi-Fi heslo, číslo účtu, adresa…) – webová verzia
+desktopového QuickStashu (repozitár `quickstash`, PySide6 a Apps Script) ako podaplikácia Family Grid.
+
+- **Typy:** text / odkaz a heslo. Ťuknutie na položku ju skopíruje, odkaz (`http(s)://`) otvorí;
+  pri hesle sú bodky, ikona oka ho na 10 s ukáže (skryje sa aj pri odchode z aplikácie).
+- **Hľadanie** podľa názvu (pri textoch aj obsahu), bez ohľadu na diakritiku, viac slov = všetky;
+  Enter spustí prvú položku – ako v desktopovej verzii.
+- **Spoločné a súkromné:** položka patrí rodine – spoločnú vidia a menia všetci jej členovia,
+  súkromnú (*Len pre mňa*) len ten, kto ju vytvoril. Názov je jedinečný medzi položkami, ktoré
+  človek vidí. Kto z rodiny odíde alebo je odobratý, jeho súkromné položky v nej sa zmažú.
+- **Záloha:** *Môj účet → Import zálohy* načíta JSON z desktopového QuickStashu (`data.json`,
+  aj starší formát `"password": true`) alebo zo zálohy webu; rovnaký názov sa prepíše, súbory a
+  priečinky sa prenesú ako text (cesta). *Stiahnuť zálohu* uloží JSON v tom istom formáte.
+- **Naživo:** zmeny od ostatných sa ukážu samé (`quickstash/getRev`, `households.quickstash_rev`).
+- **Bezpečnosť:** heslá sú v D1 (šifrovaná na disku Cloudflare) a v pamäti telefónu (posledné
+  údaje na otvorenie bez internetu) – pri odhlásení sa zmažú.
+- Tabuľka `quickstash_entries` (migrácia 0016), funkcie `POST /api/quickstash/<funkcia>` v `src/quickstash/api.js`.
 
 ## Zdravko (`/zdravko/`)
 

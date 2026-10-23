@@ -78,6 +78,8 @@ function clearSnapshot() {
   try {
     localStorage.removeItem(SNAPSHOT_KEY);
     localStorage.removeItem('gazda.token'); // z čias osobných odkazov
+    // QuickStash má v pamäti telefónu aj heslá – pri odhlásení preč
+    Object.keys(localStorage).filter((k) => k.startsWith('quickstash.')).forEach((k) => localStorage.removeItem(k));
   } catch (e) {}
 }
 
@@ -222,7 +224,7 @@ function showLogin(expired) {
     '<div class="empty login"><img class="login-logo" src="/icons/family/icon.svg" alt="">' +
     '<h2>Prihlás sa do Family Grid</h2>' +
     '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
-    'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre Gazdu, Zdravka aj Skládko.</div>' +
+    'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal Family Grid. Jedno prihlásenie platí pre všetky aplikácie Family Grid.</div>' +
     '<div id="googleBtn" class="google-btn"></div>' +
     '<div class="hint" id="loginHint"></div></div>';
   renderGoogleButton();
@@ -360,7 +362,7 @@ function showInviteInfo(emails) {
       root.querySelector('#done').onclick = closeModal;
       root.querySelector('#copy').onclick = () => copyText(root.querySelector('#appUrl'));
       root.querySelector('#send').onclick = async () => {
-        const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko). Otvor ' + url + ' a prihlás sa Google účtom.';
+        const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko, QuickStash). Otvor ' + url + ' a prihlás sa Google účtom.';
         if (navigator.share) {
           try {
             await navigator.share({ title: 'Family Grid', text });
@@ -3681,7 +3683,7 @@ function installBannerHtml() {
   if (!canInstall() || readFlag(INSTALL_DISMISSED_KEY)) return '';
   return (
     '<div class="install-banner" id="installBanner"><img src="/icons/family/icon.svg" alt="">' +
-    '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko a Skládko v jednej aplikácii</div>' +
+    '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko, Skládko a QuickStash v jednej aplikácii</div>' +
     '<button type="button" class="btn small" data-install>Inštalovať</button>' +
     '<button type="button" class="icon-btn small" data-install-close title="Teraz nie"><span class="ms">close</span></button></div>'
   );

@@ -46,6 +46,22 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
   (priečinky `family`, `gazda`, `zdravko`, `skladko`).
 
+## Kalendár na plochu (Google Kalendár / iPhone)
+
+Webová aplikácia nemôže mať vlastný widget na ploche, preto Family Grid ponúka **súkromný
+kalendár** (iCalendar): *Môj účet → Kalendár na plochu* (aj v Zdravkovi pod kalendárom a v Gazde
+v *Môj účet*). Obsahuje udalosti Zdravka (lekár, vyšetrenia, očkovania – 60 dní dozadu a všetky
+budúce) a úlohy Gazdy s termínom (moje a spoločné / všetky / žiadne – `?gazda=mine|all|none`;
+opakované úlohy ako séria, s časom alebo celodenné) zo všetkých rodín používateľa.
+
+- Adresa `GET /api/calendar/<token>.ics` bez prihlásenia; v D1 (`calendar_feeds`, migrácia 0015)
+  je len SHA-256 tokenu, adresa sa ukáže len pri vytvorení (zariadenie si ju zapamätá).
+  Nová adresa zruší starú.
+- Pridanie: odkaz `calendar.google.com/calendar/r?cid=webcal://…` (Android – potom v aplikácii
+  Kalendár Google zapnúť synchronizáciu kalendára „Family Grid“ a dať na plochu widget
+  *Plán*), alebo `webcal://` (iPhone). Google si odoberané kalendáre obnovuje sám, zvyčajne
+  raz za niekoľko hodín – widget preto nie je okamžitý (upozornenia z Family Grid áno).
+
 ## Skládko (`/skladko/`)
 
 Čo máme doma a kde to je – webová verzia mobilného Skládka (Flutter + Firebase), teraz

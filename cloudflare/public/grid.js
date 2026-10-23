@@ -68,6 +68,10 @@
         return;
       }
       render(family);
+      if (location.hash === '#kalendar') {
+        history.replaceState(null, '', '/');
+        FG.showCalendarFeed();
+      }
     },
   });
 })();

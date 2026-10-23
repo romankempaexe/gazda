@@ -19,6 +19,7 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
+import { calendarFeed, createCalendarFeed, deleteCalendarFeed, getCalendarFeed } from './calendar.js';
 import { getFamily, removeFamilyMember, renameFamily, setCurrentFamily, setLastApp } from './family.js';
 import * as skladko from './skladko/api.js';
 import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
@@ -36,6 +37,9 @@ const METHODS = {
   setCurrentFamily,
   renameFamily,
   removeFamilyMember,
+  getCalendarFeed,
+  createCalendarFeed,
+  deleteCalendarFeed,
   // Gazda
   getHouseholds: api.getHouseholds,
   setNickname: api.setNickname,
@@ -148,6 +152,18 @@ async function handleApi(request, env, url, ctx) {
     if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
+    }
+    // Kalendár pre Google Kalendár / iPhone – bez prihlásenia, overí sa tokenom v adrese.
+    if (request.method === 'GET' && url.pathname.startsWith('/api/calendar/')) {
+      const token = url.pathname.slice('/api/calendar/'.length).replace(/\.ics$/, '');
+      const body = await calendarFeed(env.DB, token, url.searchParams.get('gazda') || 'mine', env.TODAY || todayYmd());
+      return new Response(body, {
+        headers: {
+          'content-type': 'text/calendar; charset=utf-8',
+          'content-disposition': 'inline; filename="family-grid.ics"',
+          'cache-control': 'private, max-age=300',
+        },
+      });
     }
     if (request.method === 'GET' && url.pathname.startsWith('/api/skladko/image/')) {
       const c = await context(request, env, url, ctx);

@@ -670,6 +670,7 @@
       '<button type="button" class="icon-btn" id="prevM"><span class="ms">chevron_left</span></button><button type="button" class="icon-btn" id="nextM"><span class="ms">chevron_right</span></button></div>' +
       '<div class="cal-days">' + days + '</div></div>' +
       (m ? '<div class="zd-legend"><span><i class="dot"></i>udalosť</span><span><i class="dot sick"></i>záznam choroby</span></div>' : '') +
+      (!m ? '<button type="button" class="btn tonal small zd-widget" id="calFeed"><span class="ms">event</span>Kalendár na plochu (Google Kalendár)</button>' : '') +
       (cards || '<div class="empty compact"><span class="ms">calendar_month</span><div>' + (S.calDay ? 'V tento deň nič.' : 'V tomto mesiaci žiadne udalosti.') + '</div></div>');
     FG.bindHouseholdPicker((id) => {
       S.hh = id;
@@ -683,6 +684,7 @@
       S.calDay = null;
       render();
     };
+    if ($('calFeed')) $('calFeed').onclick = FG.showCalendarFeed;
     $('prevM').onclick = () => shift(-1);
     $('nextM').onclick = () => shift(1);
     $('view').querySelectorAll('[data-day]').forEach((b) => {

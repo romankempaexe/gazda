@@ -233,3 +233,9 @@
   color: var(--muted);
   font-size: 12px;
 }
+
+:root[data-app] .chip.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}

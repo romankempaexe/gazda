@@ -436,6 +436,8 @@ function showAccount() {
           '<button type="button" class="chip' + (currentTheme() === v ? ' active' : '') + '" data-theme-pick="' + v + '"><span class="ms">' + icon + '</span>' + label + '</button>')
         .join('') +
       '</div></div>' +
+      '<a class="btn tonal small" href="/?grid=1#kalendar" style="margin:4px 8px 12px 0;text-decoration:none">' +
+      '<span class="ms">event</span>Kalendár na plochu</a>' +
       '<button type="button" class="btn tonal small" id="import" style="margin:4px 0 12px">' +
       '<span class="ms">refresh</span>Preniesť zo starej Gazdy</button>' +
       '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto">' +

@@ -316,7 +316,7 @@
   function forgetDevice() {
     try {
       Object.keys(localStorage)
-        .filter((k) => /^(fg\.me|gazda\.snap|gazda\.token|zdravko\.|skladko\.)/.test(k))
+        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|zdravko\.|skladko\.)/.test(k))
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
   }
@@ -621,6 +621,106 @@
     );
   }
 
+  // ---- Kalendár na plochu (Google Kalendár / iPhone) -----------------------------------------
+
+  const CAL_KEY = 'fg.calendarUrl'; // adresa je tajná – ukáže sa len pri vytvorení, preto si ju zariadenie pamätá
+
+  /** Súkromná adresa kalendára s udalosťami Zdravka a úlohami Gazdy (widget Google Kalendára). */
+  async function showCalendarFeed() {
+    let status;
+    try {
+      status = await api('getCalendarFeed');
+    } catch (err) {
+      return showError(err);
+    }
+    let base = status.active ? readStore(CAL_KEY) : null;
+    let gazda = readStore('fg.calendarGazda') || 'mine';
+    const render = () => {
+      const url = base ? base + (gazda === 'mine' ? '' : '?gazda=' + gazda) : '';
+      const webcal = url.replace(/^https:/, 'webcal:');
+      const google = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(webcal);
+      openModal(
+        '<h2>Kalendár na plochu</h2>' +
+          '<div class="subtitle">Udalosti Zdravka (lekár, vyšetrenia, očkovania) a úlohy Gazdy v Google Kalendári alebo v kalendári iPhonu – ' +
+          'na plochu potom dáš widget kalendára s najbližšími udalosťami.</div>' +
+          '<div class="field"><label>Úlohy z Gazdy</label><div class="chips">' +
+          [['mine', 'Moje a spoločné'], ['all', 'Všetky'], ['none', 'Žiadne']]
+            .map(([v, l]) => '<button type="button" class="chip' + (gazda === v ? ' active' : '') + '" data-g="' + v + '">' + l + '</button>')
+            .join('') +
+          '</div></div>' +
+          (url
+            ? '<div class="pick-list"><a class="btn" href="' + esc(google) + '" target="_blank" rel="noopener"><span class="ms">event</span>Pridať do Google Kalendára</a>' +
+              '<a class="btn tonal" href="' + esc(webcal) + '"><span class="ms">event</span>Pridať do iPhonu / iPadu</a>' +
+              '<button type="button" class="btn tonal" id="copy"><span class="ms">content_copy</span>Kopírovať adresu</button></div>' +
+              '<ol class="steps"><li><b>Android:</b> ťukni <b>Pridať do Google Kalendára</b> (ak to v telefóne nejde, otvor odkaz v počítači na calendar.google.com) a potvrď <b>Pridať</b>.</li>' +
+              '<li>V aplikácii Kalendár Google: ☰ → Nastavenia → <b>Family Grid</b> → zapni <b>Synchronizácia</b>.</li>' +
+              '<li>Podrž prst na ploche → <b>Miniaplikácie</b> → Kalendár Google → <b>Plán</b>.</li>' +
+              '<li><b>iPhone:</b> Pridať do iPhonu → Odoberať; widget <b>Kalendár</b> pridáš podržaním plochy → <b>+</b>.</li></ol>' +
+              '<div class="hint">Google Kalendár si kalendár obnovuje sám približne každých pár hodín – nové udalosti sa vo widgete ukážu s oneskorením ' +
+              '(upozornenia z Family Grid chodia hneď). Adresu nikomu neposielaj; každý člen rodiny si vytvorí vlastnú.</div>'
+            : status.active
+              ? '<div class="hint">Adresu kalendára už máš (vytvorená ' + esc(new Date(status.createdAt).toLocaleDateString('sk-SK')) + ') – kvôli bezpečnosti ju server neukazuje znova. ' +
+                'Ak ju potrebuješ, vytvor novú (stará prestane fungovať a v kalendári ju treba pridať znova).</div>'
+              : '') +
+          '<div class="actions">' +
+          (status.active ? '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto">Zrušiť adresu</button>' : '') +
+          '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+          (url ? '' : '<button type="button" class="btn" id="create"><span class="ms">add</span>' + (status.active ? 'Vytvoriť novú adresu' : 'Vytvoriť kalendár') + '</button>') +
+          '</div>',
+        (root) => {
+          root.querySelector('#cancel').onclick = closeModal;
+          root.querySelectorAll('[data-g]').forEach((b) => {
+            b.onclick = () => {
+              gazda = b.dataset.g;
+              writeStore('fg.calendarGazda', gazda);
+              render();
+            };
+          });
+          const copy = root.querySelector('#copy');
+          if (copy) {
+            copy.onclick = async () => {
+              try {
+                await navigator.clipboard.writeText(url);
+                toast('Adresa skopírovaná');
+              } catch (e) {
+                toast(url);
+              }
+            };
+          }
+          const create = root.querySelector('#create');
+          if (create) {
+            create.onclick = async () => {
+              try {
+                base = (await api('createCalendarFeed')).url;
+                writeStore(CAL_KEY, base);
+                status = { active: true, createdAt: new Date().toISOString() };
+                render();
+              } catch (err) {
+                showError(err);
+              }
+            };
+          }
+          const off = root.querySelector('#off');
+          if (off) {
+            off.onclick = async () => {
+              if (!(await confirmDialog('Zrušiť adresu kalendára?', 'Kalendár Family Grid v Google Kalendári prestane dostávať novinky.', 'Zrušiť adresu', true))) return;
+              try {
+                status = await api('deleteCalendarFeed');
+                base = null;
+                writeStore(CAL_KEY, null);
+                toast('Adresa zrušená – kalendár môžeš z Google Kalendára odstrániť');
+              } catch (err) {
+                showError(err);
+              }
+            };
+          }
+        },
+        { focus: false }
+      );
+    };
+    render();
+  }
+
   function showNicknameForm(value, first) {
     openModal(
       '<h2>' + (first ? 'Ako ťa majú volať?' : 'Zmeniť prezývku') + '</h2>' +
@@ -665,6 +765,7 @@
           .join('') +
         '</div></div>' +
         '<button type="button" class="btn tonal small" id="family" style="margin:4px 8px 12px 0"><span class="ms">group</span>Rodina a zdieľanie</button>' +
+        '<button type="button" class="btn tonal small" id="calendar" style="margin:4px 8px 12px 0"><span class="ms">event</span>Kalendár na plochu</button>' +
         (extraHtml || '') +
         '<div class="actions"><button type="button" class="btn text" id="nick" style="margin-right:auto"><span class="ms">edit</span>Prezývka</button>' +
         '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
@@ -682,6 +783,7 @@
         const install = root.querySelector('#install');
         if (install) install.onclick = installApp;
         root.querySelector('#family').onclick = () => showFamily(familyChanged);
+        root.querySelector('#calendar').onclick = showCalendarFeed;
         if (bindExtra) bindExtra(root);
       },
       { focus: false }
@@ -953,6 +1055,7 @@
     bindEmptyFamily,
     showAccount,
     showFamily,
+    showCalendarFeed,
     showNotificationSettings,
     installApp,
     canInstall,

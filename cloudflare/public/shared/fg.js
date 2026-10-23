@@ -662,6 +662,13 @@
               ? '<div class="hint">Adresu kalendára už máš (vytvorená ' + esc(new Date(status.createdAt).toLocaleDateString('sk-SK')) + ') – kvôli bezpečnosti ju server neukazuje znova. ' +
                 'Ak ju potrebuješ, vytvor novú (stará prestane fungovať a v kalendári ju treba pridať znova).</div>'
               : '') +
+          (status.active
+            ? '<div class="members"><div><span class="ms">' + (status.lastAccess ? 'check_circle' : 'schedule') + '</span>' +
+              (status.lastAccess
+                ? 'Kalendár si naposledy stiahol Google / iPhone: <b>' + esc(new Date(status.lastAccess).toLocaleString('sk-SK')) + '</b>'
+                : 'Google ani iPhone si kalendár <b>zatiaľ nestiahol</b> – pridanie ešte neprebehlo (alebo ho Google stiahne o chvíľu).') +
+              '</div></div>'
+            : '') +
           '<div class="actions">' +
           (status.active ? '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto">Zrušiť adresu</button>' : '') +
           '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +

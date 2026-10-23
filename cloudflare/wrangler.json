@@ -9,6 +9,7 @@
     "directory": "public",
     "binding": "ASSETS",
     "run_worker_first": [
+      "/",
       "/api/*",
       "/manifest.webmanifest"
     ]
@@ -43,14 +44,14 @@
       ],
       "triggers": {
         "crons": [
-          "*/15 * * * *"
+          "*/5 * * * *"
         ]
       }
     }
   },
   "triggers": {
     "crons": [
-      "*/15 * * * *"
+      "*/5 * * * *"
     ]
   }
 }

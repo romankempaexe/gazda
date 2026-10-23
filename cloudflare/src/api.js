@@ -184,6 +184,15 @@ export async function deleteHousehold(c, householdId) {
   if (member.role !== 'owner') throw new AppError('Domácnosť môže vymazať len jej zakladateľ.', 403);
   const del = (table, column = 'household_id') => c.db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(householdId);
   await c.db.batch([
+    // Family Grid: údaje Skládka a Zdravka tejto rodiny
+    del('zdravko_reminders'),
+    del('zdravko_records'),
+    del('zdravko_measurements'),
+    del('zdravko_members'),
+    del('skladko_images'),
+    del('skladko_items'),
+    del('skladko_groups'),
+    del('skladko_warehouses'),
     del('polozky'),
     del('komentare'),
     del('item_images'),
@@ -813,8 +822,9 @@ export async function unsubscribePush(c, endpoint) {
 export async function testPush(c) {
   const sent = await sendToUser(c.db, c.email, {
     title: '✅ Upozornenia fungujú',
-    body: 'Takto ti Gazda dá vedieť o nových úlohách a ráno o 8:00 o dnešných úlohách.',
+    body: 'Takto ti Family Grid dá vedieť o novinkách – Gazda, Zdravko aj Skládko, každá s vlastnou ikonou.',
     tag: 'test',
+    app: 'family',
     url: '/',
   });
   return { sent };

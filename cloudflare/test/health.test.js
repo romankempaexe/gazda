@@ -12,7 +12,7 @@ test('health: databáza má všetky tabuľky', async () => {
     assert.equal(body.ok, true);
     assert.deepEqual(body.tables, [
       'cinnosti', 'config', 'historia', 'households', 'item_images', 'komentare', 'members', 'obchody', 'polozky', 'priestory', 'produkty',
-      'push_subscriptions', 'sessions', 'users',
+      'push_subscriptions', 'sessions', 'skladko_groups', 'skladko_images', 'skladko_items', 'skladko_warehouses', 'users', 'zdravko_measurements', 'zdravko_members', 'zdravko_records', 'zdravko_reminders',
     ]);
   } finally {
     await t.dispose();
@@ -40,6 +40,20 @@ test('manifest na inštaláciu na plochu', async () => {
     assert.equal(m.start_url, '/');
     assert.equal(m.display, 'standalone');
     assert.equal(m.icons.length, 3);
+    assert.equal(m.id, '/'); // nainštalovaná Gazda sa zmení na Family Grid
+    assert.equal(m.name, 'Family Grid');
+    assert.ok(m.shortcuts.some((x) => x.url === '/gazda/?akcia=nakup'));
+  } finally {
+    await t.dispose();
+  }
+});
+
+test('staré skratky Gazdy sa presmerujú na /gazda/', async () => {
+  const t = await setup();
+  try {
+    const res = await t.fetch('/?akcia=nakup', { redirect: 'manual' });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), 'https://gazda.test/gazda/?akcia=nakup');
   } finally {
     await t.dispose();
   }

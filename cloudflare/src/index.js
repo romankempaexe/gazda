@@ -1,5 +1,6 @@
 /**
- * Gazda na Cloudflare Workers.
+ * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/),
+ * Zdravko (/zdravko/) a Skládko (/skladko/) – jedno prihlásenie, jedna databáza.
  *
  * Statické súbory (public/) obsluhuje Cloudflare priamo, sem prichádzajú len
  * požiadavky na /api/* a manifest. Údaje sú v databáze D1 (env.DB).
@@ -18,10 +19,21 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
+import { getFamily, setLastApp } from './family.js';
+import * as skladko from './skladko/api.js';
+import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
+import { sendSkladkoAlerts } from './skladko/notifications.js';
+import * as zdravko from './zdravko/api.js';
+import { importFirebase as zdravkoImport } from './zdravko/import.js';
+import { sendZdravkoReminders } from './zdravko/notifications.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
+  // Family Grid (rozcestník)
+  getFamily,
+  setLastApp,
+  // Gazda
   getHouseholds: api.getHouseholds,
   setNickname: api.setNickname,
   getStartData: api.getStartData,
@@ -56,7 +68,41 @@ const METHODS = {
   getLeaflet,
   analyzeLeafletPage,
   identifyLeafletProduct,
+  // Skládko
+  'skladko/getData': skladko.getData,
+  'skladko/getRev': skladko.getRev,
+  'skladko/saveWarehouse': skladko.saveWarehouse,
+  'skladko/deleteWarehouse': skladko.deleteWarehouse,
+  'skladko/saveGroup': skladko.saveGroup,
+  'skladko/deleteGroup': skladko.deleteGroup,
+  'skladko/moveGroup': skladko.moveGroup,
+  'skladko/saveItem': skladko.saveItem,
+  'skladko/changeQuantity': skladko.changeQuantity,
+  'skladko/setQuantity': skladko.setQuantity,
+  'skladko/moveItem': skladko.moveItem,
+  'skladko/deleteItem': skladko.deleteItem,
+  'skladko/addToShopping': skladko.addToShopping,
+  'skladko/setItemImage': skladko.setItemImage,
+  'skladko/importFirebase': skladkoImport,
+  'skladko/pendingImages': skladkoPendingImages,
+  'skladko/skipImportImage': skladkoSkipImage,
+  // Zdravko
+  'zdravko/getData': zdravko.getData,
+  'zdravko/getRev': zdravko.getRev,
+  'zdravko/saveMember': zdravko.saveMember,
+  'zdravko/deleteMember': zdravko.deleteMember,
+  'zdravko/addRecords': zdravko.addRecords,
+  'zdravko/deleteRecord': zdravko.deleteRecord,
+  'zdravko/saveEvent': zdravko.saveEvent,
+  'zdravko/saveMeasurement': zdravko.saveMeasurement,
+  'zdravko/deleteMeasurement': zdravko.deleteMeasurement,
+  'zdravko/setCurrentMeasurement': zdravko.setCurrentMeasurement,
+  'zdravko/importFirebase': zdravkoImport,
 };
+
+// Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači).
+const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage']);
+const MAX_LARGE_BODY = 1024 * 1024;
 
 const MAX_BODY = 256 * 1024;
 const MAX_IMPORT_BODY = 5 * 1024 * 1024; // prenos celej starej Gazdy
@@ -66,10 +112,14 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url, ctx);
     if (url.pathname === '/manifest.webmanifest') return manifest();
+    // Staré odkazy Gazdy (skratky ikony „/?akcia=…“) – Gazda je teraz podaplikácia na /gazda/.
+    if (url.pathname === '/' && url.searchParams.has('akcia')) {
+      return Response.redirect(url.origin + '/gazda/' + url.search, 302);
+    }
     return env.ASSETS.fetch(request);
   },
 
-  // Cron (wrangler.json „triggers“): každých 15 minút – ranný prehľad raz denne o 8:00.
+  // Cron (wrangler.json „triggers“): každých 5 minút – ranný prehľad Gazdy, pripomienky, akcie, Skládko a Zdravko.
   async scheduled(event, env, ctx) {
     const now = new Date(event.scheduledTime);
     ctx.waitUntil(
@@ -78,6 +128,10 @@ export default {
         // akcie na často kupované produkty – raz denne po 9:00 (vlastný beh, mimo prehľadu)
         .then(() => sendDealAlerts({ db: env.DB, fetch: env.TEST_FETCH }, now))
         .catch((err) => console.error('Akcie: ' + err))
+        .then(() => sendSkladkoAlerts(env.DB, now))
+        .catch((err) => console.error('Skládko: ' + err))
+        .then(() => sendZdravkoReminders(env.DB, now))
+        .catch((err) => console.error('Zdravko: ' + err))
     );
   },
 };
@@ -91,6 +145,14 @@ async function handleApi(request, env, url, ctx) {
     if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/skladko/image/')) {
+      const c = await context(request, env, url, ctx);
+      return await skladko.itemImage(c, decodeURIComponent(url.pathname.slice('/api/skladko/image/'.length)));
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/skladko/import-image/')) {
+      const c = await context(request, env, url, ctx);
+      return await skladkoImportImage(c, decodeURIComponent(url.pathname.slice('/api/skladko/import-image/'.length)));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
@@ -110,7 +172,7 @@ async function handleApi(request, env, url, ctx) {
     if (!(request.headers.get('content-type') || '').startsWith('application/json')) {
       throw new AppError('Neplatná požiadavka.', 415);
     }
-    const body = await readJson(request, name === 'import' ? MAX_IMPORT_BODY : MAX_BODY);
+    const body = await readJson(request, name === 'import' ? MAX_IMPORT_BODY : LARGE_BODY.has(name) ? MAX_LARGE_BODY : MAX_BODY);
 
     // Prenos zo starej Gazdy: overí sa jednorazovým kódom (nie prihlásením).
     if (name === 'import') return json({ result: await importData(env.DB, body) });
@@ -146,6 +208,7 @@ async function context(request, env, url, ctx) {
     waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
     fetch: env.TEST_FETCH, // v testoch náhrada za Lidl; inak globálny fetch
     ai: env.TEST_AI || env.AI, // Workers AI (rozpoznávanie produktov v letákoch)
+    env, // tajné kľúče (napr. servisné účty Firebase na prenos zo starých aplikácií)
   };
 }
 
@@ -162,38 +225,34 @@ async function readJson(request, max) {
   throw new AppError('Neplatná požiadavka.');
 }
 
-/** Manifest na inštaláciu na plochu. */
+/**
+ * Manifest na inštaláciu na plochu: jedna aplikácia Family Grid s dlaždicami podaplikácií.
+ * id ostáva „/“, takže doteraz nainštalovaná Gazda sa sama zmení na Family Grid.
+ */
 function manifest() {
+  const icon = (app) => [{ src: `/icons/${app}/icon-192.png`, sizes: '192x192', type: 'image/png' }];
   const body = {
     id: '/',
-    name: 'Gazda',
-    short_name: 'Gazda',
-    description: 'Domáce práce a nákupy pre celú domácnosť',
+    name: 'Family Grid',
+    short_name: 'Family Grid',
+    description: 'Rodinné aplikácie na jednom mieste – Gazda, Zdravko a Skládko',
     lang: 'sk',
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#f4f6f3',
-    theme_color: '#16a34a',
+    background_color: '#f5f5fa',
+    theme_color: '#4f46e5',
     icons: [
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icons/family/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/family/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/family/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
     // dlhé podržanie ikony (Android) – skratky; dajú sa aj pretiahnuť na plochu
     shortcuts: [
-      {
-        name: 'Pridať do nákupu',
-        short_name: 'Do nákupu',
-        url: '/?akcia=nakup',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-      },
-      {
-        name: 'Nová činnosť',
-        short_name: 'Nová činnosť',
-        url: '/?akcia=nova',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-      },
+      { name: 'Gazda – pridať do nákupu', short_name: 'Do nákupu', url: '/gazda/?akcia=nakup', icons: icon('gazda') },
+      { name: 'Gazda – nová činnosť', short_name: 'Nová činnosť', url: '/gazda/?akcia=nova', icons: icon('gazda') },
+      { name: 'Zdravko', short_name: 'Zdravko', url: '/zdravko/', icons: icon('zdravko') },
+      { name: 'Skládko', short_name: 'Skládko', url: '/skladko/', icons: icon('skladko') },
     ],
   };
   return new Response(JSON.stringify(body), {

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="sk" data-app="skladko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ea580c" />
+    <script>
+      try {
+        var t = localStorage.getItem('gazda.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
+    <title>Skládko</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/skladko/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/skladko/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/family/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Family Grid" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400..500,0..1,0&amp;icon_names=ac_unit,accessible,add,add_shopping_cart,air,apartment,apparel,apps,architecture,archive,arrow_back,auto_stories,baby_changing_station,bakery_dining,balcony,bathroom,bathtub,battery_full,bed,blender,blind,bloodtype,bolt,book,breakfast_dining,brightness_auto,brunch_dining,brush,bubble_chart,build,build_circle,bungalow,business,cabin,cable,cake,calculate,camera,camping,card_giftcard,carpenter,casino,chair,chalet,check,checkroom,chevron_right,child_care,clean_hands,cleaning_services,close,coffee,coffee_maker,color_lens,compost,computer,construction,content_cut,content_paste,cookie,cooking,cottage,countertops,create_new_folder,cut,dark_mode,deck,delete,deployed_code,desk,desktop_windows,device_thermostat,dining,dinner_dining,directions_bike,directions_run,dishwasher,dishwasher_gen,door_front,drive_file_move,dry,dry_cleaning,eco,edit,egg,elderly,electric_bolt,electrical_services,emergency,emoji_food_beverage,engineering,event,expand_more,extension,face,face_retouching_natural,factory,fastfood,filter_list,filter_vintage,fitness_center,flatware,folder,folder_open,food_bank,footprint,forest,foundation,free_breakfast,garage,garage_home,gavel,gite,grass,grocery,group,group_add,handshake,handyman,hardware,headphones,healing,health_and_safety,hearing,help,hiking,history,home,home_work,hot_tub,hourglass_bottom,house,icecream,image,import_contacts,inventory,inventory_2,kayaking,kettle,keyboard,kitchen,kitesurfing,landscape,language,laptop,library_books,light_mode,lightbulb,liquor,local_bar,local_cafe,local_convenience_store,local_dining,local_drink,local_florist,local_hospital,local_laundry_service,local_library,local_mall,local_offer,local_pharmacy,local_pizza,local_shipping,location_on,lock,loyalty,luggage,lunch_dining,masks,medical_information,medical_services,medication,meeting_room,memory,menu_book,microwave,monitor,monitor_heart,more_vert,mouse,movie,music_note,nature,nightlife,no_food,notes,notifications,notifications_active,notifications_off,nutrition,opacity,other_houses,outdoor_grill,oven,oven_gen,package_2,palette,park,personal_injury,phone_android,phone_iphone,photo_camera,photo_library,plumbing,pool,power,precision_manufacturing,production_quantity_limits,psychology,ramen_dining,recycling,redeem,remove,remove_shopping_cart,restaurant,restaurant_menu,rice_bowl,roofing,room_service,sanitizer,school,science,sd_card,search,search_off,self_improvement,sell,send,set_meal,settings,shelves,shopping_bag,shopping_basket,shopping_cart,shower,sick,skillet,smartphone,snowboarding,soap,soup_kitchen,spa,speaker,sports,sports_bar,sports_baseball,sports_basketball,sports_cricket,sports_esports,sports_football,sports_golf,sports_motorsports,sports_rugby,sports_soccer,sports_tennis,sports_volleyball,square_foot,stairs,storage,store,storefront,straighten,stroller,style,styler,surfing,sync,table_restaurant,tablet,takeout_dining,tapas,terrain,theater_comedy,thermostat,toys,tune,tv,usb,vaccines,videocam,villa,warehouse,warning,wash,watch,water_drop,water_full,waves,wc,weekend,window,wine_bar&amp;display=block"
+    />
+    <link rel="stylesheet" href="/shared/app.css" />
+    <link rel="stylesheet" href="/shared/fg.css" />
+    <link rel="stylesheet" href="/skladko/skladko.css" />
+  </head>
+  <body>
+    <header class="appbar">
+      <a id="gridBtn" class="icon-btn" href="/?grid=1" title="Family Grid – všetky aplikácie"><span class="ms">apps</span></a>
+      <button id="backBtn" class="icon-btn hidden" title="Späť"><span class="ms">arrow_back</span></button>
+      <span id="brand" class="brand"><img src="/icons/skladko/icon.svg" alt="Skládko" /></span>
+      <h1 id="title">Skládko</h1>
+      <button id="searchBtn" class="icon-btn hidden" title="Hľadať"><span class="ms">search</span></button>
+      <button id="filterBtn" class="icon-btn hidden" title="Dochádza a trvanlivosť"><span class="ms">filter_list</span></button>
+      <button id="bellBtn" class="icon-btn hidden" title="Upozornenia"><span class="ms">notifications</span></button>
+      <button id="avatar" class="avatar hidden" title="Môj účet"></button>
+    </header>
+
+    <main id="view">
+      <div class="center muted">Načítavam…</div>
+    </main>
+
+    <div id="fab" class="fab-bar hidden"></div>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-card" id="modalContent"></div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="busy" class="busy hidden"><div class="spinner"></div></div>
+
+    <script src="/shared/fg.js"></script>
+    <script src="/skladko/app.js"></script>
+  </body>
+</html>

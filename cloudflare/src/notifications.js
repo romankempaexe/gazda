@@ -1,6 +1,6 @@
 // Push notifikácie Gazdu:
 // - nová pridelená úloha (hneď, s obchodom, termínom a checklistom),
-// - ranný prehľad o 8:00 (úlohy na dnes) a úlohy po termíne (spúšťa cron každých 15 min).
+// - ranný prehľad o 8:00 (úlohy na dnes) a úlohy po termíne (spúšťa cron každých 5 min).
 
 import { ALL, DATE_RE, TIME_ZONE, nowIso, todayYmd } from './domain.js';
 import { generateVapidKeys, sendWebPush } from './webpush.js';
@@ -137,7 +137,8 @@ export async function assignedMessage(db, cinnost, priestor, fromEmail) {
     title: '📝 ' + (await displayName(db, fromEmail)) + ': ' + cinnost.name,
     body: lines.join('\n'),
     tag: 'assigned-' + cinnost.id,
-    url: '/',
+    app: 'gazda',
+    url: '/gazda/',
   };
 }
 
@@ -165,7 +166,8 @@ export async function notifyComment(c, cinnost, text) {
       title: '💬 ' + (await displayName(c.db, c.email)) + ': ' + cinnost.name,
       body: text,
       tag: 'comment-' + cinnost.id,
-      url: '/',
+      app: 'gazda',
+      url: '/gazda/',
     };
     const everyone = !cinnost.assigned_to || cinnost.assigned_to === ALL;
     const { results } = await c.db
@@ -184,7 +186,7 @@ function localHour(date) {
   return Number(new Intl.DateTimeFormat('en-GB', { timeZone: TIME_ZONE, hour: 'numeric', hourCycle: 'h23' }).format(date));
 }
 
-/** Spúšťa cron každých 15 minút: ranný prehľad raz denne medzi 8:00 a 11:59. */
+/** Spúšťa cron každých 5 minút: ranný prehľad raz denne medzi 8:00 a 11:59. */
 export async function scheduledTick(db, now = new Date()) {
   const reminders = await sendTimedReminders(db, now);
   const hour = localHour(now);
@@ -207,7 +209,7 @@ function localTime(date) {
 }
 
 /**
- * Pripomienky v zadaný čas (cron každých 15 min): dnešné činnosti s časom, ktorý už nastal,
+ * Pripomienky v zadaný čas (cron každých 5 min): dnešné činnosti s časom, ktorý už nastal,
  * a pripomienka pre tento termín a čas ešte neodišla. Najprv sa označia (aby neodišli dvakrát).
  */
 export async function sendTimedReminders(db, now = new Date()) {
@@ -246,7 +248,8 @@ export async function sendTimedReminders(db, now = new Date()) {
       title: '⏰ ' + c.name,
       body: parts.join(' · ') + (c.description ? '\n' + c.description : ''),
       tag: 'remind-' + c.id,
-      url: '/',
+      app: 'gazda',
+      url: '/gazda/',
     }, ctx);
   }
   return sent;
@@ -293,7 +296,8 @@ export async function sendMorningDigest(db, today) {
         title: '🏠 Dnes ťa čaká ' + tasksLabel(tasks.today.length),
         body: tasks.today.map((c) => '• ' + c.name + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-today',
-        url: '/',
+        app: 'gazda',
+        url: '/gazda/',
       }, ctx);
     }
     if (tasks.overdue.length) {
@@ -301,7 +305,8 @@ export async function sendMorningDigest(db, today) {
         title: '⚠️ Po termíne: ' + tasksLabel(tasks.overdue.length),
         body: tasks.overdue.map((c) => '• ' + c.name + ' – od ' + formatShortDate(c.due_date) + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-overdue',
-        url: '/',
+        app: 'gazda',
+        url: '/gazda/',
       }, ctx);
     }
   }

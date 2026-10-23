@@ -3,7 +3,7 @@
 // podaplikácia a krátky prehľad na dlaždice rozcestníka.
 
 import { getHouseholds } from './api.js';
-import { ALL, AppError } from './domain.js';
+import { ALL, AppError, requireText } from './domain.js';
 
 export const APPS = ['gazda', 'zdravko', 'skladko'];
 
@@ -68,4 +68,42 @@ export async function setLastApp(c, app) {
   if (!APPS.includes(app)) throw new AppError('Neznáma aplikácia.');
   await c.db.prepare('UPDATE users SET last_app = ? WHERE email = ? AND last_app <> ?').bind(app, c.email, app).run();
   return { lastApp: app };
+}
+
+/** Rodina, s ktorou pracujú všetky podaplikácie (Gazda ju otvorí, Zdravko a Skládko ukážu jej údaje). */
+export async function setCurrentFamily(c, householdId) {
+  await requireFamilyMember(c, householdId);
+  await c.db
+    .prepare('UPDATE users SET last_household_id = ? WHERE email = ? AND last_household_id <> ?')
+    .bind(householdId, c.email, householdId)
+    .run();
+  return { householdId };
+}
+
+export async function renameFamily(c, householdId, name) {
+  await requireFamilyMember(c, householdId);
+  name = requireText(String(name ?? '').replace(/\s+/g, ' '), 'Zadaj názov rodiny.');
+  if (name.length > 60) throw new AppError('Názov môže mať najviac 60 znakov.');
+  await c.db.prepare('UPDATE households SET name = ? WHERE id = ?').bind(name, householdId).run();
+  return getFamily(c);
+}
+
+/**
+ * Odobratie člena z rodiny (prestane vidieť Gazdu, Zdravka aj Skládko tejto rodiny).
+ * Zakladateľ môže odobrať kohokoľvek okrem seba, ostatní len seba (odísť z rodiny).
+ */
+export async function removeFamilyMember(c, householdId, email) {
+  const me = await requireFamilyMember(c, householdId);
+  email = String(email ?? '').trim().toLowerCase();
+  const target = await c.db.prepare('SELECT * FROM members WHERE household_id = ? AND email = ?').bind(householdId, email).first();
+  if (!target) throw new AppError('Tento človek v rodine nie je.', 404);
+  if (target.role === 'owner') throw new AppError('Zakladateľa rodiny nemožno odobrať – rodinu môže len vymazať.', 403);
+  if (email !== c.email && me.role !== 'owner') throw new AppError('Iných členov môže odobrať len zakladateľ rodiny.', 403);
+  await c.db.batch([
+    c.db.prepare('DELETE FROM members WHERE household_id = ? AND email = ?').bind(householdId, email),
+    // jeho úlohy v Gazde ostanú nepridelené
+    c.db.prepare("UPDATE cinnosti SET assigned_to = '' WHERE household_id = ? AND assigned_to = ?").bind(householdId, email),
+    c.db.prepare("UPDATE users SET last_household_id = '' WHERE email = ? AND last_household_id = ?").bind(email, householdId),
+  ]);
+  return getFamily(c);
 }

@@ -5,13 +5,6 @@
 (function () {
   const { APPS, $, esc } = FG;
 
-  function greeting() {
-    const h = new Date().getHours();
-    if (h < 10) return 'Dobré ráno';
-    if (h < 18) return 'Dobrý deň';
-    return 'Dobrý večer';
-  }
-
   function plural(n, one, few, many) {
     return n + ' ' + (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
   }
@@ -38,32 +31,23 @@
   }
 
   function render(family) {
-    const me = family || FG.state;
-    const name = me.nickname || '';
-    const last = FG.readStore(FG.LAST_APP_KEY);
     $('view').innerHTML =
-      '<div class="grid-hello"><h2>' + esc(greeting() + (name ? ', ' + name : '')) + '</h2>' +
-      '<div class="muted">Vyber aplikáciu. Family Grid si zapamätá poslednú a nabudúce ju otvorí rovno.</div></div>' +
-      '<div class="tiles">' +
+      '<div class="fg-tiles">' +
       Object.entries(APPS)
         .map(([id, a]) => {
           const i = family ? info(id, family.overview) : '';
           return (
-            '<a class="tile" href="' + a.url + '" data-app="' + id + '">' +
-            (last === id ? '<span class="last">naposledy</span>' : '') +
+            '<a class="fg-tile" href="' + a.url + '" data-app="' + id + '">' +
             '<img src="/icons/' + id + '/icon.svg" alt="">' +
-            '<div><div class="name">' + esc(a.name) + '</div><div class="desc">' + esc(a.desc) + '</div></div>' +
+            '<div class="name">' + esc(a.name) + '</div>' +
             (i ? '<div class="info' + (i.warn ? ' warn' : '') + '">' + esc(i.text) + '</div>' : '') +
             '</a>'
           );
         })
         .join('') +
-      '</div>' +
-      '<div class="grid-note">Rodiny (domácnosti) a ich členovia sú spoločné pre všetky aplikácie – ' +
-      'zakladajú sa a zdieľajú v Gazde alebo priamo v Zdravkovi a Skládku. Upozornenia sa zapínajú raz 🔔 ' +
-      'a každá aplikácia v nich má vlastnú ikonu.</div>';
+      '</div>';
     // Zapamätaj hneď pri ťuknutí (podaplikácia to potvrdí aj sama po načítaní).
-    $('view').querySelectorAll('.tile').forEach((t) => {
+    $('view').querySelectorAll('.fg-tile').forEach((t) => {
       t.addEventListener('click', () => FG.writeStore(FG.LAST_APP_KEY, t.dataset.app));
     });
   }
@@ -72,7 +56,7 @@
     onReady: async (family) => {
       // Na novom zariadení (nič v pamäti) otvor podaplikáciu, ktorú mal človek otvorenú naposledy inde.
       const local = FG.readStore(FG.LAST_APP_KEY);
-      if (family && family.lastApp && !local) {
+      if (family && family.lastApp && !local && !window.FG_GRID) {
         location.replace(APPS[family.lastApp].url);
         return;
       }

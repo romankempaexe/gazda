@@ -86,7 +86,8 @@ export async function sendDealAlerts(c, now = new Date()) {
       title: '🏷 V akcii: ' + found.map((f) => f.product).slice(0, 3).join(', ') + (found.length > 3 ? '…' : ''),
       body: found.map((f) => '• ' + f.product + ' – ' + f.offer.store + ' ' + fmt(f.offer.price) + until(f.offer.validTo)).join('\n'),
       tag: 'deals-' + today,
-      url: '/',
+      app: 'gazda',
+      url: '/gazda/',
     };
     const { results: members } = await c.db
       .prepare('SELECT DISTINCT email FROM members WHERE household_id = ? AND email IN (SELECT email FROM push_subscriptions)')

@@ -1,5 +1,6 @@
 /**
- * Gazda na Cloudflare Workers.
+ * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/),
+ * Zdravko (/zdravko/) a Skládko (/skladko/) – jedno prihlásenie, jedna databáza.
  *
  * Statické súbory (public/) obsluhuje Cloudflare priamo, sem prichádzajú len
  * požiadavky na /api/* a manifest. Údaje sú v databáze D1 (env.DB).
@@ -18,10 +19,15 @@ import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
+import { getFamily, setLastApp } from './family.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
 const METHODS = {
+  // Family Grid (rozcestník)
+  getFamily,
+  setLastApp,
+  // Gazda
   getHouseholds: api.getHouseholds,
   setNickname: api.setNickname,
   getStartData: api.getStartData,
@@ -66,6 +72,10 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url, ctx);
     if (url.pathname === '/manifest.webmanifest') return manifest();
+    // Staré odkazy Gazdy (skratky ikony „/?akcia=…“) – Gazda je teraz podaplikácia na /gazda/.
+    if (url.pathname === '/' && url.searchParams.has('akcia')) {
+      return Response.redirect(url.origin + '/gazda/' + url.search, 302);
+    }
     return env.ASSETS.fetch(request);
   },
 
@@ -162,38 +172,34 @@ async function readJson(request, max) {
   throw new AppError('Neplatná požiadavka.');
 }
 
-/** Manifest na inštaláciu na plochu. */
+/**
+ * Manifest na inštaláciu na plochu: jedna aplikácia Family Grid s dlaždicami podaplikácií.
+ * id ostáva „/“, takže doteraz nainštalovaná Gazda sa sama zmení na Family Grid.
+ */
 function manifest() {
+  const icon = (app) => [{ src: `/icons/${app}/icon-192.png`, sizes: '192x192', type: 'image/png' }];
   const body = {
     id: '/',
-    name: 'Gazda',
-    short_name: 'Gazda',
-    description: 'Domáce práce a nákupy pre celú domácnosť',
+    name: 'Family Grid',
+    short_name: 'Family Grid',
+    description: 'Rodinné aplikácie na jednom mieste – Gazda, Zdravko a Skládko',
     lang: 'sk',
     start_url: '/',
     scope: '/',
     display: 'standalone',
-    background_color: '#f4f6f3',
-    theme_color: '#16a34a',
+    background_color: '#f5f5fa',
+    theme_color: '#4f46e5',
     icons: [
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/icons/family/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/family/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/family/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
     // dlhé podržanie ikony (Android) – skratky; dajú sa aj pretiahnuť na plochu
     shortcuts: [
-      {
-        name: 'Pridať do nákupu',
-        short_name: 'Do nákupu',
-        url: '/?akcia=nakup',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-      },
-      {
-        name: 'Nová činnosť',
-        short_name: 'Nová činnosť',
-        url: '/?akcia=nova',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
-      },
+      { name: 'Gazda – pridať do nákupu', short_name: 'Do nákupu', url: '/gazda/?akcia=nakup', icons: icon('gazda') },
+      { name: 'Gazda – nová činnosť', short_name: 'Nová činnosť', url: '/gazda/?akcia=nova', icons: icon('gazda') },
+      { name: 'Zdravko', short_name: 'Zdravko', url: '/zdravko/', icons: icon('zdravko') },
+      { name: 'Skládko', short_name: 'Skládko', url: '/skladko/', icons: icon('skladko') },
     ],
   };
   return new Response(JSON.stringify(body), {

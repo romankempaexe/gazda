@@ -137,7 +137,8 @@ export async function assignedMessage(db, cinnost, priestor, fromEmail) {
     title: '📝 ' + (await displayName(db, fromEmail)) + ': ' + cinnost.name,
     body: lines.join('\n'),
     tag: 'assigned-' + cinnost.id,
-    url: '/',
+    app: 'gazda',
+    url: '/gazda/',
   };
 }
 
@@ -165,7 +166,8 @@ export async function notifyComment(c, cinnost, text) {
       title: '💬 ' + (await displayName(c.db, c.email)) + ': ' + cinnost.name,
       body: text,
       tag: 'comment-' + cinnost.id,
-      url: '/',
+      app: 'gazda',
+      url: '/gazda/',
     };
     const everyone = !cinnost.assigned_to || cinnost.assigned_to === ALL;
     const { results } = await c.db
@@ -246,7 +248,8 @@ export async function sendTimedReminders(db, now = new Date()) {
       title: '⏰ ' + c.name,
       body: parts.join(' · ') + (c.description ? '\n' + c.description : ''),
       tag: 'remind-' + c.id,
-      url: '/',
+      app: 'gazda',
+      url: '/gazda/',
     }, ctx);
   }
   return sent;
@@ -293,7 +296,8 @@ export async function sendMorningDigest(db, today) {
         title: '🏠 Dnes ťa čaká ' + tasksLabel(tasks.today.length),
         body: tasks.today.map((c) => '• ' + c.name + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-today',
-        url: '/',
+        app: 'gazda',
+        url: '/gazda/',
       }, ctx);
     }
     if (tasks.overdue.length) {
@@ -301,7 +305,8 @@ export async function sendMorningDigest(db, today) {
         title: '⚠️ Po termíne: ' + tasksLabel(tasks.overdue.length),
         body: tasks.overdue.map((c) => '• ' + c.name + ' – od ' + formatShortDate(c.due_date) + ' (' + where(c) + ')').join('\n'),
         tag: 'digest-overdue',
-        url: '/',
+        app: 'gazda',
+        url: '/gazda/',
       }, ctx);
     }
   }

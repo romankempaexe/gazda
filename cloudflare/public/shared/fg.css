@@ -1,0 +1,190 @@
+/* Family Grid – farby podaplikácií (prepíšu zelenú Gazdy z app.css) a rozcestník. */
+
+:root[data-app='family'] {
+  --primary: #4f46e5;
+  --primary-strong: #4338ca;
+  --primary-soft: #e0e7ff;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  --bg: #f5f5fa;
+}
+:root[data-app='zdravko'] {
+  --primary: #1d72b8;
+  --primary-strong: #155e99;
+  --primary-soft: #dbeafe;
+  --primary-gradient: linear-gradient(135deg, #38a3e0 0%, #1d5fa0 100%);
+  --bg: #f3f6fa;
+}
+:root[data-app='skladko'] {
+  --primary: #ea580c;
+  --primary-strong: #c2410c;
+  --primary-soft: #ffedd5;
+  --primary-gradient: linear-gradient(135deg, #fb923c 0%, #c2410c 100%);
+  --bg: #faf6f2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-app='family']:not([data-theme='light']) {
+    --primary: #818cf8;
+    --primary-strong: #a5b4fc;
+    --primary-soft: rgba(129, 140, 248, 0.16);
+    --bg: #0c0c12;
+  }
+  :root[data-app='zdravko']:not([data-theme='light']) {
+    --primary: #5fb3ec;
+    --primary-strong: #93cdf5;
+    --primary-soft: rgba(95, 179, 236, 0.16);
+    --bg: #0a0e12;
+  }
+  :root[data-app='skladko']:not([data-theme='light']) {
+    --primary: #fb923c;
+    --primary-strong: #fdba74;
+    --primary-soft: rgba(251, 146, 60, 0.16);
+    --bg: #110d0a;
+  }
+}
+:root[data-app='family'][data-theme='dark'] {
+  --primary: #818cf8;
+  --primary-strong: #a5b4fc;
+  --primary-soft: rgba(129, 140, 248, 0.16);
+  --bg: #0c0c12;
+}
+:root[data-app='zdravko'][data-theme='dark'] {
+  --primary: #5fb3ec;
+  --primary-strong: #93cdf5;
+  --primary-soft: rgba(95, 179, 236, 0.16);
+  --bg: #0a0e12;
+}
+:root[data-app='skladko'][data-theme='dark'] {
+  --primary: #fb923c;
+  --primary-strong: #fdba74;
+  --primary-soft: rgba(251, 146, 60, 0.16);
+  --bg: #110d0a;
+}
+
+:root[data-app] .brand {
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.22);
+}
+
+/* ---------------------------------------------------------- Rozcestník */
+
+.grid-hello {
+  margin: 4px 2px 18px;
+}
+.grid-hello h2 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.grid-hello .muted {
+  font-size: 14px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 16px 16px;
+  min-height: 168px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.tile:hover {
+  box-shadow: var(--shadow-md);
+}
+.tile:active {
+  transform: scale(0.97);
+}
+.tile img {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
+}
+.tile .name {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.tile .desc {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.tile .info {
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-strong);
+}
+.tile .info.warn {
+  color: var(--accent);
+}
+.tile .last {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.grid-note {
+  margin: 22px 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Výber rodiny v podaplikácii (nad obsahom). */
+.family-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.family-pick .ms {
+  font-size: 18px;
+}
+
+.members .notif-app {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tile[data-app='gazda'] .info { color: #15803d; }
+.tile[data-app='zdravko'] .info { color: #1d72b8; }
+.tile[data-app='skladko'] .info { color: #c2410c; }
+.tile .info.warn { color: var(--accent); }

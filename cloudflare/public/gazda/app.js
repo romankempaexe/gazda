@@ -219,7 +219,7 @@ function showLogin(expired) {
   document.body.classList.remove('with-tabs');
   $('title').textContent = 'Gazda';
   $('view').innerHTML =
-    '<div class="empty login"><img class="login-logo" src="/icons/icon.svg" alt="">' +
+    '<div class="empty login"><img class="login-logo" src="/icons/gazda/icon.svg" alt="">' +
     '<h2>Prihlás sa do Gazdu</h2>' +
     '<div>' + (expired ? 'Prihlásenie vypršalo. ' : '') +
     'Použi svoj Google účet – ten e-mail, s ktorým ti niekto zdieľal domácnosť.</div>' +
@@ -428,7 +428,7 @@ function showAccount() {
       'Na tomto zariadení ostaneš prihlásený, kým sa neodhlásiš.</div></div>' +
       (canInstall()
         ? '<button type="button" class="btn small" id="install" style="margin:4px 8px 12px 0">' +
-          '<span class="ms">add</span>Nainštalovať Gazdu</button>'
+          '<span class="ms">add</span>Nainštalovať Family Grid</button>'
         : '') +
       '<div class="field"><label>Vzhľad</label><div class="chips seg theme-seg">' +
       [['auto', 'brightness_auto', 'Podľa telefónu'], ['light', 'light_mode', 'Svetlý'], ['dark', 'dark_mode', 'Tmavý']]
@@ -3508,7 +3508,7 @@ async function syncPush() {
 async function enablePush() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    throw new Error('Upozornenia nie sú povolené. Povoľ ich pre Gazdu v nastaveniach prehliadača alebo telefónu.');
+    throw new Error('Upozornenia nie sú povolené. Povoľ ich pre Family Grid v nastaveniach prehliadača alebo telefónu.');
   }
   const { publicKey } = await api('getPushKey');
   const reg = await navigator.serviceWorker.ready;
@@ -3539,12 +3539,12 @@ async function showNotificationSettings() {
   if (!pushSupported()) {
     status =
       isIos() && !isStandalone()
-        ? 'Na iPhone fungujú upozornenia len v Gazdovi pridanom na plochu: v Safari ťukni <b>Zdieľať</b> → ' +
-          '<b>Pridať na plochu</b>, otvor Gazdu z plochy a zapni ich tam.'
-        : 'Tento prehliadač upozornenia nepodporuje. Skús Chrome (Android) alebo Gazdu pridanú na plochu (iPhone).';
+        ? 'Na iPhone fungujú upozornenia len vo Family Grid pridanom na plochu: v Safari ťukni <b>Zdieľať</b> → ' +
+          '<b>Pridať na plochu</b>, otvor Family Grid z plochy a zapni ich tam.'
+        : 'Tento prehliadač upozornenia nepodporuje. Skús Chrome (Android) alebo Family Grid pridaný na plochu (iPhone).';
   } else if (Notification.permission === 'denied') {
     status =
-      'Upozornenia sú pre Gazdu <b>zablokované</b> v nastaveniach prehliadača alebo telefónu. ' +
+      'Upozornenia sú pre Family Grid <b>zablokované</b> v nastaveniach prehliadača alebo telefónu. ' +
       'Povoľ ich tam (pri adrese stránky alebo v Nastaveniach → Upozornenia) a vráť sa sem.';
   } else if ((await currentSubscription().catch(() => null)) && Notification.permission === 'granted') {
     status = '✅ Upozornenia sú na tomto zariadení <b>zapnuté</b>.';
@@ -3553,14 +3553,14 @@ async function showNotificationSettings() {
       buttons +
       '<button type="button" class="btn tonal" id="test"><span class="ms">send</span>Skúšobné</button>';
   } else {
-    status = 'Upozornenia sú na tomto zariadení vypnuté. Zapni si ich – chodia, aj keď Gazdu nemáš otvorenú.';
+    status = 'Upozornenia sú na tomto zariadení vypnuté. Zapni si ich – chodia, aj keď Family Grid nemáš otvorený. Každá aplikácia (Gazda, Zdravko, Skládko) má v nich vlastnú ikonu.';
     buttons += '<button type="button" class="btn" id="on"><span class="ms">notifications_active</span>Zapnúť</button>';
   }
 
   const installTip =
     pushSupported() && canInstall()
-      ? '<div class="hint" style="margin-bottom:10px">💡 Najprv si Gazdu <a href="#" id="installTip">nainštaluj</a> – ' +
-        'upozornenia potom prídu s ikonou a menom Gazdy (nie prehliadača). Zapni ich v nainštalovanej aplikácii.</div>'
+      ? '<div class="hint" style="margin-bottom:10px">💡 Najprv si Family Grid <a href="#" id="installTip">nainštaluj</a> – ' +
+        'upozornenia potom prídu s ikonou a menom Family Grid (nie prehliadača). Zapni ich v nainštalovanej aplikácii.</div>'
       : '';
   openModal(
     '<h2>Upozornenia</h2><div class="subtitle">' + status + '</div>' + what + installTip +
@@ -3624,11 +3624,11 @@ async function showNotificationSettings() {
 }
 
 // -------------------------------------------------------------------------
-// Inštalácia aplikácie (vlastná ikona, notifikácie pod menom Gazda)
+// Inštalácia aplikácie Family Grid (vlastná ikona, notifikácie pod jej menom)
 // -------------------------------------------------------------------------
 
 let installPrompt = null; // Android/Chrome: systémové okno inštalácie
-const INSTALL_DISMISSED_KEY = 'gazda.installDismissed';
+const INSTALL_DISMISSED_KEY = 'fg.installDismissed';
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault(); // namiesto lišty Chrome ponúkneme inštaláciu v aplikácii
@@ -3639,14 +3639,14 @@ window.addEventListener('beforeinstallprompt', (e) => {
 window.addEventListener('appinstalled', () => {
   installPrompt = null;
   refreshInstallBanner();
-  toast('Gazda je nainštalovaná – nájdeš ju medzi aplikáciami');
+  toast('Family Grid je nainštalovaný – nájdeš ho medzi aplikáciami');
 });
 
 function isIosSafari() {
   return isIos() && /safari/i.test(navigator.userAgent) && !/crios|fxios|edgios|gsa/i.test(navigator.userAgent);
 }
 
-/** Dá sa Gazda nainštalovať (a ešte nie je)? */
+/** Dá sa Family Grid nainštalovať (a ešte nie je)? */
 function canInstall() {
   return !isStandalone() && Boolean(installPrompt || isIosSafari());
 }
@@ -3662,11 +3662,11 @@ async function installApp() {
     return;
   }
   openModal(
-    '<h2>Nainštaluj si Gazdu</h2>' +
-      '<div class="subtitle">Na iPhone sa Gazda inštaluje cez Safari:</div>' +
+    '<h2>Nainštaluj si Family Grid</h2>' +
+      '<div class="subtitle">Na iPhone sa Family Grid inštaluje cez Safari:</div>' +
       '<ol class="steps"><li>Ťukni dole na <b>Zdieľať</b> (štvorček so šípkou).</li>' +
       '<li>Zvoľ <b>Pridať na plochu</b> a potvrď <b>Pridať</b>.</li>' +
-      '<li>Otvor Gazdu z plochy, prihlás sa a zapni upozornenia 🔔.</li></ol>' +
+      '<li>Otvor Family Grid z plochy, prihlás sa a zapni upozornenia 🔔.</li></ol>' +
       '<div class="actions"><button type="button" class="btn" id="cancel">Rozumiem</button></div>',
     (root) => {
       root.querySelector('#cancel').onclick = closeModal;
@@ -3678,8 +3678,8 @@ async function installApp() {
 function installBannerHtml() {
   if (!canInstall() || readFlag(INSTALL_DISMISSED_KEY)) return '';
   return (
-    '<div class="install-banner" id="installBanner"><img src="/icons/icon.svg" alt="">' +
-    '<div class="text"><b>Nainštaluj si Gazdu</b>Ikona a upozornenia s logom Gazdy</div>' +
+    '<div class="install-banner" id="installBanner"><img src="/icons/family/icon.svg" alt="">' +
+    '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko a Skládko v jednej aplikácii</div>' +
     '<button type="button" class="btn small" data-install>Inštalovať</button>' +
     '<button type="button" class="icon-btn small" data-install-close title="Teraz nie"><span class="ms">close</span></button></div>'
   );
@@ -3775,5 +3775,11 @@ document.addEventListener('visibilitychange', () => {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+// Family Grid: pri ďalšom spustení sa otvorí rovno Gazda (posledná podaplikácia).
+try {
+  localStorage.setItem('fg.lastApp', 'gazda');
+} catch (e) {}
+fetch('/api/setLastApp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"args":["gazda"]}' }).catch(() => {});
 
 loadHouseholds(true);

@@ -813,8 +813,9 @@ export async function unsubscribePush(c, endpoint) {
 export async function testPush(c) {
   const sent = await sendToUser(c.db, c.email, {
     title: '✅ Upozornenia fungujú',
-    body: 'Takto ti Gazda dá vedieť o nových úlohách a ráno o 8:00 o dnešných úlohách.',
+    body: 'Takto ti Family Grid dá vedieť o novinkách – Gazda, Zdravko aj Skládko, každá s vlastnou ikonou.',
     tag: 'test',
+    app: 'family',
     url: '/',
   });
   return { sent };

@@ -9,6 +9,35 @@ push notifikácie priamo z aplikácie.
 > plochu a každý sa prihlasuje **svojím Google účtom** (žiadne osobné odkazy).
 > Dáta zo starej Gazdy (Google tabuľka) sa prenesú tlačidlom – pozri *Prenos zo starej Gazdy*.
 
+## Family Grid
+
+Na tej istej adrese (`https://gazda.<subdoména>.workers.dev`) beží **Family Grid** – jedna
+aplikácia s dlaždicami podaplikácií. Jedno prihlásenie, jedna databáza D1, jeden service
+worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
+
+| Adresa | Čo to je |
+|---|---|
+| `/` | rozcestník Family Grid (`public/index.html`, `public/grid.js`) |
+| `/gazda/` | Gazda (`public/gazda/`) |
+| `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) |
+| `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) |
+
+- **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
+  (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
+  Rozcestník sa ukáže tlačidlom dlaždíc vľavo hore (`/?grid=1`).
+- **Inštalácia:** manifest má stále `id: "/"`, takže doteraz nainštalovaná Gazda sa sama
+  zmení na Family Grid (nová ikona a meno). Staré skratky `/?akcia=…` presmerujú na `/gazda/`.
+- **Rodiny** = domácnosti z Gazdy (`households`, `members`). Údaje Zdravka a Skládka patria
+  rodine, takže ich vidia všetci jej členovia.
+- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `family`);
+  service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
+  a po ťuknutí otvorí `/<app>/`.
+- **Spoločný kód v prehliadači:** `public/shared/app.css` (vzhľad), `public/shared/fg.css`
+  (farby podaplikácií, dlaždice) a `public/shared/fg.js` (server, prihlásenie, okná,
+  upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
+- **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
+  (priečinky `family`, `gazda`, `zdravko`, `skladko`).
+
 ## Súbory
 
 | Súbor / priečinok | Obsah |

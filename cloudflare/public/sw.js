@@ -1,12 +1,12 @@
 // Service worker Family Grid (jeden pre rozcestník aj všetky podaplikácie):
 // - aplikácia sa otvorí aj bez internetu (posledná verzia stránky + posledné údaje z pamäte telefónu),
-// - push notifikácie – každá podaplikácia s vlastnou ikonou (Gazda, Zdravko, Skládko, QuickStash).
+// - push notifikácie – každá podaplikácia s vlastnou ikonou (Gazda, Zdravko, Skládko, QuickStash, Financie).
 //
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v9';
-const APPS = ['family', 'gazda', 'zdravko', 'skladko', 'quickstash'];
+const CACHE = 'family-grid-v10';
+const APPS = ['family', 'gazda', 'zdravko', 'skladko', 'quickstash', 'financie'];
 const SHELL = [
   '/',
   '/shared/app.css',
@@ -27,6 +27,9 @@ const SHELL = [
   '/quickstash/',
   '/quickstash/app.js',
   '/quickstash/quickstash.css',
+  '/financie/',
+  '/financie/app.js',
+  '/financie/financie.css',
   ...APPS.flatMap((a) => ['/icons/' + a + '/icon.svg', '/icons/' + a + '/icon-192.png', '/icons/' + a + '/badge-96.png']),
 ];
 
@@ -74,7 +77,7 @@ self.addEventListener('push', (event) => {
   }
   // Staré správy bez „app“ sú z Gazdy.
   const app = APPS.includes(data.app) ? data.app : 'gazda';
-  const names = { family: 'Family Grid', gazda: 'Gazda', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash' };
+  const names = { family: 'Family Grid', gazda: 'Gazda', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie' };
   event.waitUntil(
     self.registration.showNotification(data.title || names[app], {
       body: data.body || '',

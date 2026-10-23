@@ -57,6 +57,17 @@ const APPS = {
     stroke: 'M248 268 m-34 0 a34 34 0 1 0 68 0 a34 34 0 1 0 -68 0 M282 268 L346 268 M322 268 L322 300 M346 268 L346 292',
     strokeWidth: 22,
   },
+  // Financie: peňaženka so stĺpcovým grafom, ktorý rastie
+  financie: {
+    bg: ['#c4b5fd', '#6d28d9'],
+    mark: ['#a78bfa', '#6d28d9'],
+    shadow: '#2e1065',
+    shape: (w) =>
+      `<path d="M150 186 L318 120 L346 186 Z" fill="${w}" opacity=".55" stroke="${w}" stroke-width="20" stroke-linejoin="round"/>` +
+      `<rect x="112" y="176" width="288" height="232" rx="38" fill="${w}"/>`,
+    stroke: 'M196 352 L196 318 M256 352 L256 284 M316 352 L316 246',
+    strokeWidth: 34,
+  },
 };
 
 function art({ app = 'gazda', scale = 1, background = 'rounded', mono = false } = {}) {

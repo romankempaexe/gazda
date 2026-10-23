@@ -1,0 +1,342 @@
+/* Financie – rodinný rozpočet: súhrn, finančné zdravie, rezerva, kategórie a zoznamy. */
+
+:root {
+  /* farby pásu príjmu (overené pre farbosleposť, svetlý aj tmavý režim) */
+  --fi-spend: #7c3aed;
+  --fi-saving: #0891b2;
+  --fi-left: #d97706;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --fi-spend: #8b5cf6;
+  }
+}
+:root[data-theme='dark'] {
+  --fi-spend: #8b5cf6;
+}
+
+/* ---- Súhrn ---- */
+.fi-hero {
+  display: block;
+  padding: 20px 18px 16px;
+}
+.fi-hero-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.fi-hero-value {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  margin: 2px 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.fi-hero-value.neg {
+  color: var(--error);
+}
+.fi-hero-sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fi-bar {
+  display: flex;
+  gap: 2px; /* medzera medzi dielmi pásu */
+  height: 12px;
+  margin: 16px 0 10px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.fi-seg {
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 3px;
+}
+.fi-seg.spend,
+.fi-dot.spend {
+  background: var(--fi-spend);
+}
+.fi-seg.saving,
+.fi-dot.saving {
+  background: var(--fi-saving);
+}
+.fi-seg.left,
+.fi-dot.left {
+  background: var(--fi-left);
+}
+.fi-seg.neg,
+.fi-dot.neg {
+  background: repeating-linear-gradient(45deg, var(--error) 0 4px, transparent 4px 7px);
+}
+.fi-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.fi-legend b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fi-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 5px;
+}
+
+.fi-health {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.fi-health small {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 1px;
+}
+.fi-health.great .ms,
+.fi-health.good .ms {
+  color: #15803d;
+}
+.fi-health.edge .ms {
+  color: #b45309;
+}
+.fi-health.bad .ms {
+  color: var(--error);
+}
+
+.fi-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.fi-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px;
+  min-width: 0;
+}
+.fi-stat-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.fi-stat-value {
+  font-size: 19px;
+  font-weight: 700;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.fi-stat-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+/* ---- Núdzová rezerva ---- */
+.fi-reserve {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  margin-bottom: 22px;
+}
+.fi-reserve-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fi-reserve-pct {
+  font-weight: 700;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.fi-meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  margin: 12px 0 8px;
+  overflow: hidden;
+}
+.fi-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--primary);
+}
+.fi-reserve-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ---- Kategórie ---- */
+.fi-cats {
+  display: block;
+  padding: 6px;
+  margin-bottom: 22px;
+}
+.fi-cat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.fi-cat:hover,
+.fi-cat.open {
+  background: var(--surface-2);
+}
+.fi-cat-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fi-cat-name .ms {
+  font-size: 15px;
+  color: var(--muted);
+  vertical-align: -2px;
+}
+.fi-cat-amount {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.fi-cat-track {
+  grid-column: 1 / -1;
+  height: 6px;
+}
+.fi-cat-track span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary);
+}
+.fi-cat-items {
+  padding: 2px 10px 10px 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.fi-cat-items div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+}
+.fi-cat-items span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Zoznamy ---- */
+.fi-hint {
+  margin: -4px 4px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.fi-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+.fi-icon.income {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+.fi-icon.yearly {
+  background: rgba(217, 119, 6, 0.13);
+  color: #b45309;
+}
+.fi-icon.saving {
+  background: rgba(8, 145, 178, 0.13);
+  color: #0e7490;
+}
+.fi-icon.reserve {
+  background: var(--primary-soft);
+}
+.fi-amount {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fi-now {
+  color: var(--accent);
+}
+.fi-total {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 16px 0;
+  font-size: 15px;
+}
+.fi-total span {
+  flex: 1;
+  font-weight: 600;
+  color: var(--muted);
+}
+.fi-total b {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.fi-total small {
+  flex-basis: 100%;
+  text-align: right;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+main:has(.fi-total),
+main:has(.fi-row) {
+  padding-bottom: 180px; /* miesto pre tlačidlo Pridať nad spodnou navigáciou */
+}
+
+.fi-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+.fi-check input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+.fi-check small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}

@@ -638,7 +638,8 @@
     const render = () => {
       const url = base ? base + (gazda === 'mine' ? '' : '?gazda=' + gazda) : '';
       const webcal = url.replace(/^https:/, 'webcal:');
-      const google = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(webcal);
+      // Pridanie kalendára z adresy ide v Google Kalendári len na webe (v počítačovej verzii stránky).
+      const addByUrl = 'https://calendar.google.com/calendar/u/0/r/settings/addbyurl';
       openModal(
         '<h2>Kalendár na plochu</h2>' +
           '<div class="subtitle">Udalosti Zdravka (lekár, vyšetrenia, očkovania) a úlohy Gazdy v Google Kalendári alebo v kalendári iPhonu – ' +
@@ -649,13 +650,17 @@
             .join('') +
           '</div></div>' +
           (url
-            ? '<div class="pick-list"><a class="btn" href="' + esc(google) + '" target="_blank" rel="noopener"><span class="ms">event</span>Pridať do Google Kalendára</a>' +
-              '<a class="btn tonal" href="' + esc(webcal) + '"><span class="ms">event</span>Pridať do iPhonu / iPadu</a>' +
-              '<button type="button" class="btn tonal" id="copy"><span class="ms">content_copy</span>Kopírovať adresu</button></div>' +
-              '<ol class="steps"><li><b>Android:</b> ťukni <b>Pridať do Google Kalendára</b> (ak to v telefóne nejde, otvor odkaz v počítači na calendar.google.com) a potvrď <b>Pridať</b>.</li>' +
-              '<li>V aplikácii Kalendár Google: ☰ → Nastavenia → <b>Family Grid</b> → zapni <b>Synchronizácia</b>.</li>' +
-              '<li>Podrž prst na ploche → <b>Miniaplikácie</b> → Kalendár Google → <b>Plán</b>.</li>' +
-              '<li><b>iPhone:</b> Pridať do iPhonu → Odoberať; widget <b>Kalendár</b> pridáš podržaním plochy → <b>+</b>.</li></ol>' +
+            ? '<div class="section-title fg-cal-h">Android – Google Kalendár</div>' +
+              '<ol class="steps">' +
+              '<li><button type="button" class="btn small" id="copy"><span class="ms">content_copy</span>Kopírovať adresu</button></li>' +
+              '<li><a class="btn tonal small" href="' + esc(addByUrl) + '" target="_blank" rel="noopener"><span class="ms">open_in_new</span>Otvoriť Google Kalendár na webe</a><br>' +
+              'Ak sa namiesto stránky otvorí aplikácia, v Chrome ťukni <b>⋮ → Počítačová verzia</b> a otvor odkaz znova.</li>' +
+              '<li>Do poľa <b>Webová adresa kalendára</b> vlož adresu a ťukni <b>Pridať kalendár</b>.</li>' +
+              '<li>V aplikácii Kalendár Google: ☰ → Nastavenia → <b>Family Grid</b> → zapni <b>Synchronizácia</b> (kalendár sa objaví do pár minút).</li>' +
+              '<li>Podrž prst na ploche → <b>Miniaplikácie</b> → Kalendár Google → <b>Plán</b>.</li></ol>' +
+              '<div class="section-title fg-cal-h">iPhone / iPad</div>' +
+              '<ol class="steps"><li><a class="btn tonal small" href="' + esc(webcal) + '"><span class="ms">event</span>Pridať do iPhonu</a> → <b>Odoberať</b>.</li>' +
+              '<li>Widget <b>Kalendár</b> pridáš podržaním plochy → <b>+</b>.</li></ol>' +
               '<div class="hint">Google Kalendár si kalendár obnovuje sám približne každých pár hodín – nové udalosti sa vo widgete ukážu s oneskorením ' +
               '(upozornenia z Family Grid chodia hneď). Adresu nikomu neposielaj; každý člen rodiny si vytvorí vlastnú.</div>'
             : status.active
@@ -663,11 +668,11 @@
                 'Ak ju potrebuješ, vytvor novú (stará prestane fungovať a v kalendári ju treba pridať znova).</div>'
               : '') +
           (status.active
-            ? '<div class="members"><div><span class="ms">' + (status.lastAccess ? 'check_circle' : 'schedule') + '</span>' +
+            ? '<div class="members"><div><span class="ms">' + (status.lastAccess ? 'check_circle' : 'schedule') + '</span><span>' +
               (status.lastAccess
                 ? 'Kalendár si naposledy stiahol Google / iPhone: <b>' + esc(new Date(status.lastAccess).toLocaleString('sk-SK')) + '</b>'
                 : 'Google ani iPhone si kalendár <b>zatiaľ nestiahol</b> – pridanie ešte neprebehlo (alebo ho Google stiahne o chvíľu).') +
-              '</div></div>'
+              '</span></div></div>'
             : '') +
           '<div class="actions">' +
           (status.active ? '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto">Zrušiť adresu</button>' : '') +

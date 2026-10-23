@@ -239,3 +239,11 @@
   border-color: var(--primary);
   color: var(--primary-strong);
 }
+
+.fg-cal-h {
+  margin: 14px 0 4px;
+}
+.steps .btn {
+  text-decoration: none;
+  margin: 2px 0 4px;
+}

@@ -188,3 +188,16 @@
 .tile[data-app='zdravko'] .info { color: #1d72b8; }
 .tile[data-app='skladko'] .info { color: #c2410c; }
 .tile .info.warn { color: var(--accent); }
+
+/* Tiene tlačidiel vo farbe podaplikácie (app.css ich má zelené). */
+:root[data-app] .btn,
+:root[data-app] .fab-bar .btn {
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+:root[data-app] .btn.text,
+:root[data-app] .btn.tonal {
+  box-shadow: none;
+}
+:root[data-app] .btn.danger {
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.25);
+}

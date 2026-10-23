@@ -1,6 +1,6 @@
 name: Nasadenie Cloudflare
 
-# Gazda na Cloudflare Workers + D1 (priečinok cloudflare/).
+# Family Grid (Gazda, Zdravko, Skládko) na Cloudflare Workers + D1 (priečinok cloudflare/).
 # - pull request: testy a nasadenie na náhľad (worker „gazda-preview“, vlastná databáza)
 # - push do main: testy, migrácie databázy a nasadenie (worker „gazda“)
 # Bez nastavených secrets CLOUDFLARE_API_TOKEN a CLOUDFLARE_ACCOUNT_ID sa
@@ -87,6 +87,25 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         run: npx wrangler d1 migrations apply DB --remote --env="$TARGET_ENV"
 
+      # Servisné účty Firebase na prenos zo starých mobilných aplikácií (nepovinné GitHub secrets).
+      - name: Kľúče na prenos z Firebase
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          FIREBASE_SKLADKO_SA: ${{ secrets.FIREBASE_SKLADKO_SA }}
+          FIREBASE_ZDRAVKO_SA: ${{ secrets.FIREBASE_ZDRAVKO_SA }}
+        run: |
+          umask 077
+          node -e '
+            const o = {};
+            for (const k of ["FIREBASE_SKLADKO_SA", "FIREBASE_ZDRAVKO_SA"]) if (process.env[k]) o[k] = process.env[k];
+            require("fs").writeFileSync(process.env.RUNNER_TEMP + "/fb-secrets.json", JSON.stringify(o));
+            console.log("Kľúče: " + (Object.keys(o).join(", ") || "žiadne (prenos z Firebase nebude dostupný)"));
+          '
+          if [ "$(cat "$RUNNER_TEMP/fb-secrets.json")" != "{}" ]; then
+            npx wrangler secret bulk "$RUNNER_TEMP/fb-secrets.json" --env="$TARGET_ENV"
+          fi
+          rm -f "$RUNNER_TEMP/fb-secrets.json"
+
       - name: Nasadenie
         if: steps.secrets.outputs.ready == 'true'
         run: |
@@ -96,7 +115,7 @@ jobs:
           npx wrangler deploy --env="$TARGET_ENV" --var "GOOGLE_CLIENT_ID:$GOOGLE_CLIENT_ID" | tee "$RUNNER_TEMP/deploy.log"
           url=$(grep -Eo 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n 1)
           if [ -n "$url" ]; then
-            echo "### Gazda ${TARGET_ENV:+(náhľad)}: $url" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Family Grid ${TARGET_ENV:+(náhľad)}: $url" >> "$GITHUB_STEP_SUMMARY"
             # Nová adresa workers.dev môže byť dostupná až o chvíľu – nie je to chyba nasadenia.
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$url/api/health" \
               || echo "::warning::$url/api/health zatiaľ neodpovedá (nová adresa sa môže ešte šíriť)."

@@ -164,7 +164,7 @@ export function cleanData(data) {
 }
 
 /** INSERT … SELECT z JSON zoznamu; columns = stĺpce tabuľky (rovnako pomenované kľúče v JSON). */
-function bulk(db, table, columns, rows, onConflict) {
+export function bulk(db, table, columns, rows, onConflict) {
   const json = JSON.stringify(rows);
   if (json.length > MAX_TABLE_JSON) throw new AppError('Príliš veľa dát v jednej tabuľke (' + table + ').', 413);
   const select = columns.map((col) => `json_extract(value, '$.${col}')`).join(', ');
@@ -173,7 +173,7 @@ function bulk(db, table, columns, rows, onConflict) {
     .bind(json);
 }
 
-const set = (cols) => 'DO UPDATE SET ' + cols.map((col) => `${col} = excluded.${col}`).join(', ');
+export const set = (cols) => 'DO UPDATE SET ' + cols.map((col) => `${col} = excluded.${col}`).join(', ');
 
 /** POST /api/import – volá stará Gazda. Vráti počty prenesených záznamov. */
 export async function importData(db, body) {

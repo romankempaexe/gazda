@@ -184,6 +184,11 @@ export async function deleteHousehold(c, householdId) {
   if (member.role !== 'owner') throw new AppError('Domácnosť môže vymazať len jej zakladateľ.', 403);
   const del = (table, column = 'household_id') => c.db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(householdId);
   await c.db.batch([
+    // Family Grid: údaje Skládka a Zdravka tejto rodiny
+    del('skladko_images'),
+    del('skladko_items'),
+    del('skladko_groups'),
+    del('skladko_warehouses'),
     del('polozky'),
     del('komentare'),
     del('item_images'),

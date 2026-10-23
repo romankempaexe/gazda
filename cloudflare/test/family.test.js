@@ -15,6 +15,7 @@ test('rozcestník: rodiny, posledná podaplikácia a prehľad Gazdy', async () =
   assert.equal(start.email, 'jana@example.com');
   assert.equal(start.lastApp, '');
   assert.deepEqual(start.overview.gazda, { today: 0, overdue: 0 });
+  assert.deepEqual(start.overview.skladko, { items: 0, low: 0, expiring: 0 });
 
   const { households } = await jana.api.createHousehold('Doma', 'peter@example.com');
   const id = households[0].id;

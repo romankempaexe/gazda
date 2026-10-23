@@ -20,6 +20,9 @@ import { scheduledTick } from './notifications.js';
 import { sendDealAlerts } from './deals.js';
 import { createImportCode, importData } from './import.js';
 import { getFamily, setLastApp } from './family.js';
+import * as skladko from './skladko/api.js';
+import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
+import { sendSkladkoAlerts } from './skladko/notifications.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
@@ -62,7 +65,29 @@ const METHODS = {
   getLeaflet,
   analyzeLeafletPage,
   identifyLeafletProduct,
+  // Skládko
+  'skladko/getData': skladko.getData,
+  'skladko/getRev': skladko.getRev,
+  'skladko/saveWarehouse': skladko.saveWarehouse,
+  'skladko/deleteWarehouse': skladko.deleteWarehouse,
+  'skladko/saveGroup': skladko.saveGroup,
+  'skladko/deleteGroup': skladko.deleteGroup,
+  'skladko/moveGroup': skladko.moveGroup,
+  'skladko/saveItem': skladko.saveItem,
+  'skladko/changeQuantity': skladko.changeQuantity,
+  'skladko/setQuantity': skladko.setQuantity,
+  'skladko/moveItem': skladko.moveItem,
+  'skladko/deleteItem': skladko.deleteItem,
+  'skladko/addToShopping': skladko.addToShopping,
+  'skladko/setItemImage': skladko.setItemImage,
+  'skladko/importFirebase': skladkoImport,
+  'skladko/pendingImages': skladkoPendingImages,
+  'skladko/skipImportImage': skladkoSkipImage,
 };
+
+// Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači).
+const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage']);
+const MAX_LARGE_BODY = 1024 * 1024;
 
 const MAX_BODY = 256 * 1024;
 const MAX_IMPORT_BODY = 5 * 1024 * 1024; // prenos celej starej Gazdy
@@ -88,6 +113,8 @@ export default {
         // akcie na často kupované produkty – raz denne po 9:00 (vlastný beh, mimo prehľadu)
         .then(() => sendDealAlerts({ db: env.DB, fetch: env.TEST_FETCH }, now))
         .catch((err) => console.error('Akcie: ' + err))
+        .then(() => sendSkladkoAlerts(env.DB, now))
+        .catch((err) => console.error('Skládko: ' + err))
     );
   },
 };
@@ -101,6 +128,14 @@ async function handleApi(request, env, url, ctx) {
     if (request.method === 'GET' && url.pathname.startsWith('/api/item-image/')) {
       const c = await context(request, env, url, ctx);
       return await api.itemImage(c, decodeURIComponent(url.pathname.slice('/api/item-image/'.length)));
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/skladko/image/')) {
+      const c = await context(request, env, url, ctx);
+      return await skladko.itemImage(c, decodeURIComponent(url.pathname.slice('/api/skladko/image/'.length)));
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/skladko/import-image/')) {
+      const c = await context(request, env, url, ctx);
+      return await skladkoImportImage(c, decodeURIComponent(url.pathname.slice('/api/skladko/import-image/'.length)));
     }
     if (request.method === 'GET' && url.pathname === '/api/leaflets/image') {
       return await leafletImage(await context(request, env, url, ctx), url.searchParams.get('p'));
@@ -120,7 +155,7 @@ async function handleApi(request, env, url, ctx) {
     if (!(request.headers.get('content-type') || '').startsWith('application/json')) {
       throw new AppError('Neplatná požiadavka.', 415);
     }
-    const body = await readJson(request, name === 'import' ? MAX_IMPORT_BODY : MAX_BODY);
+    const body = await readJson(request, name === 'import' ? MAX_IMPORT_BODY : LARGE_BODY.has(name) ? MAX_LARGE_BODY : MAX_BODY);
 
     // Prenos zo starej Gazdy: overí sa jednorazovým kódom (nie prihlásením).
     if (name === 'import') return json({ result: await importData(env.DB, body) });
@@ -156,6 +191,7 @@ async function context(request, env, url, ctx) {
     waitUntil: ctx && ctx.waitUntil ? ctx.waitUntil.bind(ctx) : null,
     fetch: env.TEST_FETCH, // v testoch náhrada za Lidl; inak globálny fetch
     ai: env.TEST_AI || env.AI, // Workers AI (rozpoznávanie produktov v letákoch)
+    env, // tajné kľúče (napr. servisné účty Firebase na prenos zo starých aplikácií)
   };
 }
 

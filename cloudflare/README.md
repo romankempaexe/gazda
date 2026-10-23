@@ -20,7 +20,7 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 | `/` | rozcestník Family Grid (`public/index.html`, `public/grid.js`) |
 | `/gazda/` | Gazda (`public/gazda/`) |
 | `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) |
-| `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) |
+| `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
 
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
   (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
@@ -37,6 +37,48 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
   upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
   (priečinky `family`, `gazda`, `zdravko`, `skladko`).
+
+## Skládko (`/skladko/`)
+
+Čo máme doma a kde to je – webová verzia mobilného Skládka (Flutter + Firebase), teraz
+ako podaplikácia Family Grid. Sklady (špajza, chladnička…) → skupiny (ľubovoľne vnorené)
+→ veci s množstvom, dátumom spotreby, poznámkou a ikonou alebo fotkou.
+
+- **Spoločné v rodine:** sklady patria rodine (domácnosti), vidia a menia ich všetci jej členovia
+  (mobilný Skládko bol len pre jedného). Zmeny od ostatných sa ukážu samé (`skladko/getRev`).
+- **Dochádza:** pri veci sa dá nastaviť hranica („dochádza pri 2“); keď množstvo klesne na ňu,
+  príde upozornenie a vec je v *Dochádza a trvanlivosť* (filter 🔽). Tam je aj posuvník
+  „aj veci, ktorých je najviac N ks“ ako v mobilnom Skládku.
+- **Trvanlivosť:** farebný štítok na karte (zelená / o pár dní / dnes alebo prešla) a upozornenie
+  3 dni pred dátumom (každý dátum raz, cez deň 8:00–20:59, cron každých 15 min).
+- **Do nákupu v Gazde:** v detaile veci – pridá ju do nákupu rodiny v Gazde (keď žiadny nie je, vytvorí „Nákup“).
+- **Presun:** vec aj celú skupinu (s obsahom) – *Presunúť* → otvor cieľ → *Vložiť sem*.
+  (Mobilný Skládko pri presune v rámci jedného skladu vec omylom zmazal – tu je to jeden `UPDATE`.)
+- **Mazanie skupiny** zmaže aj podskupiny a veci v nej (mobilný ich nechal „visieť“).
+- **Hľadanie** v názvoch a poznámkach vecí aj v názvoch skupín, bez ohľadu na diakritiku.
+- **Fotky** sa v prehliadači zmenšia (najviac 1200 px, JPEG) a uložia do D1 (`skladko_images`,
+  do 600 kB); `GET /api/skladko/image/<id>?v=<verzia>` len pre členov rodiny.
+- Tabuľky: `skladko_warehouses`, `skladko_groups`, `skladko_items`, `skladko_images`
+  (migrácia 0013), funkcie `POST /api/skladko/<funkcia>` v `src/skladko/api.js`.
+
+### Prenos z mobilného Skládka (Firebase)
+
+V Skládku: **Môj účet → Preniesť z mobilného Skládka**. Server nájde vo Firebase projekte
+`skladko-9469f` účet s rovnakým e-mailom, ako je prihlásený používateľ (Google prihlásenie
+overí, že e-mail je jeho), a prenesie jeho sklady, skupiny a veci do zvolenej rodiny.
+Fotky potom prenesie prehliadač (stiahne ich cez náš server, zmenší a uloží).
+Prenos sa dá zopakovať – id z Firebase ostávajú (`fb-<id>`), nič sa nezdvojí.
+Veci a skupiny, ktorých skupinu mobilný Skládko „zmazal“, sa objavia v skupine
+*Nájdené pri prenose*; najstaršie veci z prvej verzie v sklade *Staré položky*.
+
+**Nastavenie (raz):** server potrebuje servisný účet Firebase projektu Skládka:
+
+1. [Firebase console](https://console.firebase.google.com/) → projekt **skladko-9469f** →
+   ⚙️ *Nastavenia projektu* → *Servisné účty* → **Vygenerovať nový súkromný kľúč** (stiahne sa JSON).
+2. GitHub → *Settings → Secrets and variables → Actions* → **New repository secret**
+   `FIREBASE_SKLADKO_SA` = celý obsah JSON súboru. Pri ďalšom nasadení ho CI uloží do Workera
+   (`wrangler secret bulk`). Alebo priamo: `npx wrangler secret put FIREBASE_SKLADKO_SA`.
+3. Po prenose všetkých ľudí môžeš kľúč vo Firebase zmazať (a secret odstrániť).
 
 ## Súbory
 

@@ -235,6 +235,7 @@ export async function addRecords(c, memberId, data) {
     rows.push({ ...base, id: uuid(), type: 'rest', rest_method: data.rest.method, duration_hours: num(data.rest.durationHours ?? 1, 0, 24, 'Trvanie zadaj v hodinách (0 – 24).') });
   }
   if (!rows.length) throw new AppError('Zadaj teplotu, liek alebo fyzikálnu metódu.');
+  const temperature = rows.find((r) => r.type === 'temperature');
 
   const statements = rows.map((r) => {
     const cols = Object.keys(r);
@@ -264,15 +265,34 @@ export async function addRecords(c, memberId, data) {
   }
   await c.db.batch(statements);
 
-  if (medicine) {
-    const who = await displayName(c);
-    await notifyOthers(c, m.household_id, {
-      title: '💊 ' + who + ' podal(a) ' + medicine.medicine_name + (medicine.dosage ? ' ' + medicine.dosage : ''),
-      body: m.name + ' · ' + localTime(recordedAt),
-      tag: 'medicine-' + m.id,
-    });
-  }
+  const message = recordMessage(medicine || temperature ? await displayName(c) : '', m, recordedAt, temperature, medicine);
+  if (message) await notifyOthers(c, m.household_id, message);
   return rows.map(toRecord);
+}
+
+const tempText = (t) => String(t).replace('.', ',') + ' °C';
+
+/**
+ * Upozornenie ostatným v rodine na nový záznam: podaný liek (aj s nameranou teplotou) alebo
+ * nameraná teplota. Fyzikálna metóda sama upozornenie nemá. Vráti správu alebo null.
+ */
+export function recordMessage(who, member, recordedAt, temperature, medicine) {
+  const t = temperature ? temperature.temperature : null;
+  if (medicine) {
+    return {
+      title: '💊 ' + who + ' podal(a) ' + medicine.medicine_name + (medicine.dosage ? ' ' + medicine.dosage : ''),
+      body: member.name + (t !== null ? ' · ' + tempText(t) : '') + ' · ' + localTime(recordedAt),
+      tag: 'medicine-' + member.id,
+    };
+  }
+  if (t === null) return null;
+  // farba ako v aplikácii: do 37,2 v poriadku, do 38 zvýšená, nad 38 horúčka
+  const icon = t <= 37.2 ? '🌡️' : t <= 38 ? '🟠' : '🔴';
+  return {
+    title: icon + ' ' + member.name + ': ' + tempText(t),
+    body: who + ' zmeral(a) teplotu · ' + localTime(recordedAt),
+    tag: 'temperature-' + member.id,
+  };
 }
 
 export async function deleteRecord(c, recordId) {

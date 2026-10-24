@@ -157,7 +157,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
 
 - **Členovia:** meno, dátum narodenia (vek „2 roky, 3 mesiace a 5 dní“), váha, výška, krvná
   skupina, pohlavie, e-mail, dieťa. Na karte posledná teplota a liek (48 h) a najbližšia udalosť.
-- **Choroba:** obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
+- **Choroba:** navrchu vždy posledný podaný liek (kedy, pri ibuprofene/paracetamole kedy znova) a pod ním posledná teplota (farba podľa pásma); obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
   (do 37,2 zelená, do 38 oranžová, nad 38 červená) alebo tabuľka; lieky za 3 dni a kedy sa
   ibuprofen/paracetamol smie podať znova (8 h); časová os záznamov. Jeden záznam = teplota,
   liek a fyzikálna metóda naraz (ako v mobilnom), čas sa dá posunúť (−10 / −30 min).

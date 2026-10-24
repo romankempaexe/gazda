@@ -64,6 +64,99 @@
   flex: 1;
 }
 
+/* Navrchu záznamov: posledný liek a pod ním posledná teplota */
+.zd-last {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.zd-last-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--primary);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.zd-last-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.zd-last-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+.zd-last-card.temp.t-ok { border-left-color: #16a34a; }
+.zd-last-card.temp.t-warn { border-left-color: #f59e0b; }
+.zd-last-card.temp.t-bad { border-left-color: #dc2626; }
+.zd-last-card.temp.t-ok .zd-last-icon { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
+.zd-last-card.temp.t-warn .zd-last-icon { background: rgba(245, 158, 11, 0.16); color: #ea8a00; }
+.zd-last-card.temp.t-bad .zd-last-icon { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+.zd-last-card.none {
+  border-left-color: var(--border);
+  box-shadow: none;
+}
+.zd-last-card.none .zd-last-icon {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.zd-last-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.zd-last-value {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zd-last-value small {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.zd-last-card.temp.t-ok .zd-last-value { color: #16a34a; }
+.zd-last-card.temp.t-warn .zd-last-value { color: #ea8a00; }
+.zd-last-card.temp.t-bad .zd-last-value { color: #dc2626; }
+.zd-last-when {
+  color: var(--text);
+  font-size: 14px;
+  margin-top: 2px;
+}
+.zd-last-next {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b45309;
+  margin-top: 4px;
+}
+.zd-last-next.ok {
+  color: #15803d;
+}
+.zd-last-next .ms {
+  font-size: 17px;
+}
+
 .zd-period {
   display: flex;
   align-items: center;

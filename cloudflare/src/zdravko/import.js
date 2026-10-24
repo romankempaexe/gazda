@@ -213,14 +213,14 @@ export async function importFirebase(c, householdId) {
   const recordCols = Object.keys(d.records[0] || {});
   await c.db.batch([
     bulk(c.db, 'zdravko_members', Object.keys(d.members[0]), d.members,
-      'ON CONFLICT (id) ' + set(['name', 'birth_date', 'weight', 'height', 'blood_group', 'gender', 'email', 'is_child', 'updated_at'])),
+      'ON CONFLICT (id) ' + set(['household_id', 'name', 'birth_date', 'weight', 'height', 'blood_group', 'gender', 'email', 'is_child', 'updated_at'])),
     ...(d.records.length
       ? [bulk(c.db, 'zdravko_records', recordCols, d.records,
-          'ON CONFLICT (id) ' + set(recordCols.filter((k) => !['id', 'household_id', 'created_by', 'created_at'].includes(k))))]
+          'ON CONFLICT (id) ' + set(recordCols.filter((k) => !['id', 'created_by', 'created_at'].includes(k))))]
       : []),
     ...(d.measurements.length
       ? [bulk(c.db, 'zdravko_measurements', Object.keys(d.measurements[0]), d.measurements,
-          'ON CONFLICT (id) ' + set(['member_id', 'measured_at', 'weight', 'height', 'head', 'updated_at']))]
+          'ON CONFLICT (id) ' + set(['household_id', 'member_id', 'measured_at', 'weight', 'height', 'head', 'updated_at']))]
       : []),
     c.db
       .prepare("DELETE FROM zdravko_reminders WHERE sent_at = '' AND record_id IN (SELECT value FROM json_each(?))")

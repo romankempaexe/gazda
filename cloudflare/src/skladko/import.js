@@ -5,6 +5,7 @@
 //    (users/<uid>/warehouses/…/groups, …/inventory) – päť požiadaviek na Firebase.
 // 3. Údaje sa uložia jednou dávkou (json_each); id z Firebase ostávajú (s predponou fb-),
 //    takže prenos sa dá zopakovať – nič sa nezdvojí, úpravy z Family Grid sa prepíšu.
+//    Prenos do inej rodiny už prenesené veci presunie (id je jedno pre celú databázu).
 // 4. Fotky (pôvodne v plnej veľkosti) prenesie prehliadač: stiahne ich cez
 //    /api/skladko/import-image/<id>, zmenší a uloží (setItemImage).
 
@@ -183,9 +184,9 @@ export async function importFirebase(c, householdId) {
 
   // Opakovaný prenos: položka už s fotkou ju nestráca; inak sa fotka prenesie znova.
   await c.db.batch([
-    bulk(c.db, 'skladko_warehouses', Object.keys(d.warehouses[0]), d.warehouses, 'ON CONFLICT (id) ' + set(['name', 'icon', 'updated_at'])),
+    bulk(c.db, 'skladko_warehouses', Object.keys(d.warehouses[0]), d.warehouses, 'ON CONFLICT (id) ' + set(['household_id', 'name', 'icon', 'updated_at'])),
     ...(d.groups.length
-      ? [bulk(c.db, 'skladko_groups', Object.keys(d.groups[0]), d.groups, 'ON CONFLICT (id) ' + set(['warehouse_id', 'parent_id', 'name', 'icon', 'updated_at']))]
+      ? [bulk(c.db, 'skladko_groups', Object.keys(d.groups[0]), d.groups, 'ON CONFLICT (id) ' + set(['household_id', 'warehouse_id', 'parent_id', 'name', 'icon', 'updated_at']))]
       : []),
     ...(d.items.length
       ? [
@@ -195,7 +196,7 @@ export async function importFirebase(c, householdId) {
             Object.keys(d.items[0]),
             d.items,
             'ON CONFLICT (id) ' +
-              set(['warehouse_id', 'group_id', 'name', 'quantity', 'description', 'icon', 'expiration_date', 'updated_at']) +
+              set(['household_id', 'warehouse_id', 'group_id', 'name', 'quantity', 'description', 'icon', 'expiration_date', 'updated_at']) +
               ", import_image_url = CASE WHEN skladko_items.image_rev = '' THEN excluded.import_image_url ELSE '' END"
           ),
         ]

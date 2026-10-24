@@ -264,6 +264,17 @@ test('prenos z Firebase: servisný účet, účet podľa e-mailu, opakovateľný
     assert.equal(data.items[0].quantity, 3); // prepíše sa údajmi z Firebase
     assert.ok(data.items[0].image);
 
+    // prenos do inej rodiny už prenesené veci presunie (inak by v novej rodine chýbali)
+    const { households } = await u.api.createHousehold('Chata', '');
+    const h3 = households[households.length - 1].id;
+    const moved = await sk(u).importFirebase(h3);
+    assert.deepEqual([moved.warehouses, moved.groups, moved.items], [1, 1, 1]);
+    data = await sk(u).getData(h3);
+    assert.deepEqual([data.warehouses.length, data.groups.length, data.items.length], [1, 1, 1]);
+    assert.equal(data.items[0].name, 'Mlieko');
+    data = await sk(u).getData(householdId);
+    assert.deepEqual([data.warehouses.length, data.groups.length, data.items.length], [0, 0, 0]);
+
     // iný e-mail vo Firebase nie je
     const { u: other, householdId: h2 } = await family('nikto@example.com', '');
     await assert.rejects(sk(other).importFirebase(h2), /nie je účet s e-mailom nikto@example.com/);

@@ -404,6 +404,7 @@
 
     $('view').innerHTML =
       head +
+      lastBox(m) +
       '<div class="zd-period"><select id="range">' + RANGES.map(([id, label]) => '<option value="' + id + '"' + (id === S.range ? ' selected' : '') + '>' + label + '</option>').join('') + '</select>' +
       '<button type="button" class="icon-btn" id="prevDay" title="Skôr"><span class="ms">chevron_left</span></button>' +
       '<label class="zd-date"><span>' + esc(dayLabel(p.end)) + '</span><input type="date" id="day" max="' + today() + '" value="' + p.end + '"></label>' +
@@ -453,6 +454,46 @@
       el.querySelector('#addRec').onclick = () => recordForm(m);
     });
   }
+
+  /**
+   * Vždy navrchu: posledný podaný liek a posledná nameraná teplota (bez ohľadu na zvolené obdobie),
+   * kedy to bolo a pri ibuprofene/paracetamole kedy sa smie podať znova.
+   */
+  function lastBox(m) {
+    const all = recordsOf(m.id);
+    const latest = (type) => all.filter((r) => r.type === type).sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
+    const med = latest('medicine');
+    const temp = latest('temperature');
+    const when = (r) => esc(dayLabel(ymd(new Date(r.recordedAt)))) + ' ' + hm(r.recordedAt) + ' · <span data-ago="' + esc(r.recordedAt) + '">' + esc(ago(r.recordedAt)) + '</span>';
+    let next = '';
+    if (med && (med.substanceId === 'ibuprofen' || med.substanceId === 'paracetamol')) {
+      const ok = Date.parse(med.recordedAt) + 8 * 3600000;
+      next =
+        ok <= Date.now()
+          ? '<div class="zd-last-next ok"><span class="ms">check_circle</span>Už sa smie podať znova</div>'
+          : '<div class="zd-last-next"><span class="ms">timer</span>Znova najskôr ' + esc(dayLabel(ymd(new Date(ok)))).toLowerCase() + ' o ' + hm(new Date(ok).toISOString()) + '</div>';
+    }
+    return (
+      '<div class="zd-last">' +
+      '<div class="zd-last-card med' + (med ? '' : ' none') + '"><span class="zd-last-icon"><span class="ms">medication</span></span><div>' +
+      '<div class="zd-last-label">Posledný liek</div>' +
+      (med
+        ? '<div class="zd-last-value">' + esc(med.medicineName) + (med.dosage ? ' <small>' + esc(med.dosage) + '</small>' : '') + '</div><div class="zd-last-when">' + when(med) + '</div>' + next
+        : '<div class="zd-last-when">Zatiaľ žiadny</div>') +
+      '</div></div>' +
+      '<div class="zd-last-card temp' + (temp ? ' t-' + tempClass(temp.temperature) : ' none') + '"><span class="zd-last-icon"><span class="ms">thermometer</span></span><div>' +
+      '<div class="zd-last-label">Posledná teplota</div>' +
+      (temp
+        ? '<div class="zd-last-value">' + fmt(temp.temperature) + ' °C</div><div class="zd-last-when">' + when(temp) + '</div>'
+        : '<div class="zd-last-when">Zatiaľ nemeraná</div>') +
+      '</div></div></div>'
+    );
+  }
+
+  // „pred X min“ v prehľade navrchu sa obnovuje samo
+  setInterval(() => {
+    document.querySelectorAll('.zd-last [data-ago]').forEach((el) => (el.textContent = ago(el.dataset.ago)));
+  }, 30000);
 
   function medsBox(meds) {
     const bySubstance = {};

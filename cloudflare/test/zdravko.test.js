@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
 import { dartToUtc, dartToYmd, mapZdravko } from '../src/zdravko/import.js';
 import { sendZdravkoReminders } from '../src/zdravko/notifications.js';
+import { localTime, recordMessage } from '../src/zdravko/api.js';
 
 let t;
 before(async () => {
@@ -200,4 +201,25 @@ test('prenos z Firebase do rodiny', async () => {
     delete t.env.TEST_FETCH;
     delete t.env.FIREBASE_ZDRAVKO_SA;
   }
+});
+
+test('upozornenie na nameranú teplotu a podaný liek', () => {
+  const m = { id: 'm1', name: 'Adam' };
+  const at = '2026-10-24T12:30:00.000Z';
+  const temp = (t) => ({ type: 'temperature', temperature: t });
+  assert.deepEqual(recordMessage('Jana', m, at, temp(38.6), null), {
+    title: '🔴 Adam: 38,6 °C',
+    body: 'Jana zmeral(a) teplotu · ' + localTime(at),
+    tag: 'temperature-m1',
+  });
+  assert.equal(recordMessage('Jana', m, at, temp(37.8), null).title, '🟠 Adam: 37,8 °C');
+  assert.equal(recordMessage('Jana', m, at, temp(36.6), null).title, '🌡️ Adam: 36,6 °C');
+  // liek aj s teplotou = jedno upozornenie
+  const med = { medicine_name: 'Ibuprofen', dosage: '5 ml' };
+  assert.deepEqual(recordMessage('Jana', m, at, temp(39), med), {
+    title: '💊 Jana podal(a) Ibuprofen 5 ml',
+    body: 'Adam · 39 °C · ' + localTime(at),
+    tag: 'medicine-m1',
+  });
+  assert.equal(recordMessage('Jana', m, at, null, null), null); // len fyzikálna metóda
 });

@@ -169,7 +169,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   rovnaký výpočet ako v mobilnom Zdravkovi (`public/zdravko/data.js` z `assets/*.json`).
 - **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
   *Nastaviť ako aktuálne*.
-- **Upozornenia (ikona Zdravka):** nová udalosť a podaný liek hneď ostatným v rodine;
+- **Upozornenia (ikona Zdravka):** nová udalosť, podaný liek a nameraná teplota (🌡️ / 🟠 nad 37,2 / 🔴 nad 38 °C; s liekom v jednej správe) hneď ostatným v rodine;
   pripomienky udalostí; pri ibuprofene/paracetamole o 4 h „môžeš podať ten druhý“ a o 8 h
   „znova ten istý“ (ďalšia dávka staré pripomienky nahradí). Posiela ich cron každých 5 minút
   (`zdravko_reminders`; zmeškané o viac ako 6 h sa už neposielajú).

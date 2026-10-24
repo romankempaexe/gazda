@@ -41,6 +41,8 @@
   };
 
   const snapKey = () => 'zdravko.snap.' + S.hh;
+  // Naposledy otvorená osoba (a jej karta) v rodine – pri ďalšom otvorení Zdravka sa otvorí rovno ona.
+  const lastKey = () => 'zdravko.lastMember.' + S.hh;
 
   // ---- Pomocné: dátumy a čísla -----------------------------------------------------------
 
@@ -250,7 +252,11 @@
     }
     if (S.view.name === 'member') {
       const m = member(S.view.memberId);
-      if (!m) return go({ name: 'home', tab: 'members' }, true);
+      if (!m) {
+        FG.writeStore(lastKey(), null);
+        return go({ name: 'home', tab: 'members' }, true);
+      }
+      FG.writeStore(lastKey(), JSON.stringify({ memberId: m.id, tab: S.view.tab || 'sick' }));
       return renderMember(m);
     }
     renderHome();
@@ -1075,6 +1081,7 @@
     if (!S.hh) return render();
     FG.setHousehold(S.hh);
     if (!S.data || S.data.householdId !== S.hh) S.data = FG.readJson(snapKey());
+    reopenLast();
     render();
     try {
       await load(Boolean(S.data));
@@ -1087,6 +1094,20 @@
 
   S.view = history.state && history.state.name ? history.state : { name: 'home', tab: 'members' };
   history.replaceState(S.view, '');
+  let reopened = Boolean(history.state && history.state.name === 'member'); // obnovená stránka už osobu má
+
+  /**
+   * Pri otvorení Zdravka rovno naposledy otvorená osoba (raz, nie pri prepnutí rodiny).
+   * Pod ňou ostane zoznam rodiny, takže Späť vedie na členov.
+   */
+  function reopenLast() {
+    if (reopened || S.view.name !== 'home') return;
+    reopened = true;
+    const last = FG.readJson(lastKey());
+    if (!last || !last.memberId) return;
+    S.view = { name: 'member', memberId: last.memberId, tab: last.tab || 'sick' };
+    history.pushState(S.view, '');
+  }
 
   FG.start({
     onReady: () => start(),

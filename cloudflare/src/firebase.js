@@ -6,6 +6,7 @@
 // Bez knižníc: JWT podpísaný RS256 (WebCrypto) → prístupový token Google → REST API.
 
 import { AppError } from './domain.js';
+import { verifyGoogleIdToken } from './google.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 
@@ -24,6 +25,16 @@ async function importPrivateKey(pem) {
 }
 
 /** Servisný účet z tajnej premennej (JSON z Firebase → Nastavenia projektu → Servisné účty). */
+/**
+ * E-mail účtu v mobilnej aplikácii: prihláseného používateľa, alebo – keď mal v telefóne iný
+ * Google účet – ten, ktorým sa práve overil tlačidlom Google (ID token). Cudzí účet sa tak
+ * použiť nedá: Google token vydá len tomu, kto sa do účtu prihlási.
+ */
+export async function sourceEmail(c, credential) {
+  if (!credential) return c.email;
+  return (await verifyGoogleIdToken(c.env, credential)).email;
+}
+
 export function serviceAccount(env, name, label) {
   const raw = env[name];
   if (!raw) {

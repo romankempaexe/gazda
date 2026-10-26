@@ -11,7 +11,7 @@
 
 import { requireFamilyMember } from '../family.js';
 import { AppError, nowIso, todayYmd } from '../domain.js';
-import { firebaseClient, serviceAccount } from '../firebase.js';
+import { firebaseClient, serviceAccount, sourceEmail } from '../firebase.js';
 import { bulk, set } from '../import.js';
 
 const ID = (firebaseId) => 'fb-' + String(firebaseId).slice(0, 60);
@@ -166,13 +166,17 @@ export function mapSkladko(householdId, email, { warehouses, groups, items }) {
   return out;
 }
 
-/** Prenesie Skládko z Firebase do rodiny householdId. Vráti počty a fotky, ktoré treba ešte preniesť. */
-export async function importFirebase(c, householdId) {
+/**
+ * Prenesie Skládko z Firebase do rodiny householdId. Vráti počty a fotky, ktoré treba ešte preniesť.
+ * credential = Google ID token, keď bol v mobilnom Skládku iný účet ako tu (inak účet prihláseného).
+ */
+export async function importFirebase(c, householdId, credential) {
   await requireFamilyMember(c, householdId);
   const fb = firebaseClient(serviceAccount(c.env, 'FIREBASE_SKLADKO_SA', 'Skládka'), c.fetch || fetch);
-  const uid = await fb.uidByEmail(c.email);
+  const email = await sourceEmail(c, credential);
+  const uid = await fb.uidByEmail(email);
   if (!uid) {
-    throw new AppError('V mobilnom Skládku nie je účet s e-mailom ' + c.email + '. Prihlás sa sem tým Google účtom, ktorý si používal v Skládku.', 404);
+    throw new AppError('V mobilnom Skládku nie je účet s e-mailom ' + email + '. Ak si v telefóne prihlásený iným Google účtom, vyber ho pri prenose („Skládko v telefóne má iný účet“).', 404);
   }
   const [warehouses, groups, items] = await Promise.all([
     fb.listDocuments(`users/${uid}/warehouses`),

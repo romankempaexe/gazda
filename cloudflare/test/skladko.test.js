@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { setup } from './helpers.js';
+import { setup, signIdToken } from './helpers.js';
 import { mapSkladko, normalizeIcon, expirationYmd } from '../src/skladko/import.js';
 import { sendSkladkoAlerts, expiryLabel } from '../src/skladko/notifications.js';
 
@@ -278,6 +278,11 @@ test('prenos z Firebase: servisný účet, účet podľa e-mailu, opakovateľný
     // iný e-mail vo Firebase nie je
     const { u: other, householdId: h2 } = await family('nikto@example.com', '');
     await assert.rejects(sk(other).importFirebase(h2), /nie je účet s e-mailom nikto@example.com/);
+    // v telefóne bol iný Google účet: overí sa ním (ID token) a prenesie sa z neho
+    const res2 = await sk(other).importFirebase(h2, await signIdToken({ email: 'fb@example.com' }));
+    assert.deepEqual([res2.warehouses, res2.items], [1, 1]);
+    assert.equal((await sk(other).getData(h2)).items[0].name, 'Mlieko');
+    await assert.rejects(sk(other).importFirebase(h2, 'zly.token.x'), /Google sa nepodarilo/);
   } finally {
     delete t.env.TEST_FETCH;
   }

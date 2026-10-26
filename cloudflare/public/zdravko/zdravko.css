@@ -295,6 +295,7 @@
 }
 .zd-tl-items {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -313,6 +314,22 @@
 }
 .zd-rec > div {
   flex: 1;
+  min-width: 0;
+}
+
+/* Dlhé slová bez medzier (názov lieku, dávka „7,5ml(15mg/kg)“, meno) sa zalomia – stránka sa nesmie
+   rozťahovať do strany. */
+#view {
+  overflow-wrap: anywhere;
+}
+.zd-head > div:nth-child(2) {
+  min-width: 0;
+}
+.zd-meds > div {
+  flex-wrap: wrap;
+}
+.zd-meds > div > .muted {
+  margin-left: auto;
 }
 .zd-rec > .ms {
   font-size: 20px;

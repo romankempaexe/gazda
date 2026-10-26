@@ -1052,25 +1052,32 @@
         '<div class="subtitle">Prenesie členov rodiny, záznamy choroby (teplota, lieky, zábaly), udalosti u lekára s pripomienkami a miery detí ' +
         'z aplikácie Zdravko v telefóne do rodiny <b>' + esc(h ? h.name : '') + '</b>. Použije sa účet Zdravka s e-mailom <b>' + esc(FG.state.email) + '</b>.</div>' +
         '<ol class="steps"><li>Dá sa zopakovať – nič sa nezdvojí.</li><li>Záznamy vymazaných členov (mobilný Zdravko ich nechal vo Firebase) sa nepreniesú.</li></ol>' +
+        '<button type="button" class="btn text" id="other" style="padding-left:0"><span class="ms">swap_horiz</span>Zdravko v telefóne má iný Google účet</button>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button type="button" class="btn" id="go"><span class="ms">sync</span>Preniesť</button></div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
-        root.querySelector('#go').onclick = async () => {
+        root.querySelector('#other').onclick = () => FG.otherAccountImport('Zdravko', runImport);
+        root.querySelector('#go').onclick = () => {
           closeModal();
-          try {
-            const res = await api('zdravko/importFirebase', S.hh);
-            await load(true);
-            render();
-            toast(res.members
-              ? 'Prenesené: ' + plural(res.members, 'člen', 'členovia', 'členov') + ', ' + plural(res.records, 'záznam', 'záznamy', 'záznamov') + ', ' + plural(res.measurements, 'meranie', 'merania', 'meraní')
-              : 'V mobilnom Zdravkovi nie sú žiadni členovia rodiny.');
-          } catch (err) {
-            showError(err);
-          }
+          runImport();
         };
       },
       { focus: false }
     );
+  }
+
+  /** credential = Google ID token iného účtu (inak účet prihláseného). */
+  async function runImport(credential) {
+    try {
+      const res = await api('zdravko/importFirebase', S.hh, credential || null);
+      await load(true);
+      render();
+      toast(res.members
+        ? 'Prenesené: ' + plural(res.members, 'člen', 'členovia', 'členov') + ', ' + plural(res.records, 'záznam', 'záznamy', 'záznamov') + ', ' + plural(res.measurements, 'meranie', 'merania', 'meraní')
+        : 'V mobilnom Zdravkovi nie sú žiadni členovia rodiny.');
+    } catch (err) {
+      showError(err);
+    }
   }
 
   // ---- Štart ---------------------------------------------------------------------------------------------

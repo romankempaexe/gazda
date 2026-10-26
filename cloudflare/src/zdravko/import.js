@@ -10,7 +10,7 @@
 
 import { requireFamilyMember } from '../family.js';
 import { AppError, TIME_ZONE, nowIso } from '../domain.js';
-import { firebaseClient, serviceAccount } from '../firebase.js';
+import { firebaseClient, serviceAccount, sourceEmail } from '../firebase.js';
 import { bulk, set } from '../import.js';
 import { EVENT_TYPES, REMINDERS, REST_METHODS, localDay, localTime } from './api.js';
 
@@ -195,12 +195,14 @@ function remindersFor(d) {
   return out;
 }
 
-export async function importFirebase(c, householdId) {
+/** credential = Google ID token, keď bol v mobilnom Zdravkovi iný účet ako tu (inak účet prihláseného). */
+export async function importFirebase(c, householdId, credential) {
   await requireFamilyMember(c, householdId);
   const fb = firebaseClient(serviceAccount(c.env, 'FIREBASE_ZDRAVKO_SA', 'Zdravka'), c.fetch || fetch);
-  const uid = await fb.uidByEmail(c.email);
+  const email = await sourceEmail(c, credential);
+  const uid = await fb.uidByEmail(email);
   if (!uid) {
-    throw new AppError('V mobilnom Zdravkovi nie je účet s e-mailom ' + c.email + '. Prihlás sa sem tým Google účtom, ktorý si používal v Zdravkovi.', 404);
+    throw new AppError('V mobilnom Zdravkovi nie je účet s e-mailom ' + email + '. Ak si v telefóne prihlásený iným Google účtom, vyber ho pri prenose („Zdravko v telefóne má iný účet“).', 404);
   }
   const [members, records, measurements] = await Promise.all([
     fb.listDocuments(`users/${uid}/family_members`),

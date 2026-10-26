@@ -293,6 +293,54 @@
     }
   }
 
+  /**
+   * Tlačidlo „Pokračovať cez Google“ v okne (box) – vráti ID token zvoleného účtu. Na prenos
+   * z mobilnej aplikácie, v ktorej bol človek prihlásený iným Google účtom ako tu.
+   */
+  async function chooseGoogleAccount(box) {
+    const config = await fetch('/api/auth/config').then((r) => r.json());
+    const clientId = config && config.result && config.result.googleClientId;
+    if (!clientId) throw new Error('Prihlásenie Google účtom ešte nie je nastavené (chýba Client ID).');
+    await loadGoogleScript();
+    return new Promise((resolve) => {
+      google.accounts.id.initialize({ client_id: clientId, callback: (r) => resolve(r.credential), auto_select: false, itp_support: true });
+      google.accounts.id.renderButton(box, {
+        theme: 'filled_blue',
+        size: 'large',
+        shape: 'pill',
+        text: 'continue_with',
+        locale: 'sk',
+        width: Math.min(320, box.clientWidth || 320),
+      });
+    });
+  }
+
+  /**
+   * Okno „Aplikácia v telefóne má iný Google účet“: človek sa overí tým účtom a potom sa spustí
+   * run(credential). appName = „Skládko“ / „Zdravko“.
+   */
+  function otherAccountImport(appName, run) {
+    openModal(
+      '<h2>Iný Google účet</h2><div class="subtitle">Vyber Google účet, ktorým si prihlásený v mobilnej aplikácii ' + esc(appName) +
+        '. Použije sa len na tento prenos – vo Family Grid ostaneš prihlásený ako <b>' + esc(state.email) + '</b>.</div>' +
+        '<div class="google-btn" id="otherGoogle" style="margin:16px 0 8px"></div><div class="hint" id="otherHint"></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        chooseGoogleAccount(root.querySelector('#otherGoogle'))
+          .then((credential) => {
+            closeModal(true);
+            run(credential);
+          })
+          .catch((err) => {
+            const hint = root.querySelector('#otherHint');
+            if (hint) hint.textContent = errorMessage(err);
+          });
+      },
+      { focus: false }
+    );
+  }
+
   async function onGoogleCredential(response) {
     $('busy').classList.remove('hidden');
     try {
@@ -1070,6 +1118,7 @@
     showAccount,
     showFamily,
     showCalendarFeed,
+    otherAccountImport,
     showNotificationSettings,
     installApp,
     canInstall,

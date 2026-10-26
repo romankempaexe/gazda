@@ -94,6 +94,8 @@ V Skládku: **Môj účet → Preniesť z mobilného Skládka**. Server nájde v
 overí, že e-mail je jeho), a prenesie jeho sklady, skupiny a veci do zvolenej rodiny.
 Fotky potom prenesie prehliadač (stiahne ich cez náš server, zmenší a uloží).
 Prenos sa dá zopakovať – id z Firebase ostávajú (`fb-<id>`), nič sa nezdvojí; prenos do inej rodiny už prenesené veci presunie.
+Kto mal v mobilnej aplikácii iný Google účet ako vo Family Grid, ťukne pri prenose na *… v telefóne má iný
+Google účet* a overí sa tým účtom (tlačidlo Google → ID token, server ho overí ako pri prihlásení); platí aj pre Zdravka.
 Veci a skupiny, ktorých skupinu mobilný Skládko „zmazal“, sa objavia v skupine
 *Nájdené pri prenose*; najstaršie veci z prvej verzie v sklade *Staré položky*.
 

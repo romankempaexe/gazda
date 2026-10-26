@@ -883,29 +883,36 @@
         'Použije sa účet Skládka s tvojím e-mailom <b>' + esc(FG.state.email) + '</b>.</div>' +
         '<ol class="steps"><li>Dá sa zopakovať – nič sa nezdvojí (údaje z telefónu prepíšu tie isté veci tu).</li>' +
         '<li>Fotky sa prenesú cez tento prehliadač a zmenšia sa – nechaj okno otvorené, kým sa nedokončí.</li></ol>' +
+        '<button type="button" class="btn text" id="other" style="padding-left:0"><span class="ms">swap_horiz</span>Skládko v telefóne má iný Google účet</button>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button type="button" class="btn" id="go"><span class="ms">sync</span>Preniesť</button></div>',
       (root) => {
         root.querySelector('#cancel').onclick = closeModal;
-        root.querySelector('#go').onclick = async () => {
+        root.querySelector('#other').onclick = () => FG.otherAccountImport('Skládko', runImport);
+        root.querySelector('#go').onclick = () => {
           closeModal();
-          try {
-            const res = await api('skladko/importFirebase', S.hh);
-            await load(true);
-            render();
-            if (!res.warehouses) {
-              toast('V mobilnom Skládku nie sú žiadne sklady.');
-              return;
-            }
-            toast('Prenesené: ' + plural(res.warehouses, 'sklad', 'sklady', 'skladov') + ', ' + plural(res.items, 'vec', 'veci', 'vecí') +
-              (res.orphans ? ' (' + res.orphans + ' z vymazaných skupín je v „Nájdené pri prenose“)' : ''));
-            if (res.images.length) transferImages(res.images);
-          } catch (err) {
-            showError(err);
-          }
+          runImport();
         };
       },
       { focus: false }
     );
+  }
+
+  /** credential = Google ID token iného účtu (inak účet prihláseného). */
+  async function runImport(credential) {
+    try {
+      const res = await api('skladko/importFirebase', S.hh, credential || null);
+      await load(true);
+      render();
+      if (!res.warehouses) {
+        toast('V mobilnom Skládku nie sú žiadne sklady.');
+        return;
+      }
+      toast('Prenesené: ' + plural(res.warehouses, 'sklad', 'sklady', 'skladov') + ', ' + plural(res.items, 'vec', 'veci', 'vecí') +
+        (res.orphans ? ' (' + res.orphans + ' z vymazaných skupín je v „Nájdené pri prenose“)' : ''));
+      if (res.images.length) transferImages(res.images);
+    } catch (err) {
+      showError(err);
+    }
   }
 
   async function transferImages(list) {

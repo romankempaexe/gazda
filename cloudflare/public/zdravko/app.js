@@ -25,6 +25,7 @@
   };
   const REMINDERS = { week_before: '1 týždeň pred', day_before: '1 deň pred', hour_before: '1 hodinu pred' };
   const UNITS = [['tbl', 'tableta'], ['ml', 'mililiter'], ['kvp', 'kvapky'], ['kps', 'kapsula'], ['g', 'gram'], ['čípok', 'čípok']];
+  const RECENT_MS = 48 * 3600000; // prehľad navrchu a predvyplnenie: posledné 2 dni
   const RANGES = [['day', 'Deň', 1], ['3days', '3 dni', 3], ['week', 'Týždeň', 7], ['month', 'Mesiac', 30], ['3months', '3 mesiace', 90]];
   const MONTHS = ['január', 'február', 'marec', 'apríl', 'máj', 'jún', 'júl', 'august', 'september', 'október', 'november', 'december'];
   const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
@@ -455,9 +456,13 @@
         act(() => api('zdravko/deleteRecord', b.dataset.del), 'Záznam vymazaný');
       };
     });
-    fab('<button type="button" class="btn" id="addRec"><span class="ms">add</span>Záznam</button>', (el) => {
-      el.querySelector('#addRec').onclick = () => recordForm(m);
-    });
+    // Rýchle pridanie: jedno ťuknutie na druh záznamu, krátky formulár, uložiť.
+    fab(
+      '<button type="button" class="btn zd-q temp" data-quick="temp"><span class="ms">thermometer</span>Teplota</button>' +
+        '<button type="button" class="btn zd-q med" data-quick="med"><span class="ms">medication</span>Liek</button>' +
+        '<button type="button" class="btn zd-q rest" data-quick="rest" title="Zábal / fyzikálna metóda"><span class="ms">water_drop</span></button>'
+    );
+    document.querySelectorAll('[data-quick]').forEach((b) => (b.onclick = () => quickForm(m, b.dataset.quick)));
   }
 
   /**
@@ -465,10 +470,11 @@
    * kedy to bolo a pri ibuprofene/paracetamole kedy sa smie podať znova.
    */
   function lastBox(m) {
-    const all = recordsOf(m.id);
+    const all = recordsOf(m.id).filter((r) => Date.now() - Date.parse(r.recordedAt) < RECENT_MS);
     const latest = (type) => all.filter((r) => r.type === type).sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
     const med = latest('medicine');
     const temp = latest('temperature');
+    if (!med && !temp) return ''; // za posledné 2 dni nič
     const when = (r) => esc(dayLabel(ymd(new Date(r.recordedAt)))) + ' ' + hm(r.recordedAt) + ' · <span data-ago="' + esc(r.recordedAt) + '">' + esc(ago(r.recordedAt)) + '</span>';
     let next = '';
     if (med && (med.substanceId === 'ibuprofen' || med.substanceId === 'paracetamol')) {
@@ -480,18 +486,19 @@
     }
     return (
       '<div class="zd-last">' +
-      '<div class="zd-last-card med' + (med ? '' : ' none') + '"><span class="zd-last-icon"><span class="ms">medication</span></span><div>' +
-      '<div class="zd-last-label">Posledný liek</div>' +
       (med
-        ? '<div class="zd-last-value">' + esc(med.medicineName) + (med.dosage ? ' <small>' + esc(med.dosage) + '</small>' : '') + '</div><div class="zd-last-when">' + when(med) + '</div>' + next
-        : '<div class="zd-last-when">Zatiaľ žiadny</div>') +
-      '</div></div>' +
-      '<div class="zd-last-card temp' + (temp ? ' t-' + tempClass(temp.temperature) : ' none') + '"><span class="zd-last-icon"><span class="ms">thermometer</span></span><div>' +
-      '<div class="zd-last-label">Posledná teplota</div>' +
+        ? '<button type="button" class="zd-last-card med" data-quick="med"><span class="zd-last-icon"><span class="ms">medication</span></span><div>' +
+          '<div class="zd-last-label">Posledný liek</div>' +
+          '<div class="zd-last-value">' + esc(med.medicineName) + (med.dosage ? ' <small>' + esc(med.dosage) + '</small>' : '') + '</div><div class="zd-last-when">' + when(med) + '</div>' + next +
+          '</div></button>'
+        : '') +
       (temp
-        ? '<div class="zd-last-value">' + fmt(temp.temperature) + ' °C</div><div class="zd-last-when">' + when(temp) + '</div>'
-        : '<div class="zd-last-when">Zatiaľ nemeraná</div>') +
-      '</div></div></div>'
+        ? '<button type="button" class="zd-last-card temp t-' + tempClass(temp.temperature) + '" data-quick="temp"><span class="zd-last-icon"><span class="ms">thermometer</span></span><div>' +
+          '<div class="zd-last-label">Posledná teplota</div>' +
+          '<div class="zd-last-value">' + fmt(temp.temperature) + ' °C</div><div class="zd-last-when">' + when(temp) + '</div>' +
+          '</div></button>'
+        : '') +
+      '</div>'
     );
   }
 
@@ -590,84 +597,210 @@
   }
 
   /** Pridať záznam: teplota, liek a fyzikálna metóda naraz (v jednom čase). */
-  function recordForm(m) {
-    const subs = DATA.substances;
-    const usedNames = [...new Set(S.data.records.filter((r) => r.type === 'medicine' && !r.substanceId).map((r) => r.medicineName))];
-    let substance = null;
-    let restMethod = null;
+  // ---- Rýchle pridanie záznamu (teplota / liek / zábal) ---------------------------------------------
+
+  /** Čas záznamu: Teraz, −15 min, −30 min, −1 h alebo iný (dátum a čas). */
+  function whenHtml() {
+    return (
+      '<div class="field"><label>Kedy</label><div class="chips wrap zd-when">' +
+      [['0', 'Teraz'], ['-15', '−15 m'], ['-30', '−30 m'], ['-60', '−1 h'], ['other', '<span class="ms" title="Iný čas">schedule</span>']]
+        .map(([v, l], i) => '<button type="button" class="chip' + (i ? '' : ' active') + '" data-when="' + v + '">' + l + '</button>')
+        .join('') +
+      '</div><input type="datetime-local" name="at" class="hidden" style="margin-top:8px" max="' + localInput(new Date(Date.now() + 3600000).toISOString()) + '"></div>'
+    );
+  }
+
+  function bindWhen(root, f) {
+    let shift = 0;
+    root.querySelectorAll('[data-when]').forEach((b) => {
+      b.onclick = () => {
+        root.querySelectorAll('[data-when]').forEach((x) => x.classList.toggle('active', x === b));
+        const other = b.dataset.when === 'other';
+        f.at.classList.toggle('hidden', !other);
+        if (other) {
+          if (!f.at.value) f.at.value = localInput();
+          f.at.focus();
+        } else shift = Number(b.dataset.when);
+      };
+    });
+    return () => (f.at.classList.contains('hidden') ? new Date(Date.now() + shift * 60000) : new Date(f.at.value || Date.now())).toISOString();
+  }
+
+  /** Posledný záznam člena daného druhu (voliteľne len za posledné 2 dni). */
+  function lastOf(m, test, recent) {
+    return recordsOf(m.id)
+      .filter((r) => test(r) && (!recent || Date.now() - Date.parse(r.recordedAt) < RECENT_MS))
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
+  }
+
+  async function saveQuick(m, data, button, message) {
+    button.disabled = true;
+    try {
+      await api('zdravko/addRecords', m.id, data);
+      closeModal(true);
+      await load(true);
+      render();
+      toast(message);
+    } catch (err) {
+      button.disabled = false;
+      showError(err);
+    }
+  }
+
+  function quickForm(m, kind) {
+    if (kind === 'temp') return tempForm(m);
+    if (kind === 'med') return medForm(m);
+    return restForm(m);
+  }
+
+  function tempForm(m) {
+    const last = lastOf(m, (r) => r.type === 'temperature', true);
+    let value = last ? last.temperature : 37;
     openModal(
-      '<h2>Pridať záznam – ' + esc(m.name) + '</h2><form id="f">' +
-        '<div class="field"><label>Čas</label><div class="row"><input type="datetime-local" name="at" value="' + localInput() + '" max="' + localInput(new Date(Date.now() + 3600000).toISOString()) + '">' +
-        '<button type="button" class="btn text small" data-shift="-10" style="flex:0 0 auto">−10 min</button><button type="button" class="btn text small" data-shift="-30" style="flex:0 0 auto">−30 min</button></div></div>' +
-        '<div class="field"><label>Teplota (°C)</label><div class="row zd-temp"><input name="temp" inputmode="decimal" placeholder="napr. 38,2" autocomplete="off">' +
-        ['37,5', '38', '38,5', '39'].map((v) => '<button type="button" class="chip" data-temp="' + v + '">' + v + '</button>').join('') + '</div></div>' +
-        '<div class="field"><label>Liek</label><div class="chips wrap zd-subs">' +
-        subs.map((s) => '<button type="button" class="chip" data-sub="' + esc(s.id) + '">' + esc(s.name) + '</button>').join('') +
-        '<button type="button" class="chip" data-sub="other">Iný liek</button></div>' +
-        '<div id="medBox" class="hidden"><input name="medName" list="medNames" placeholder="Názov lieku" maxlength="80" style="margin-top:8px">' +
-        '<datalist id="medNames">' + usedNames.map((n) => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
-        '<div class="row" style="margin-top:8px"><input name="amount" inputmode="decimal" placeholder="Dávka (napr. 5)">' +
-        '<select name="unit">' + UNITS.map(([u, label]) => '<option value="' + u + '">' + label + '</option>').join('') + '</select></div></div></div>' +
-        '<div class="field"><label>Fyzikálna metóda</label><div class="hint zd-warn"><span class="ms">warning</span>Fyzikálnu metódu použi len vtedy, ak má dieťa teplé končatiny.</div>' +
-        '<div class="chips wrap">' + Object.entries(REST_METHODS).map(([k, v]) => '<button type="button" class="chip" data-rest="' + esc(k) + '">' + esc(v) + '</button>').join('') + '</div>' +
-        '<div id="restBox" class="hidden row" style="margin-top:8px;align-items:center"><span>Trvanie (h)</span><input name="hours" inputmode="decimal" value="1"></div></div>' +
-        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Uložiť</button></div></form>',
+      '<h2>Teplota – ' + esc(m.name) + '</h2><form id="f">' +
+        '<div class="zd-big"><button type="button" class="zd-step" data-step="-0.1" title="Menej"><span class="ms">remove</span></button>' +
+        '<label class="zd-big-val"><input name="temp" inputmode="decimal" autocomplete="off"><span>°C</span></label>' +
+        '<button type="button" class="zd-step" data-step="0.1" title="Viac"><span class="ms">add</span></button></div>' +
+        '<div class="chips wrap zd-quick-vals">' + ['36,6', '37,5', '38', '38,5', '39'].map((v) => '<button type="button" class="chip" data-temp="' + v + '">' + v + '</button>').join('') + '</div>' +
+        whenHtml() +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"></button></div></form>',
       (root) => {
         const f = root.querySelector('#f');
+        const at = bindWhen(root, f);
+        const show = () => {
+          const t = Number(String(f.temp.value).replace(',', '.'));
+          const ok = t >= 30 && t <= 45;
+          root.querySelector('#save').innerHTML = '<span class="ms">check</span>Uložiť' + (ok ? ' ' + fmt(t) + ' °C' : '');
+          root.querySelector('.zd-big').className = 'zd-big' + (ok ? ' t-' + tempClass(t) : '');
+        };
+        const set = (t) => {
+          value = Math.round(Math.min(45, Math.max(30, t)) * 10) / 10;
+          f.temp.value = fmt(value);
+          show();
+        };
+        set(value);
+        f.temp.oninput = show;
+        root.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => set(Number(String(f.temp.value).replace(',', '.')) + Number(b.dataset.step))));
+        root.querySelectorAll('[data-temp]').forEach((b) => (b.onclick = () => set(Number(b.dataset.temp.replace(',', '.')))));
         root.querySelector('#cancel').onclick = closeModal;
-        root.querySelectorAll('[data-shift]').forEach((b) => {
-          b.onclick = () => {
-            const d = new Date(f.at.value || Date.now());
-            d.setMinutes(d.getMinutes() + Number(b.dataset.shift));
-            f.at.value = localInput(d.toISOString());
-          };
-        });
-        root.querySelectorAll('[data-temp]').forEach((b) => (b.onclick = () => (f.temp.value = b.dataset.temp)));
-        root.querySelectorAll('[data-sub]').forEach((b) => {
-          b.onclick = () => {
-            substance = substance === b.dataset.sub ? null : b.dataset.sub;
-            root.querySelectorAll('[data-sub]').forEach((x) => x.classList.toggle('active', x.dataset.sub === substance));
-            root.querySelector('#medBox').classList.toggle('hidden', !substance);
-            f.medName.classList.toggle('hidden', substance !== 'other');
-            if (substance === 'other') f.medName.focus();
-          };
-        });
-        root.querySelectorAll('[data-rest]').forEach((b) => {
-          b.onclick = () => {
-            restMethod = restMethod === b.dataset.rest ? null : b.dataset.rest;
-            root.querySelectorAll('[data-rest]').forEach((x) => x.classList.toggle('active', x.dataset.rest === restMethod));
-            root.querySelector('#restBox').classList.toggle('hidden', !restMethod);
-          };
-        });
-        f.onsubmit = async (e) => {
+        f.onsubmit = (e) => {
           e.preventDefault();
-          const data = { recordedAt: new Date(f.at.value).toISOString() };
-          if (f.temp.value.trim()) data.temperature = f.temp.value.trim();
-          if (substance) {
-            const s = subs.find((x) => x.id === substance);
-            const amount = f.amount.value.trim().replace(',', '.');
-            data.medicine = {
-              name: s ? s.name : f.medName.value,
-              substanceId: s ? s.id : '',
-              dosage: amount ? amount + ' ' + f.unit.value : '',
-            };
-          }
-          if (restMethod) data.rest = { method: restMethod, durationHours: f.hours.value };
-          const button = f.querySelector('button:not([type])');
-          button.disabled = true;
-          try {
-            await api('zdravko/addRecords', m.id, data);
-            closeModal(true);
-            await load(true);
-            render();
-            toast('Uložené' + (data.medicine && ['ibuprofen', 'paracetamol'].includes(data.medicine.substanceId) ? ' – o 4 h a 8 h príde pripomienka' : ''));
-          } catch (err) {
-            button.disabled = false;
-            showError(err);
-          }
+          saveQuick(m, { recordedAt: at(), temperature: f.temp.value.trim() }, root.querySelector('#save'), 'Uložené ' + f.temp.value.trim() + ' °C');
         };
       },
-      { focus: '[name=temp]' }
+      { focus: false }
+    );
+  }
+
+  function medForm(m) {
+    const subs = DATA.substances;
+    const used = [...new Set(recordsOf(m.id).filter((r) => r.type === 'medicine' && !r.substanceId).map((r) => r.medicineName))].slice(-4);
+    // Predvolený liek a dávka: ako naposledy (pri tomto lieku jeho posledná dávka).
+    const lastMed = lastOf(m, (r) => r.type === 'medicine');
+    let choice = lastMed ? (lastMed.substanceId || 'name:' + lastMed.medicineName) : 'ibuprofen';
+    const options = [...subs.map((x) => [x.id, x.name]), ...used.map((n) => ['name:' + n, n]), ['other', 'Iný liek']];
+    if (!options.some(([id]) => id === choice)) choice = 'ibuprofen';
+    openModal(
+      '<h2>Liek – ' + esc(m.name) + '</h2><form id="f">' +
+        '<div class="chips wrap zd-meds-pick">' + options.map(([id, name]) => '<button type="button" class="chip" data-med="' + esc(id) + '">' + esc(name) + '</button>').join('') + '</div>' +
+        '<input name="medName" class="hidden" placeholder="Názov lieku" maxlength="80" style="margin:-4px 0 12px">' +
+        '<div id="medHint"></div>' +
+        '<div class="field"><label>Dávka</label><div class="row"><input name="amount" inputmode="decimal" placeholder="napr. 5" autocomplete="off">' +
+        '<select name="unit">' + UNITS.map(([u, label]) => '<option value="' + u + '">' + label + '</option>').join('') + '</select></div></div>' +
+        whenHtml() +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"></button></div></form>',
+      (root) => {
+        const f = root.querySelector('#f');
+        const at = bindWhen(root, f);
+        const nameOf = () => (choice === 'other' ? f.medName.value.trim() : choice.startsWith('name:') ? choice.slice(5) : subs.find((x) => x.id === choice).name);
+        const test = (c) => (r) => r.type === 'medicine' && (c.startsWith('name:') ? !r.substanceId && r.medicineName === c.slice(5) : r.substanceId === c);
+        const pick = (id) => {
+          choice = id;
+          root.querySelectorAll('[data-med]').forEach((x) => x.classList.toggle('active', x.dataset.med === choice));
+          f.medName.classList.toggle('hidden', choice !== 'other');
+          if (choice === 'other') f.medName.focus();
+          // dávka ako naposledy pri tomto lieku
+          const prev = choice === 'other' ? null : lastOf(m, test(choice));
+          const d = prev && /^([\d.,]+)\s*(.*)$/.exec(prev.dosage || '');
+          f.amount.value = d ? d[1].replace('.', ',') : '';
+          if (d && UNITS.some(([u]) => u === d[2])) f.unit.value = d[2];
+          // ibuprofen / paracetamol: kedy naposledy a či sa už smie
+          let hint = '';
+          if (choice === 'ibuprofen' || choice === 'paracetamol') {
+            const p = lastOf(m, test(choice));
+            const ok = p ? Date.parse(p.recordedAt) + 8 * 3600000 : 0;
+            if (p && ok > Date.now()) {
+              hint = '<div class="zd-med-hint warn"><span class="ms">warning</span>Naposledy ' + esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) +
+                ' – znova najskôr o ' + hm(new Date(ok).toISOString()) + '</div>';
+            } else if (p && Date.now() - Date.parse(p.recordedAt) < RECENT_MS) {
+              hint = '<div class="zd-med-hint ok"><span class="ms">check_circle</span>Naposledy ' + esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) + ' – už sa smie</div>';
+            }
+          }
+          root.querySelector('#medHint').innerHTML = hint;
+          show();
+        };
+        const show = () => {
+          const name = nameOf();
+          const amount = f.amount.value.trim();
+          root.querySelector('#save').innerHTML = '<span class="ms">check</span>' + (name ? 'Podať ' + esc(name) + (amount ? ' ' + esc(amount) + ' ' + esc(f.unit.value) : '') : 'Uložiť');
+        };
+        root.querySelectorAll('[data-med]').forEach((b) => (b.onclick = () => pick(b.dataset.med)));
+        f.medName.oninput = show;
+        f.amount.oninput = show;
+        f.unit.onchange = show;
+        pick(choice);
+        root.querySelector('#cancel').onclick = closeModal;
+        f.onsubmit = (e) => {
+          e.preventDefault();
+          const name = nameOf();
+          if (!name) return toast('Zadaj názov lieku.', true);
+          const amount = f.amount.value.trim().replace(',', '.');
+          const substanceId = subs.some((x) => x.id === choice) ? choice : '';
+          saveQuick(
+            m,
+            { recordedAt: at(), medicine: { name, substanceId, dosage: amount ? amount + ' ' + f.unit.value : '' } },
+            root.querySelector('#save'),
+            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 4 h a 8 h príde pripomienka' : '')
+          );
+        };
+      },
+      { focus: false }
+    );
+  }
+
+  function restForm(m) {
+    let method = null;
+    let hours = 1;
+    openModal(
+      '<h2>Fyzikálna metóda – ' + esc(m.name) + '</h2><form id="f">' +
+        '<div class="hint zd-warn"><span class="ms">warning</span>Fyzikálnu metódu použi len vtedy, ak má dieťa teplé končatiny.</div>' +
+        '<div class="chips wrap" style="margin-top:10px">' + Object.entries(REST_METHODS).map(([k, v]) => '<button type="button" class="chip" data-rest="' + esc(k) + '">' + esc(v) + '</button>').join('') + '</div>' +
+        '<div class="field"><label>Trvanie</label><div class="chips">' + [[0.5, '½ h'], [1, '1 h'], [2, '2 h']].map(([h, l]) => '<button type="button" class="chip' + (h === hours ? ' active' : '') + '" data-hours="' + h + '">' + l + '</button>').join('') + '</div></div>' +
+        whenHtml() +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"><span class="ms">check</span>Uložiť</button></div></form>',
+      (root) => {
+        const f = root.querySelector('#f');
+        const at = bindWhen(root, f);
+        root.querySelectorAll('[data-rest]').forEach((b) => {
+          b.onclick = () => {
+            method = b.dataset.rest;
+            root.querySelectorAll('[data-rest]').forEach((x) => x.classList.toggle('active', x === b));
+          };
+        });
+        root.querySelectorAll('[data-hours]').forEach((b) => {
+          b.onclick = () => {
+            hours = Number(b.dataset.hours);
+            root.querySelectorAll('[data-hours]').forEach((x) => x.classList.toggle('active', x === b));
+          };
+        });
+        root.querySelector('#cancel').onclick = closeModal;
+        f.onsubmit = (e) => {
+          e.preventDefault();
+          if (!method) return toast('Vyber metódu.', true);
+          saveQuick(m, { recordedAt: at(), rest: { method, durationHours: hours } }, root.querySelector('#save'), 'Uložené');
+        };
+      },
+      { focus: false }
     );
   }
 

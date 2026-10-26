@@ -411,7 +411,6 @@
     $('view').innerHTML =
       head +
       lastBox(m) +
-      '<button type="button" class="btn zd-add-rec" data-quick="add"><span class="ms">add</span>Pridať záznam</button>' +
       '<div class="zd-period"><select id="range">' + RANGES.map(([id, label]) => '<option value="' + id + '"' + (id === S.range ? ' selected' : '') + '>' + label + '</option>').join('') + '</select>' +
       '<button type="button" class="icon-btn" id="prevDay" title="Skôr"><span class="ms">chevron_left</span></button>' +
       '<label class="zd-date"><span>' + esc(dayLabel(p.end)) + '</span><input type="date" id="day" max="' + today() + '" value="' + p.end + '"></label>' +
@@ -457,8 +456,10 @@
         act(() => api('zdravko/deleteRecord', b.dataset.del), 'Záznam vymazaný');
       };
     });
-    // Pridať záznam: tlačidlo hore (aj ťuknutie na posledný liek / teplotu).
-    fab('');
+    // Pridať záznam: plávajúce tlačidlo vpravo dole (aj ťuknutie na posledný liek / teplotu).
+    fab('<button type="button" class="btn" id="addRec"><span class="ms">add</span>Pridať záznam</button>', (el) => {
+      el.querySelector('#addRec').onclick = () => recordForm(m);
+    });
     $('view').querySelectorAll('[data-quick]').forEach((b) => (b.onclick = () => recordForm(m)));
   }
 

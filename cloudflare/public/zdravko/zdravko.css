@@ -634,14 +634,7 @@ button.zd-last-card {
   margin-bottom: 10px;
 }
 
-/* Pridať záznam: tlačidlo hore, teplota sa uloží len po zmene (dovtedy sivá) */
-.btn.zd-add-rec {
-  width: 100%;
-  justify-content: center;
-  margin: 0 0 16px;
-  padding: 14px;
-  font-size: 16px;
-}
+/* Pridať záznam: teplota sa uloží len po zmene (dovtedy sivá) */
 .zd-big.idle .zd-big-val input {
   color: var(--muted);
 }

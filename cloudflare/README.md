@@ -162,7 +162,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
 - **Posledná osoba:** Zdravko sa otvorí rovno na naposledy otvorenom členovi (aj na jeho karte; `localStorage`
   `zdravko.lastMember.<rodina>`), Späť vedie na zoznam rodiny.
 - **Choroba:** navrchu posledný podaný liek (kedy, pri ibuprofene/paracetamole kedy znova) a pod ním posledná teplota (farba podľa pásma) – len za posledné 2 dni, staršie sa neukazujú;
-  rýchle pridanie tlačidlami Teplota / Liek / zábal (krátke formuláre: teplota −/+ 0,1 a čipy, liek s dávkou ako naposledy a upozornením na 8 h, čas Teraz / −15 / −30 min / −1 h); obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
+  rýchle pridanie tlačidlami Teplota / Liek / zábal (teplota a liek v jednom kroku – „+ Liek“ / „+ Teplota“; teplota −/+ 0,1 a čipy, liek s dávkou ako naposledy a upozornením na 8 h, čas Teraz / −15 / −30 min / −1 h); obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
   (do 37,2 zelená, do 38 oranžová, nad 38 červená) alebo tabuľka; lieky za 3 dni a kedy sa
   ibuprofen/paracetamol smie podať znova (8 h); časová os záznamov. Jeden záznam = teplota,
   liek a fyzikálna metóda naraz (ako v mobilnom), čas sa dá posunúť (−10 / −30 min).

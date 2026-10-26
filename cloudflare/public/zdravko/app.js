@@ -648,72 +648,72 @@
   }
 
   function quickForm(m, kind) {
-    if (kind === 'temp') return tempForm(m);
-    if (kind === 'med') return medForm(m);
-    return restForm(m);
+    if (kind === 'rest') return restForm(m);
+    return sickForm(m, kind);
   }
 
-  function tempForm(m) {
-    const last = lastOf(m, (r) => r.type === 'temperature', true);
-    let value = last ? last.temperature : 37;
-    openModal(
-      '<h2>Teplota – ' + esc(m.name) + '</h2><form id="f">' +
-        '<div class="zd-big"><button type="button" class="zd-step" data-step="-0.1" title="Menej"><span class="ms">remove</span></button>' +
-        '<label class="zd-big-val"><input name="temp" inputmode="decimal" autocomplete="off"><span>°C</span></label>' +
-        '<button type="button" class="zd-step" data-step="0.1" title="Viac"><span class="ms">add</span></button></div>' +
-        '<div class="chips wrap zd-quick-vals">' + ['36,6', '37,5', '38', '38,5', '39'].map((v) => '<button type="button" class="chip" data-temp="' + v + '">' + v + '</button>').join('') + '</div>' +
-        whenHtml() +
-        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"></button></div></form>',
-      (root) => {
-        const f = root.querySelector('#f');
-        const at = bindWhen(root, f);
-        const show = () => {
-          const t = Number(String(f.temp.value).replace(',', '.'));
-          const ok = t >= 30 && t <= 45;
-          root.querySelector('#save').innerHTML = '<span class="ms">check</span>Uložiť' + (ok ? ' ' + fmt(t) + ' °C' : '');
-          root.querySelector('.zd-big').className = 'zd-big' + (ok ? ' t-' + tempClass(t) : '');
-        };
-        const set = (t) => {
-          value = Math.round(Math.min(45, Math.max(30, t)) * 10) / 10;
-          f.temp.value = fmt(value);
-          show();
-        };
-        set(value);
-        f.temp.oninput = show;
-        root.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => set(Number(String(f.temp.value).replace(',', '.')) + Number(b.dataset.step))));
-        root.querySelectorAll('[data-temp]').forEach((b) => (b.onclick = () => set(Number(b.dataset.temp.replace(',', '.')))));
-        root.querySelector('#cancel').onclick = closeModal;
-        f.onsubmit = (e) => {
-          e.preventDefault();
-          saveQuick(m, { recordedAt: at(), temperature: f.temp.value.trim() }, root.querySelector('#save'), 'Uložené ' + f.temp.value.trim() + ' °C');
-        };
-      },
-      { focus: false }
-    );
-  }
-
-  function medForm(m) {
+  /**
+   * Teplota a liek v jednom kroku: otvorí sa časť podľa tlačidla (Teplota / Liek), druhá sa pridá
+   * jedným ťuknutím („+ Liek“ / „+ Teplota“) a uloží sa to naraz s jedným časom.
+   */
+  function sickForm(m, open) {
     const subs = DATA.substances;
+    const lastTemp = lastOf(m, (r) => r.type === 'temperature', true);
     const used = [...new Set(recordsOf(m.id).filter((r) => r.type === 'medicine' && !r.substanceId).map((r) => r.medicineName))].slice(-4);
     // Predvolený liek a dávka: ako naposledy (pri tomto lieku jeho posledná dávka).
     const lastMed = lastOf(m, (r) => r.type === 'medicine');
     let choice = lastMed ? (lastMed.substanceId || 'name:' + lastMed.medicineName) : 'ibuprofen';
     const options = [...subs.map((x) => [x.id, x.name]), ...used.map((n) => ['name:' + n, n]), ['other', 'Iný liek']];
     if (!options.some(([id]) => id === choice)) choice = 'ibuprofen';
+    const on = { temp: open !== 'med', med: open === 'med' };
     openModal(
-      '<h2>Liek – ' + esc(m.name) + '</h2><form id="f">' +
+      '<h2>' + esc(m.name) + '</h2><form id="f">' +
+        // teplota
+        '<div class="zd-part" id="partTemp"><div class="zd-part-head"><span class="ms">thermometer</span>Teplota' +
+        '<button type="button" class="icon-btn small" data-off="temp" title="Bez teploty"><span class="ms">close</span></button></div>' +
+        '<div class="zd-big"><button type="button" class="zd-step" data-step="-0.1" title="Menej"><span class="ms">remove</span></button>' +
+        '<label class="zd-big-val"><input name="temp" inputmode="decimal" autocomplete="off"><span>°C</span></label>' +
+        '<button type="button" class="zd-step" data-step="0.1" title="Viac"><span class="ms">add</span></button></div>' +
+        '<div class="chips wrap zd-quick-vals">' + ['36,6', '37,5', '38', '38,5', '39'].map((v) => '<button type="button" class="chip" data-temp="' + v + '">' + v + '</button>').join('') + '</div></div>' +
+        // liek
+        '<div class="zd-part" id="partMed"><div class="zd-part-head"><span class="ms">medication</span>Liek' +
+        '<button type="button" class="icon-btn small" data-off="med" title="Bez lieku"><span class="ms">close</span></button></div>' +
         '<div class="chips wrap zd-meds-pick">' + options.map(([id, name]) => '<button type="button" class="chip" data-med="' + esc(id) + '">' + esc(name) + '</button>').join('') + '</div>' +
         '<input name="medName" class="hidden" placeholder="Názov lieku" maxlength="80" style="margin:-4px 0 12px">' +
         '<div id="medHint"></div>' +
-        '<div class="field"><label>Dávka</label><div class="row"><input name="amount" inputmode="decimal" placeholder="napr. 5" autocomplete="off">' +
-        '<select name="unit">' + UNITS.map(([u, label]) => '<option value="' + u + '">' + label + '</option>').join('') + '</select></div></div>' +
+        '<div class="field zd-qdose"><div class="row"><input name="amount" inputmode="decimal" placeholder="Dávka, napr. 5" autocomplete="off">' +
+        '<select name="unit">' + UNITS.map(([u, label]) => '<option value="' + u + '">' + label + '</option>').join('') + '</select></div></div></div>' +
+        // pridať druhú časť
+        '<div class="zd-add-part"><button type="button" class="btn tonal small" data-on="temp"><span class="ms">add</span><span class="ms">thermometer</span>Teplota</button>' +
+        '<button type="button" class="btn tonal small" data-on="med"><span class="ms">add</span><span class="ms">medication</span>Liek</button></div>' +
         whenHtml() +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"></button></div></form>',
       (root) => {
         const f = root.querySelector('#f');
         const at = bindWhen(root, f);
+        const tempValue = () => Number(String(f.temp.value).replace(',', '.'));
         const nameOf = () => (choice === 'other' ? f.medName.value.trim() : choice.startsWith('name:') ? choice.slice(5) : subs.find((x) => x.id === choice).name);
         const test = (c) => (r) => r.type === 'medicine' && (c.startsWith('name:') ? !r.substanceId && r.medicineName === c.slice(5) : r.substanceId === c);
+
+        const show = () => {
+          root.querySelector('#partTemp').classList.toggle('hidden', !on.temp);
+          root.querySelector('#partMed').classList.toggle('hidden', !on.med);
+          root.querySelector('[data-on=temp]').classList.toggle('hidden', on.temp);
+          root.querySelector('[data-on=med]').classList.toggle('hidden', on.med);
+          root.querySelectorAll('[data-off]').forEach((b) => b.classList.toggle('hidden', !(on.temp && on.med)));
+          root.querySelector('.zd-add-part').classList.toggle('hidden', on.temp && on.med);
+          const t = tempValue();
+          const tOk = t >= 30 && t <= 45;
+          root.querySelector('.zd-big').className = 'zd-big' + (tOk ? ' t-' + tempClass(t) : '');
+          const parts = [];
+          if (on.temp && tOk) parts.push(fmt(t) + ' °C');
+          if (on.med && nameOf()) parts.push(esc(nameOf()) + (f.amount.value.trim() ? ' ' + esc(f.amount.value.trim()) + ' ' + esc(f.unit.value) : ''));
+          root.querySelector('#save').innerHTML = '<span class="ms">check</span>Uložiť' + (parts.length ? ' ' + parts.join(' + ') : '');
+        };
+        const setTemp = (t) => {
+          f.temp.value = fmt(Math.round(Math.min(45, Math.max(30, t)) * 10) / 10);
+          show();
+        };
         const pick = (id) => {
           choice = id;
           root.querySelectorAll('[data-med]').forEach((x) => x.classList.toggle('active', x.dataset.med === choice));
@@ -729,39 +729,43 @@
           if (choice === 'ibuprofen' || choice === 'paracetamol') {
             const p = lastOf(m, test(choice));
             const ok = p ? Date.parse(p.recordedAt) + 8 * 3600000 : 0;
+            const when = p ? esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) : '';
             if (p && ok > Date.now()) {
-              hint = '<div class="zd-med-hint warn"><span class="ms">warning</span>Naposledy ' + esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) +
-                ' – znova najskôr o ' + hm(new Date(ok).toISOString()) + '</div>';
+              hint = '<div class="zd-med-hint warn"><span class="ms">warning</span>Naposledy ' + when + ' – znova najskôr o ' + hm(new Date(ok).toISOString()) + '</div>';
             } else if (p && Date.now() - Date.parse(p.recordedAt) < RECENT_MS) {
-              hint = '<div class="zd-med-hint ok"><span class="ms">check_circle</span>Naposledy ' + esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) + ' – už sa smie</div>';
+              hint = '<div class="zd-med-hint ok"><span class="ms">check_circle</span>Naposledy ' + when + ' – už sa smie</div>';
             }
           }
           root.querySelector('#medHint').innerHTML = hint;
           show();
         };
-        const show = () => {
-          const name = nameOf();
-          const amount = f.amount.value.trim();
-          root.querySelector('#save').innerHTML = '<span class="ms">check</span>' + (name ? 'Podať ' + esc(name) + (amount ? ' ' + esc(amount) + ' ' + esc(f.unit.value) : '') : 'Uložiť');
-        };
-        root.querySelectorAll('[data-med]').forEach((b) => (b.onclick = () => pick(b.dataset.med)));
+
+        setTemp(lastTemp ? lastTemp.temperature : 37);
+        pick(choice);
+        f.temp.oninput = show;
         f.medName.oninput = show;
         f.amount.oninput = show;
         f.unit.onchange = show;
-        pick(choice);
+        root.querySelectorAll('[data-step]').forEach((b) => (b.onclick = () => setTemp(tempValue() + Number(b.dataset.step))));
+        root.querySelectorAll('[data-temp]').forEach((b) => (b.onclick = () => setTemp(Number(b.dataset.temp.replace(',', '.')))));
+        root.querySelectorAll('[data-med]').forEach((b) => (b.onclick = () => pick(b.dataset.med)));
+        root.querySelectorAll('[data-on]').forEach((b) => (b.onclick = () => ((on[b.dataset.on] = true), show())));
+        root.querySelectorAll('[data-off]').forEach((b) => (b.onclick = () => ((on[b.dataset.off] = false), show())));
         root.querySelector('#cancel').onclick = closeModal;
         f.onsubmit = (e) => {
           e.preventDefault();
-          const name = nameOf();
-          if (!name) return toast('Zadaj názov lieku.', true);
-          const amount = f.amount.value.trim().replace(',', '.');
-          const substanceId = subs.some((x) => x.id === choice) ? choice : '';
-          saveQuick(
-            m,
-            { recordedAt: at(), medicine: { name, substanceId, dosage: amount ? amount + ' ' + f.unit.value : '' } },
-            root.querySelector('#save'),
-            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 4 h a 8 h príde pripomienka' : '')
-          );
+          const data = { recordedAt: at() };
+          if (on.temp) data.temperature = f.temp.value.trim();
+          let substanceId = '';
+          if (on.med) {
+            const name = nameOf();
+            if (!name) return toast('Zadaj názov lieku.', true);
+            const amount = f.amount.value.trim().replace(',', '.');
+            substanceId = subs.some((x) => x.id === choice) ? choice : '';
+            data.medicine = { name, substanceId, dosage: amount ? amount + ' ' + f.unit.value : '' };
+          }
+          saveQuick(m, data, root.querySelector('#save'),
+            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 4 h a 8 h príde pripomienka' : ''));
         };
       },
       { focus: false }

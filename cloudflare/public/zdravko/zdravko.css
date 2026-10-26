@@ -618,3 +618,43 @@ button.zd-last-card {
 .zd-med-hint.warn { color: #b45309; }
 .zd-med-hint.ok { color: #15803d; }
 .zd-med-hint .ms { font-size: 18px; }
+
+/* Teplota a liek v jednom formulári */
+.zd-part {
+  margin-bottom: 6px;
+}
+.zd-part:not(.hidden) ~ .zd-part:not(.hidden) {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.zd-part-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.zd-part-head .ms {
+  font-size: 18px;
+}
+.zd-part-head .icon-btn {
+  margin-left: auto;
+}
+#partMed .zd-part-head > .ms { color: #7c3aed; }
+#partTemp .zd-part-head > .ms { color: #dc2626; }
+.zd-qdose {
+  margin-bottom: 10px;
+}
+.zd-add-part {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.zd-add-part .btn .ms {
+  font-size: 18px;
+  margin-right: -2px;
+}

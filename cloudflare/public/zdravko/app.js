@@ -27,7 +27,6 @@
   const UNITS = [['tbl', 'tableta'], ['ml', 'mililiter'], ['kvp', 'kvapky'], ['kps', 'kapsula'], ['g', 'gram'], ['čípok', 'čípok']];
   const RANGES = [['day', 'Deň', 1], ['3days', '3 dni', 3], ['week', 'Týždeň', 7], ['month', 'Mesiac', 30], ['3months', '3 mesiace', 90]];
   const MONTHS = ['január', 'február', 'marec', 'apríl', 'máj', 'jún', 'júl', 'august', 'september', 'október', 'november', 'december'];
-  const WD = ['ne', 'po', 'ut', 'st', 'št', 'pi', 'so'];
   const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
 
   const S = {
@@ -687,15 +686,19 @@
     });
     const sickDays = m ? new Set(recordsOf(m.id).filter((r) => r.type !== 'calendar_event').map((r) => ymd(new Date(r.recordedAt)))) : new Set();
     const eventDays = new Set(inMonth.map((e) => ymd(new Date(e.eventAt))));
+    // Celý mesiac naraz ako v mobilnom Zdravkovi: týždeň od pondelka, pod číslom bodky udalostí
+    // (farba podľa druhu) a červená bodka za záznam choroby.
     const daysInMonth = new Date(y, mon + 1, 0).getDate();
-    let days = '';
+    const lead = (new Date(y, mon, 1).getDay() + 6) % 7;
+    let days = ['po', 'ut', 'st', 'št', 'pi', 'so', 'ne'].map((w) => '<div class="zd-wd">' + w + '</div>').join('') + '<span></span>'.repeat(lead);
     for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(y, mon, d);
-      const key = ymd(date);
+      const key = ymd(new Date(y, mon, d));
+      const types = [...new Set(inMonth.filter((e) => ymd(new Date(e.eventAt)) === key).map((e) => e.eventType))];
+      const dots =
+        types.slice(0, 3).map((t) => '<i style="background:' + EVENT_TYPES[t].color + '"></i>').join('') + (sickDays.has(key) ? '<i class="sick"></i>' : '');
       days +=
-        '<button type="button" class="cal-day' + (key === today() ? ' today' : '') + (key === S.calDay ? ' selected' : '') + '" data-day="' + key + '">' +
-        '<div class="wd">' + WD[date.getDay()] + '</div><div class="num">' + d + '</div>' +
-        (eventDays.has(key) ? '<div class="dot"></div>' : sickDays.has(key) ? '<div class="dot sick"></div>' : '<div class="dot none"></div>') + '</button>';
+        '<button type="button" class="zd-mday' + (key === today() ? ' today' : '') + (key === S.calDay ? ' selected' : '') + (types.length ? ' has-ev' : '') + '" data-day="' + key + '">' +
+        '<span class="num">' + d + '</span><span class="zd-dots">' + dots + '</span></button>';
     }
     const shown = S.calDay ? inMonth.filter((e) => ymd(new Date(e.eventAt)) === S.calDay) : inMonth;
     const upcoming = list.filter((e) => Date.parse(e.eventAt) >= Date.now()).slice(0, 5);
@@ -715,8 +718,9 @@
         : '') +
       '<div class="calendar"><div class="cal-head"><span class="month">' + MONTHS[mon].replace(/^./, (c) => c.toUpperCase()) + ' ' + y + '</span>' +
       '<button type="button" class="icon-btn" id="prevM"><span class="ms">chevron_left</span></button><button type="button" class="icon-btn" id="nextM"><span class="ms">chevron_right</span></button></div>' +
-      '<div class="cal-days">' + days + '</div></div>' +
-      (m ? '<div class="zd-legend"><span><i class="dot"></i>udalosť</span><span><i class="dot sick"></i>záznam choroby</span></div>' : '') +
+      '<div class="zd-month" id="month">' + days + '</div></div>' +
+      '<div class="zd-legend">' + Object.values(EVENT_TYPES).map((t) => '<span><i class="dot" style="background:' + t.color + '"></i>' + esc(t.name.toLowerCase()) + '</span>').join('') +
+      (m ? '<span><i class="dot sick"></i>choroba</span>' : '') + '</div>' +
       (!m ? '<button type="button" class="btn tonal small zd-widget" id="calFeed"><span class="ms">event</span>Kalendár na plochu (Google Kalendár)</button>' : '') +
       (cards || '<div class="empty compact"><span class="ms">calendar_month</span><div>' + (S.calDay ? 'V tento deň nič.' : 'V tomto mesiaci žiadne udalosti.') + '</div></div>');
     FG.bindHouseholdPicker((id) => {
@@ -746,8 +750,15 @@
         render();
       };
     });
-    const sel = $('view').querySelector('.cal-day.selected') || $('view').querySelector('.cal-day.today');
-    if (sel) sel.scrollIntoView({ inline: 'center', block: 'nearest' });
+    // potiahnutie prstom do strany = iný mesiac (ako v mobilnom)
+    let touchX = null;
+    $('month').addEventListener('touchstart', (e) => (touchX = e.touches[0].clientX), { passive: true });
+    $('month').addEventListener('touchend', (e) => {
+      if (touchX === null) return;
+      const dx = e.changedTouches[0].clientX - touchX;
+      touchX = null;
+      if (Math.abs(dx) > 60) shift(dx < 0 ? 1 : -1);
+    });
     $('view').querySelectorAll('[data-event]').forEach((el) => (el.onclick = () => eventDetail(S.data.records.find((r) => r.id === el.dataset.event))));
     fab('<button type="button" class="btn" id="addEvent"><span class="ms">add</span>Udalosť</button>', (el) => {
       el.querySelector('#addEvent').onclick = () => {

@@ -365,9 +365,84 @@
 .cal-day .dot.sick {
   background: #dc2626;
 }
+/* Mesačný kalendár (celý mesiac naraz, týždeň od pondelka) */
+.zd-month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  row-gap: 2px;
+  padding: 4px 2px 6px;
+  touch-action: pan-y;
+}
+.zd-wd {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0 6px;
+  text-transform: capitalize;
+}
+.zd-wd:nth-child(6),
+.zd-wd:nth-child(7) {
+  color: var(--accent);
+}
+.zd-mday {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 0 4px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 12px;
+}
+.zd-mday .num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.15s;
+}
+.zd-mday:hover .num {
+  background: var(--surface-2);
+}
+.zd-mday.has-ev .num {
+  font-weight: 700;
+}
+.zd-mday.today .num {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+.zd-mday.selected .num {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+.zd-dots {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+.zd-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.zd-dots i.sick {
+  background: #dc2626;
+}
+
 .zd-legend {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   font-size: 12px;
   color: var(--muted);
   margin: -12px 4px 14px;

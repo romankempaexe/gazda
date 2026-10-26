@@ -514,9 +514,9 @@
           : '<div><span class="ms">timer</span>' + name + ' znova najskôr o ' + hm(new Date(ok).toISOString()) + ' (8 h od ' + hm(bySubstance[s].recordedAt) + ')</div>';
       });
     return (
-      '<div class="section-title zd-sec"><span class="ms">medication</span>Lieky za posledné 3 dni</div><div class="members">' +
+      '<div class="section-title zd-sec"><span class="ms">medication</span>Lieky za posledné 3 dni</div><div class="members zd-meds">' +
       [...meds].reverse().slice(0, 8).map((r) => '<div><span class="ms">medication</span><b>' + esc(r.medicineName) + '</b>' + (r.dosage ? ' ' + esc(r.dosage) : '') +
-        '<span class="muted" style="margin-left:auto">' + dm(r.recordedAt) + ' ' + hm(r.recordedAt) + ' · ' + esc(ago(r.recordedAt)) + '</span></div>').join('') +
+        '<span class="muted">' + dm(r.recordedAt) + ' ' + hm(r.recordedAt) + ' · ' + esc(ago(r.recordedAt)) + '</span></div>').join('') +
       hints.join('') + '</div>'
     );
   }

@@ -82,6 +82,13 @@
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+button.zd-last-card {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .zd-last-card > div {
   flex: 1;
   min-width: 0;
@@ -516,4 +523,138 @@
 }
 .zd-widget {
   margin: -6px 0 14px;
+}
+
+/* Rýchle pridanie záznamu: tlačidlá vpravo dole a krátke formuláre */
+.fab-bar .btn.zd-q {
+  padding: 14px 18px;
+}
+.fab-bar .btn.zd-q.temp {
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.35);
+}
+.fab-bar .btn.zd-q.med {
+  background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.35);
+}
+.fab-bar .btn.zd-q.rest {
+  padding: 14px;
+  background: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+  box-shadow: 0 10px 24px rgba(8, 145, 178, 0.35);
+}
+.zd-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0 14px;
+}
+.zd-step {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.zd-step .ms {
+  font-size: 28px;
+}
+.zd-big-val {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.zd-big-val input {
+  width: 2.7em;
+  font-size: 44px;
+  font-weight: 800;
+  text-align: center;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+.zd-big-val input:focus {
+  outline: none;
+}
+.zd-big-val span {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.zd-big.t-ok .zd-big-val input { color: #16a34a; }
+.zd-big.t-warn .zd-big-val input { color: #ea8a00; }
+.zd-big.t-bad .zd-big-val input { color: #dc2626; }
+.zd-quick-vals,
+.zd-meds-pick {
+  margin-bottom: 14px;
+}
+.zd-when,
+.zd-quick-vals {
+  gap: 6px;
+}
+.zd-when .chip .ms {
+  font-size: 18px;
+  vertical-align: -4px;
+}
+.zd-when .chip,
+.zd-quick-vals .chip,
+.zd-meds-pick .chip {
+  padding: 9px 12px;
+  font-size: 14px;
+}
+.zd-med-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: -4px 0 12px;
+}
+.zd-med-hint.warn { color: #b45309; }
+.zd-med-hint.ok { color: #15803d; }
+.zd-med-hint .ms { font-size: 18px; }
+
+/* Teplota a liek v jednom formulári */
+.zd-part {
+  margin-bottom: 6px;
+}
+.zd-part:not(.hidden) ~ .zd-part:not(.hidden) {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.zd-part-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.zd-part-head .ms {
+  font-size: 18px;
+}
+.zd-part-head .icon-btn {
+  margin-left: auto;
+}
+#partMed .zd-part-head > .ms { color: #7c3aed; }
+#partTemp .zd-part-head > .ms { color: #dc2626; }
+.zd-qdose {
+  margin-bottom: 10px;
+}
+.zd-add-part {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.zd-add-part .btn .ms {
+  font-size: 18px;
+  margin-right: -2px;
 }

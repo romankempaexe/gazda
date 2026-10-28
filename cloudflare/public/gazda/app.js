@@ -1207,13 +1207,8 @@ function shopSectionHtml() {
   state.detail.cinnosti
     .filter((c) => c.kind === 'nakup' && c.shoppingBy && !lists.includes(c))
     .forEach((c) => lists.push(c));
+  if (!lists.length) return '';
   let html = '<div class="section-title"><span class="ms">shopping_cart</span>Nákup</div>';
-  if (!lists.some((c) => c.assignedTo === ALL)) {
-    html +=
-      '<button type="button" class="shop-new" id="newShopBtn"><span class="ms">add_shopping_cart</span>' +
-      '<span class="shop-new-text"><b>Vytvoriť nákupný zoznam</b><small>pre všetkých – hneď píšeš položky alebo vyberáš z letáku</small></span>' +
-      '<span class="ms">chevron_right</span></button>';
-  }
   html += lists.map((c) => taskCard(c, 'shop')).join('');
   return html + '<div class="section-gap"></div>';
 }
@@ -1838,8 +1833,10 @@ function renderPlanovanie() {
   );
 
   html +=
-    '<div class="fab-bar"><button class="btn" id="addTaskBtn">' +
-    '<span class="ms">add</span>Pridať činnosť</button></div>';
+    // malé ikonky vpravo dole: nákupný zoznam (spoločný – existujúci alebo nový) a nová činnosť
+    '<div class="fab-bar"><button class="btn fab-icon" id="newShopBtn" title="Nákupný zoznam" aria-label="Nákupný zoznam">' +
+    '<span class="ms">add_shopping_cart</span></button>' +
+    '<button class="btn fab-icon" id="addTaskBtn" title="Pridať činnosť" aria-label="Pridať činnosť"><span class="ms">add</span></button></div>';
   return html;
 }
 

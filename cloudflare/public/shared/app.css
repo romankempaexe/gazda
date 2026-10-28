@@ -351,6 +351,17 @@ a.btn {
   box-shadow: 0 10px 24px rgba(22, 163, 74, 0.4);
 }
 
+.fab-bar .btn.fab-icon {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 16px;
+}
+
+.fab-bar .btn.fab-icon .ms {
+  font-size: 24px;
+}
+
 body.with-tabs .fab-bar {
   bottom: 96px;
 }
@@ -2996,54 +3007,6 @@ input.lf-pageno::-webkit-inner-spin-button {
 
 .section-title > .ms {
   font-size: 16px;
-}
-
-/* Vytvoriť nákupný zoznam – jedno veľké tlačidlo hore v rozpise */
-.shop-new {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  margin-bottom: 10px;
-  padding: 16px;
-  border: 2px dashed var(--primary);
-  border-radius: var(--radius);
-  background: var(--primary-soft);
-  color: var(--primary-strong);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.shop-new > .ms:first-child {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary-gradient);
-  color: #fff;
-  font-size: 24px;
-}
-
-.shop-new-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.shop-new-text b {
-  font-size: 16px;
-  color: var(--text);
-}
-
-.shop-new-text small {
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .shop-tools {

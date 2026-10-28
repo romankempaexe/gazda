@@ -342,10 +342,11 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 
 ## Nákup: zoznam jedným ťuknutím a nákup v obchode
 
-- **Vytvoriť nákupný zoznam:** hore v *Môj rozpis* aj v *Plánovaní* je sekcia **Nákup**.
-  Tlačidlo vytvorí spoločný nákup (Všetci, bez termínu – `createShoppingList`) a hneď otvorí
-  zoznam: píšu sa položky, **Vybrať z letáku** otvorí letáky a po ich zatvorení sa vráti k zoznamu.
-  Keď spoločný nákup už existuje (aj od niekoho iného), namiesto tlačidla je jeho karta.
+- **Nákupný zoznam:** v *Plánovaní* vpravo dole sú dve malé ikonky – košík (nákupný zoznam)
+  a + (nová činnosť). Košík vytvorí spoločný nákup (Všetci, bez termínu – `createShoppingList`),
+  alebo otvorí ten, ktorý už existuje, a hneď sa píšu položky; **Vybrať z letáku** otvorí letáky
+  a po ich zatvorení sa vráti k zoznamu. Nákupy bez termínu sú hore v sekcii **Nákup**
+  (v *Môj rozpis* aj v *Plánovaní*).
 - **Upozornenia:** ostatní členovia (nie autor) dostanú „nový nákupný zoznam“ a potom
   „X pridáva do nákupu“ so zoznamom nových položiek (`notifyShopping` v `src/notifications.js`).
   Upozornenie odíde, až keď autor 15 s nič nepridá – jedna správa za celé písanie, nie za

@@ -100,7 +100,8 @@ self.addEventListener('notificationclick', (event) => {
       const open = list.find((c) => c.url.startsWith(self.location.origin) && 'focus' in c);
       if (!open) return self.clients.openWindow(url);
       const samePage = new URL(open.url).pathname === new URL(url).pathname;
-      if (!samePage && 'navigate' in open) {
+      // aj na tej istej stránke, keď upozornenie otvára niečo konkrétne (napr. /gazda/?nakup=<id>)
+      if ((!samePage || new URL(url).search) && 'navigate' in open) {
         try {
           const moved = await open.navigate(url);
           return (moved || open).focus();

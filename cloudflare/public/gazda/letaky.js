@@ -12,6 +12,7 @@ const lf = {
   zoom: 1,
   draw: true,
   target: null, // id nákupu, do ktorého sa pridáva
+  returnTo: null, // detail nákupu, do ktorého sa vrátiť po zatvorení
   marks: {}, // zakrúžkované miesta: "slug#strana" -> [{ pts, ok }]
 };
 
@@ -45,6 +46,7 @@ const MAX_THUMB_BYTES = 150000;
 /** Otvorí letáky; opts.taskId = nákup, do ktorého sa majú pridávať položky. */
 async function openLeaflets(opts) {
   lf.target = (opts && opts.taskId) || lf.target;
+  lf.returnTo = (opts && opts.returnTo) || null;
   // obchod: z nákupu, inak naposledy zvolený, inak Lidl
   let remembered = null;
   try {
@@ -101,6 +103,9 @@ function closeLeaflets() {
   lf.mode = 'list';
   document.body.classList.remove('lf-open');
   if (state.detail) renderDetail({ quiet: true });
+  const back = lf.returnTo;
+  lf.returnTo = null;
+  if (back && state.detail && state.detail.cinnosti.some((c) => c.id === back)) showTaskDetail(back);
 }
 
 /** Krok späť: strana → strany → zoznam letákov → zatvoriť. */

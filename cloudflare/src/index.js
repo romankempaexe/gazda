@@ -53,6 +53,8 @@ const METHODS = {
   getHouseholdData: api.getHouseholdData,
   addPriestor: api.addPriestor,
   addCinnost: api.addCinnost,
+  createShoppingList: api.createShoppingList,
+  startShopping: api.startShopping,
   updateCinnost: api.updateCinnost,
   addItem: api.addItem,
   toggleItem: api.toggleItem,

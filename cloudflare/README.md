@@ -340,6 +340,24 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
   každé 4 s pýta `getRev` a údaje načíta len pri zmene (aj v otvorenom detaile).
 - **Znova:** v Histórii pri nákupe – nový nákup s tými istými položkami.
 
+## Nákup: zoznam jedným ťuknutím a nákup v obchode
+
+- **Vytvoriť nákupný zoznam:** hore v *Môj rozpis* aj v *Plánovaní* je sekcia **Nákup**.
+  Tlačidlo vytvorí spoločný nákup (Všetci, bez termínu – `createShoppingList`) a hneď otvorí
+  zoznam: píšu sa položky, **Vybrať z letáku** otvorí letáky a po ich zatvorení sa vráti k zoznamu.
+  Keď spoločný nákup už existuje (aj od niekoho iného), namiesto tlačidla je jeho karta.
+- **Upozornenia:** ostatní členovia (nie autor) dostanú „nový nákupný zoznam“ a potom
+  „X pridáva do nákupu“ so zoznamom nových položiek (`notifyShopping` v `src/notifications.js`).
+  Upozornenie odíde, až keď autor 15 s nič nepridá – jedna správa za celé písanie, nie za
+  každú položku (značka v `config`, kľúč `shop:<nákup>:<e-mail>`). Platí pre každé pridanie
+  do nákupu (aj z letáku a zo Skládka). Ťuknutie otvorí rovno zoznam (`/gazda/?nakup=<id>`).
+- **Zahájiť nákup** (`startShopping`, stĺpce `shopping_by`, `shopping_since`, migrácia 0018):
+  zoznam na celú obrazovku – veľké položky podľa oddelení, *Nemali*, pridanie ďalšej položky,
+  naživo zmeny od ostatných, displej nezhasína. Ostatní dostanú „X nakupuje“. Kto nakupuje,
+  toho appka pri ďalšom otvorení (aj návrate do nej) hodí rovno na túto obrazovku; šípka ju
+  len skryje, **Prerušiť** nákup zastaví (zoznam ostane). Keď je všetko kúpené alebo
+  „nemali“, tlačidlo **Ukončiť nákup** ho uloží do Histórie.
+
 ## Pripomienky, šablóny, vzhľad, skratky
 
 - Činnosť môže mať čas (`due_time`, migrácia 0010); cron každých 5 min pošle pripomienku

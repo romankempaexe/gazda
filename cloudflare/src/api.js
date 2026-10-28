@@ -5,7 +5,18 @@
 // Používateľ je prihlásený Google účtom; domácnosti zdieľa podľa e-mailu.
 // Zápisy, ktoré patria k sebe, idú jedným db.batch() – D1 ich vykoná ako jednu transakciu.
 
-import { notifyAssigned, notifyComment, rememberOrigin, saveSubscription, sendToUser, vapidKeys } from './notifications.js';
+import {
+  notifyAssigned,
+  notifyComment,
+  notifyShopping,
+  notifyShoppingStarted,
+  rememberOrigin,
+  saveSubscription,
+  sendToUser,
+  shopKey,
+  shopKeyPattern,
+  vapidKeys,
+} from './notifications.js';
 import {
   ALL,
   AppError,
@@ -79,6 +90,8 @@ const toCinnost = (r, items = []) => ({
   createdAt: r.created_at,
   kind: r.kind,
   store: r.store,
+  // prebiehajúci nákup (celá obrazovka v obchode)
+  ...(r.shopping_by && { shoppingBy: r.shopping_by, shoppingSince: r.shopping_since }),
   items,
 });
 
@@ -89,6 +102,8 @@ const MEMBERS_SQL = `SELECT m.*, (u.last_login IS NOT NULL AND u.last_login <> '
 export const MAX_NICKNAME = 30;
 
 const uuid = () => crypto.randomUUID();
+
+const shopKeysCleanup = (c, cinnostId) => c.db.prepare('DELETE FROM config WHERE key LIKE ?').bind(shopKeyPattern(cinnostId));
 
 // ---- Oprávnenia a vyhľadanie ------------------------------------------------
 
@@ -502,20 +517,61 @@ export async function rememberProducts(c, householdId, texts) {
   return { ok: true };
 }
 
+function insertCinnostStatement(c, cinnost) {
+  const columns = Object.keys(cinnost);
+  return c.db
+    .prepare(`INSERT INTO cinnosti (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
+    .bind(...columns.map((k) => cinnost[k]));
+}
+
 export async function addCinnost(c, householdId, data) {
   await requireMember(c, householdId);
   const { priestor, fields, items } = await validateCinnost(c, householdId, data);
   const cinnost = { id: uuid(), household_id: householdId, ...fields, created_at: nowIso() };
-  const columns = Object.keys(cinnost);
   await c.db.batch([
-    c.db
-      .prepare(`INSERT INTO cinnosti (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
-      .bind(...columns.map((k) => cinnost[k])),
+    insertCinnostStatement(c, cinnost),
     ...(await syncItemsStatements(c, cinnost, items)),
     ...rememberShoppingStatements(c, householdId, cinnost.store, items.map((i) => i.text)),
   ]);
   const saved = await loadCinnost(c, cinnost.id);
   if (saved.assignedTo && saved.assignedTo !== c.email) await notifyAssigned(c, saved, priestor);
+  return saved;
+}
+
+/**
+ * Nákupný zoznam jedným ťuknutím: spoločný pre všetkých, bez termínu. Ostatní dostanú
+ * upozornenie, až keď autor dopíše prvé položky (pozri notifyShopping). Keď už spoločný
+ * nákup existuje (napr. ho práve vytvoril niekto iný), vráti ten.
+ */
+export async function createShoppingList(c, householdId) {
+  await requireMember(c, householdId);
+  const existing = await c.db
+    .prepare("SELECT id FROM cinnosti WHERE household_id = ? AND kind = 'nakup' AND assigned_to = ? ORDER BY rowid LIMIT 1")
+    .bind(householdId, ALL)
+    .first();
+  if (existing) return loadCinnost(c, existing.id);
+  const { fields } = await validateCinnost(c, householdId, { name: 'Nákup', kind: 'nakup', assignedTo: ALL, icon: 'shopping' });
+  const cinnost = { id: uuid(), household_id: householdId, ...fields, created_at: nowIso() };
+  await c.db.batch([
+    insertCinnostStatement(c, cinnost),
+    // prázdna hodnota = nový zoznam, o ktorom ostatní ešte nevedia
+    c.db.prepare("INSERT INTO config (key, value) VALUES (?, '') ON CONFLICT (key) DO UPDATE SET value = ''").bind(shopKey(cinnost.id, c.email)),
+  ]);
+  await notifyShopping(c, cinnost.id);
+  return loadCinnost(c, cinnost.id);
+}
+
+/** Začne (on = true) alebo preruší nákup v obchode – appka ho ukazuje na celú obrazovku. */
+export async function startShopping(c, cinnostId, on) {
+  const cinnost = await findCinnost(c, cinnostId);
+  if (cinnost.kind !== 'nakup') throw new AppError('Nakupovať sa dá len nákup.');
+  const already = cinnost.shopping_by === c.email;
+  await c.db
+    .prepare('UPDATE cinnosti SET shopping_by = ?, shopping_since = ? WHERE id = ?')
+    .bind(on ? c.email : '', on ? (already ? cinnost.shopping_since : nowIso()) : '', cinnost.id)
+    .run();
+  const saved = await loadCinnost(c, cinnost.id);
+  if (on && !already) await notifyShoppingStarted(c, saved);
   return saved;
 }
 
@@ -565,6 +621,7 @@ export async function addItem(c, cinnostId, text, qty, image, price) {
         ]
       : []),
   ]);
+  if (cinnost.kind === 'nakup') await notifyShopping(c, cinnost.id);
   return item;
 }
 
@@ -603,6 +660,7 @@ export async function deleteCinnost(c, cinnostId) {
     c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
     c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
     c.db.prepare(IMAGES_CLEANUP_SQL),
+    shopKeysCleanup(c, cinnost.id),
   ]);
   return { deleted: true };
 }
@@ -622,6 +680,7 @@ export async function completeCinnost(c, cinnostId) {
       c.db.prepare('DELETE FROM polozky WHERE cinnost_id = ?').bind(cinnost.id),
       c.db.prepare('DELETE FROM cinnosti WHERE id = ?').bind(cinnost.id),
       c.db.prepare(IMAGES_CLEANUP_SQL),
+      shopKeysCleanup(c, cinnost.id),
     ]);
     return { deleted: true };
   }
@@ -632,7 +691,9 @@ export async function completeCinnost(c, cinnostId) {
     // čo nemali, ostáva na zozname na budúci nákup
     c.db.prepare('UPDATE polozky SET missing = 0 WHERE cinnost_id = ? AND missing = 1').bind(cinnost.id),
     c.db.prepare(IMAGES_CLEANUP_SQL),
-    c.db.prepare('UPDATE cinnosti SET due_date = ? WHERE id = ?').bind(next, cinnost.id),
+    shopKeysCleanup(c, cinnost.id),
+    // nákup sa skončil – ďalší termín začína bez nakupujúceho
+    c.db.prepare("UPDATE cinnosti SET due_date = ?, shopping_by = '', shopping_since = '' WHERE id = ?").bind(next, cinnost.id),
   ]);
   return { deleted: false, cinnost: await loadCinnost(c, cinnost.id) };
 }

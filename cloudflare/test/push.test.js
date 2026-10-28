@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { setup } from './helpers.js';
 import { b64urlDecode, b64urlEncode, encryptPayload, vapidAuthorization, generateVapidKeys } from '../src/webpush.js';
 import { scheduledTick } from '../src/notifications.js';
+import { addItem } from '../src/api.js';
 import { sendDealAlerts, matchingOffer } from '../src/deals.js';
 
 const enc = new TextEncoder();
@@ -257,6 +258,72 @@ test('pridelená činnosť bez termínu: upozornenie odíde („Bez termínu“)
   await roman.api.addCinnost(hid, { name: 'Nákup niekedy', kind: 'nakup', dueDate: '', assignedTo: 'jana@gmail.com' });
   assert.equal(sent.length, 1);
   assert.match(JSON.parse(await decrypt(janaPhone, sent[0].body)).body, /Bez termínu/);
+});
+
+test('nákupný zoznam jedným ťuknutím: upozornenie ostatným pri vytvorení a pri nových položkách', async () => {
+  // nová rodina – v Byte už spoločný nákup je
+  const chata = (await roman.api.createHousehold('Chata', 'jana@gmail.com')).households.find((h) => h.name === 'Chata').id;
+  sent.length = 0;
+  const c = await roman.api.createShoppingList(chata);
+  assert.deepEqual([c.name, c.kind, c.assignedTo, c.dueDate, c.items], ['Nákup', 'nakup', '*', '', []]);
+  // autorovi nič, Jane „nový nákupný zoznam“ s odkazom rovno na zoznam
+  assert.deepEqual(sent.map((s) => s.url), [janaPhone.subscription.endpoint]);
+  let msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.title, msg.body, msg.tag, msg.url], ['🛒 Romi: nový nákupný zoznam', 'Chata\nPridaj, čo treba kúpiť.', 'shop-' + c.id, '/gazda/?nakup=' + c.id]);
+  // druhé ťuknutie (aj od Jany) vráti ten istý zoznam a nikoho neupozorní
+  sent.length = 0;
+  assert.equal((await jana.api.createShoppingList(chata)).id, c.id);
+  assert.equal(sent.length, 0);
+
+  // nové položky: v upozornení len tie, o ktorých ešte nevedia
+  await roman.api.addItem(c.id, '2x mlieko', '');
+  msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.title, msg.body], ['🛒 Romi pridáva do nákupu', '☐ Mlieko – 2 ks']);
+  sent.length = 0;
+  await roman.api.addItem(c.id, 'Chlieb', '');
+  assert.equal(JSON.parse(await decrypt(janaPhone, sent[0].body)).body, '☐ Chlieb');
+  // Jana pridá – upozornenie dostane Roman
+  sent.length = 0;
+  await jana.api.addItem(c.id, 'Maslo', '');
+  assert.deepEqual(sent.map((s) => s.url), [romanPhone.subscription.endpoint]);
+  assert.equal(JSON.parse(await decrypt(romanPhone, sent[0].body)).title, '🛒 Janka pridáva do nákupu');
+
+  // začatie nákupu: ostatní vedia, že ešte môžu doplniť
+  sent.length = 0;
+  const started = await roman.api.startShopping(c.id, true);
+  assert.equal(started.shoppingBy, 'roman@exe.sk');
+  msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.title, msg.body], ['🛒 Romi nakupuje', 'Na zozname: 3. Ak ešte niečo treba, pridaj to hneď.']);
+  sent.length = 0;
+  await roman.api.startShopping(c.id, true); // znova (napr. po otvorení appky) – bez upozornenia
+  assert.equal(sent.length, 0);
+
+  // položka v obyčajnej (nie nákupnej) činnosti nikoho neupozorňuje
+  const kuchyna = await roman.api.addPriestor(chata, 'Kuchyňa');
+  const task = await roman.api.addCinnost(chata, { name: 'Upratať', priestorId: kuchyna.id, dueDate: '2026-10-11', assignedTo: '*' });
+  sent.length = 0;
+  await roman.api.addItem(task.id, 'Linka', '');
+  assert.equal(sent.length, 0);
+  await assert.rejects(roman.api.startShopping(task.id, true), /len nákup/);
+  // prerušenie nákupu (môže hocikto z rodiny)
+  assert.equal((await jana.api.startShopping(c.id, false)).shoppingBy, undefined);
+  assert.equal((await roman.api.startShopping(c.id, true)).shoppingBy, 'roman@exe.sk');
+
+  // rýchle písanie viacerých položiek za sebou: jedno upozornenie so všetkými, až keď autor prestane
+  const jobs = [];
+  const c2 = { db: t.env.DB, email: 'jana@gmail.com', env: { SHOP_NOTIFY_DELAY_MS: 500 }, waitUntil: (p) => jobs.push(p) };
+  sent.length = 0;
+  await addItem(c2, c.id, 'Vajcia', '10 ks');
+  await addItem(c2, c.id, 'Syr', '');
+  assert.equal(sent.length, 0);
+  await Promise.all(jobs);
+  assert.deepEqual(sent.map((s) => s.url), [romanPhone.subscription.endpoint]);
+  assert.equal(JSON.parse(await decrypt(romanPhone, sent[0].body)).body, '☐ Vajcia – 10 ks\n☐ Syr');
+
+  // ukončenie nákupu zmaže aj značky upozornení
+  await roman.api.completeCinnost(c.id);
+  const left = await t.env.DB.prepare('SELECT COUNT(*) AS n FROM config WHERE key LIKE ?').bind('shop:' + c.id + ':%').first();
+  assert.equal(left.n, 0);
 });
 
 test('vypnutie upozornení na zariadení', async () => {

@@ -2986,3 +2986,310 @@ input.lf-pageno::-webkit-inner-spin-button {
   gap: 6px;
   margin-top: 10px;
 }
+
+/* ------------------------------------------- Nákupný zoznam a nákup v obchode */
+.section-title:has(> .ms) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-title > .ms {
+  font-size: 16px;
+}
+
+/* Vytvoriť nákupný zoznam – jedno veľké tlačidlo hore v rozpise */
+.shop-new {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 16px;
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shop-new > .ms:first-child {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-gradient);
+  color: #fff;
+  font-size: 24px;
+}
+
+.shop-new-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shop-new-text b {
+  font-size: 16px;
+  color: var(--text);
+}
+
+.shop-new-text small {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.shop-tools {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.shop-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Nákup v obchode: celá obrazovka, veľké položky */
+body.shop-open {
+  overflow: hidden;
+}
+
+.shop-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 7; /* pod letákmi (8) a modálnym oknom (10) */
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.shop-mode.hidden {
+  display: none;
+}
+
+.shop-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  background: var(--surface);
+}
+
+.shop-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 800;
+  font-size: 20px;
+}
+
+.shop-title div,
+.shop-title small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-title small {
+  display: block;
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.shop-progress {
+  height: 6px;
+  background: var(--surface-2);
+}
+
+.shop-progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--primary-gradient);
+  transition: width 0.3s ease;
+}
+
+.shop-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px max(12px, calc((100% - 760px) / 2 + 12px)) 16px;
+}
+
+.shop-body .dept-head {
+  font-size: 13px;
+  padding: 16px 6px 6px;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 64px;
+  margin-bottom: 8px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shop-check {
+  flex: none;
+  font-size: 34px;
+  color: var(--primary-strong);
+}
+
+.shop-item .check-thumb {
+  width: 56px;
+  height: 56px;
+}
+
+.shop-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+
+.shop-text small {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.shop-miss {
+  flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.shop-miss .ms {
+  font-size: 24px;
+}
+
+.shop-miss.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+.shop-item.done,
+.shop-item.missing {
+  box-shadow: none;
+  background: transparent;
+  min-height: 52px;
+}
+
+.shop-item.done .shop-text {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-size: 17px;
+}
+
+.shop-item.done .shop-check {
+  color: var(--muted);
+}
+
+.shop-item.missing .shop-text {
+  color: var(--accent);
+  text-decoration: line-through;
+  font-size: 17px;
+}
+
+.shop-item.missing .shop-check {
+  color: var(--accent);
+}
+
+.shop-item.done .check-thumb,
+.shop-item.missing .check-thumb {
+  width: 40px;
+  height: 40px;
+  opacity: 0.6;
+}
+
+.shop-all {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  color: var(--primary-strong);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.shop-all .ms {
+  font-size: 28px;
+}
+
+.shop-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px max(12px, calc((100% - 760px) / 2 + 12px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.shop-add.field {
+  margin: 0;
+}
+
+.shop-add input {
+  font-size: 16px;
+}
+
+.shop-finish {
+  width: 100%;
+  padding: 16px;
+  font-size: 18px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.shop-finish.ready {
+  background: var(--primary-gradient);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(22, 163, 74, 0.4);
+}
+
+.shop-finish .ms {
+  font-size: 24px;
+}

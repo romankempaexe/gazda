@@ -48,6 +48,7 @@ export async function setup() {
     ASSETS: { fetch: () => new Response('asset') },
     GOOGLE_CLIENT_ID: CLIENT_ID,
     TEST_GOOGLE_JWKS: JSON.stringify({ keys: [publicJwk] }),
+    SHOP_NOTIFY_DELAY_MS: 0, // upozornenie o nákupe hneď (inak čaká, kým autor dopíše)
   };
   for (const file of readdirSync(join(root, 'migrations')).sort()) {
     // Príkazy oddelené „;“ – okrem tela triggra (BEGIN … END), ktoré ich má vnútri.

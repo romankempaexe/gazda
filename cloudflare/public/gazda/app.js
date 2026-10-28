@@ -1137,6 +1137,7 @@ function renderDetail(opts) {
 
   const selected = $('view').querySelector('.cal-day.selected');
   if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'center' });
+  if (shop.id) renderShoppingMode();
   runLaunchAction();
 }
 
@@ -1153,33 +1154,288 @@ let launchAction = (() => {
   }
 })();
 
+// /?nakup=<id> – ťuknutie na upozornenie o nákupe otvorí rovno ten zoznam
+let launchShop = (() => {
+  try {
+    const id = new URLSearchParams(location.search).get('nakup');
+    if (id) history.replaceState(null, '', location.pathname);
+    return id;
+  } catch {
+    return null;
+  }
+})();
+
+let shopResumeChecked = false;
+
 function runLaunchAction() {
-  if (!launchAction || !state.detail || !state.email) return;
+  if (!state.detail || !state.email) return;
+  if (!shopResumeChecked) {
+    shopResumeChecked = true;
+    resumeShopping();
+  }
+  if (launchShop) {
+    const id = launchShop;
+    launchShop = null;
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    if (c && !shop.id) setTimeout(() => showTaskDetail(id), 300);
+  }
+  if (!launchAction) return;
   const action = launchAction;
   launchAction = null;
   setTimeout(() => (action === 'nova' ? showKindStep() : quickShop()), 300);
 }
 
-/** Pridávanie do nákupu: najbližší môj (alebo spoločný) nákup, inak nový „Nakúpiť“ na dnes. */
-async function quickShop() {
-  let c = state.detail.cinnosti
-    .filter((x) => x.kind === 'nakup' && !x.pending && (isMine(x) || !x.assignedTo))
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
-  if (!c) {
-    try {
-      c = await api('addCinnost', state.detail.household.id, {
-        name: 'Nakúpiť', kind: 'nakup', icon: 'shopping', dueDate: todayYmd(), assignedTo: state.email, periodicity: 'none', items: [],
-      });
-      state.detail.cinnosti.push(c);
-      renderDetail({ quiet: true });
-    } catch (err) {
-      showError(err);
-      return;
-    }
+/** Pridávanie do nákupu (skratka ikony): spoločný nákupný zoznam – existujúci alebo nový. */
+function quickShop() {
+  newShoppingList();
+}
+
+// -------------------------------------------------------------------------
+// Nákupný zoznam: vytvorenie jedným ťuknutím a nákup v obchode na celú obrazovku
+// -------------------------------------------------------------------------
+
+/** Nákupy hore v sekcii „Nákup“: bez termínu, moje alebo spoločné (s termínom sú v kalendári). */
+function inShopSection(c) {
+  return c.kind === 'nakup' && !c.dueDate && (isMine(c) || !c.assignedTo);
+}
+
+function shopSectionHtml() {
+  const lists = state.detail.cinnosti
+    .filter(inShopSection)
+    .sort((a, b) => Number(b.assignedTo === ALL) - Number(a.assignedTo === ALL) || a.name.localeCompare(b.name, 'sk'));
+  // nákup s termínom, ktorý práve niekto nakupuje, patrí tiež sem
+  state.detail.cinnosti
+    .filter((c) => c.kind === 'nakup' && c.shoppingBy && !lists.includes(c))
+    .forEach((c) => lists.push(c));
+  let html = '<div class="section-title"><span class="ms">shopping_cart</span>Nákup</div>';
+  if (!lists.some((c) => c.assignedTo === ALL)) {
+    html +=
+      '<button type="button" class="shop-new" id="newShopBtn"><span class="ms">add_shopping_cart</span>' +
+      '<span class="shop-new-text"><b>Vytvoriť nákupný zoznam</b><small>pre všetkých – hneď píšeš položky alebo vyberáš z letáku</small></span>' +
+      '<span class="ms">chevron_right</span></button>';
   }
-  showTaskDetail(c.id);
-  const input = $('modalContent').querySelector('#itemInput');
-  if (input) input.focus();
+  html += lists.map((c) => taskCard(c, 'shop')).join('');
+  return html + '<div class="section-gap"></div>';
+}
+
+/** Spoločný nákupný zoznam: vytvorí ho (ostatní dostanú upozornenie) a hneď otvorí na písanie položiek. */
+async function newShoppingList() {
+  if (!state.detail) return;
+  try {
+    const c = await api('createShoppingList', state.detail.household.id);
+    const list = state.detail.cinnosti;
+    const index = list.findIndex((x) => x.id === c.id);
+    if (index === -1) {
+      list.push(c);
+      if (state.detail.members.length > 1) toast('Nákupný zoznam je pre všetkých – ostatní dostanú upozornenie');
+    } else {
+      list[index] = c;
+    }
+    renderDetail({ quiet: true });
+    showTaskDetail(c.id, { focus: true });
+  } catch (err) {
+    showError(err);
+  }
+}
+
+const shop = { root: null, id: null, wakeLock: null };
+
+/** Zahájiť nákup: zoznam na celú obrazovku (veľké položky); pri ďalšom otvorení appky sa ukáže sám. */
+async function startShopping(id) {
+  const c = state.detail.cinnosti.find((x) => x.id === id);
+  if (!c) return;
+  closeModal(true);
+  const before = { shoppingBy: c.shoppingBy, shoppingSince: c.shoppingSince };
+  c.shoppingBy = state.email;
+  openShoppingMode(id);
+  try {
+    const saved = await api('startShopping', id, true);
+    const current = state.detail && state.detail.cinnosti.find((x) => x.id === id);
+    if (current) Object.assign(current, { shoppingBy: saved.shoppingBy, shoppingSince: saved.shoppingSince });
+    saveSnapshot();
+  } catch (err) {
+    Object.assign(c, before);
+    if (!before.shoppingBy) delete c.shoppingBy;
+    closeShoppingMode();
+    showError(err);
+  }
+}
+
+/** Prerušiť nákup: zoznam ostáva tak, ako je (aj odškrtnuté), len sa už neotvára na celú obrazovku. */
+async function stopShopping(id) {
+  const c = state.detail && state.detail.cinnosti.find((x) => x.id === id);
+  closeShoppingMode();
+  if (!c) return;
+  delete c.shoppingBy;
+  delete c.shoppingSince;
+  renderDetail({ quiet: true });
+  try {
+    await api('startShopping', id, false);
+    saveSnapshot();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+/** Ukončiť nákup: uloží sa do Histórie (čo nemali, ostane pri opakovanom nákupe na budúce). */
+async function finishShopping(id, button) {
+  button.disabled = true;
+  try {
+    const res = await api('completeCinnost', id);
+    state.history = null;
+    const list = state.detail.cinnosti;
+    const index = list.findIndex((c) => c.id === id);
+    if (res.deleted) {
+      if (index !== -1) list.splice(index, 1);
+    } else if (index !== -1) {
+      list[index] = res.cinnost;
+    }
+    closeShoppingMode();
+    renderDetail();
+    toast('Nákup ukončený – uložený v Histórii');
+  } catch (err) {
+    button.disabled = false;
+    showError(err);
+  }
+}
+
+function openShoppingMode(id) {
+  if (!shop.root) {
+    shop.root = document.createElement('div');
+    shop.root.id = 'shopMode';
+    shop.root.className = 'shop-mode hidden';
+    document.body.appendChild(shop.root);
+  }
+  shop.id = id;
+  shop.root.innerHTML =
+    '<div class="shop-bar"><button class="icon-btn" id="shopHide" title="Skryť – nákup beží ďalej"><span class="ms">arrow_back</span></button>' +
+    '<div class="shop-title"><div id="shopName"></div><small id="shopSub"></small></div>' +
+    '<button type="button" class="btn text small" id="shopStop"><span class="ms">pause</span>Prerušiť</button></div>' +
+    '<div class="shop-progress"><span id="shopBar"></span></div>' +
+    '<div class="shop-body" id="shopBody"></div>' +
+    '<div class="shop-foot"><div class="field item-add shop-add"><input id="shopInput" maxlength="100" autocomplete="off" placeholder="Ešte niečo pridať…">' +
+    '<button type="button" class="btn tonal small" id="shopAdd" title="Pridať"><span class="ms">add</span></button></div>' +
+    '<button type="button" class="btn shop-finish" id="shopFinish"></button></div>';
+  shop.root.classList.remove('hidden');
+  document.body.classList.add('shop-open');
+  $('shopHide').onclick = closeShoppingMode;
+  $('shopStop').onclick = () => stopShopping(id);
+  $('shopFinish').onclick = (e) => {
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    const p = c ? itemProgress(c) : { done: 0, total: 0 };
+    if (p.total && p.done === p.total) return finishShopping(id, e.currentTarget);
+    toast(p.total ? 'Najprv odškrtni zvyšné položky, alebo daj „Nemali“' : 'Zoznam je prázdny');
+  };
+  const input = $('shopInput');
+  const add = async () => {
+    const c = state.detail.cinnosti.find((x) => x.id === id);
+    const text = input.value.trim();
+    if (!c || !text) return;
+    input.value = '';
+    try {
+      const item = await api('addItem', c.id, text, '');
+      c.items = [item].concat(c.items || []);
+      renderShoppingMode();
+      saveSnapshot();
+    } catch (err) {
+      input.value = text;
+      showError(err);
+    }
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      add();
+    }
+  });
+  $('shopAdd').onclick = add;
+  $('shopBody').onclick = (e) => {
+    const row = e.target.closest('[data-shop-item]');
+    const c = state.detail && state.detail.cinnosti.find((x) => x.id === id);
+    if (!row || !c) return;
+    if (e.target.dataset.preview) return showImagePreview(e.target.dataset.preview);
+    if (e.target.closest('[data-miss]')) return toggleMissingItem(c, row.dataset.shopItem, renderShoppingMode);
+    toggleChecklistItem(c, row.dataset.shopItem, renderShoppingMode);
+  };
+  keepScreenOn(true);
+  renderShoppingMode();
+}
+
+function closeShoppingMode() {
+  if (!shop.root || !shop.id) return;
+  shop.id = null;
+  shop.root.classList.add('hidden');
+  shop.root.innerHTML = '';
+  document.body.classList.remove('shop-open');
+  keepScreenOn(false);
+  if (state.detail) renderDetail({ quiet: true });
+}
+
+/** Displej v obchode nezhasne (kde to prehliadač vie). */
+async function keepScreenOn(on) {
+  try {
+    if (!on) {
+      if (shop.wakeLock) await shop.wakeLock.release();
+      shop.wakeLock = null;
+    } else if ('wakeLock' in navigator && !shop.wakeLock) {
+      shop.wakeLock = await navigator.wakeLock.request('screen');
+      shop.wakeLock.addEventListener('release', () => (shop.wakeLock = null));
+    }
+  } catch (e) {
+    shop.wakeLock = null;
+  }
+}
+
+/** Prekreslí zoznam nákupu (aj po zmenách od ostatných – nákup naživo). */
+function renderShoppingMode() {
+  if (!shop.id) return;
+  const c = state.detail && state.detail.cinnosti.find((x) => x.id === shop.id);
+  if (!c) {
+    closeShoppingMode();
+    toast('Nákup už je ukončený');
+    return;
+  }
+  if (!c.shoppingBy) {
+    // prerušil ho niekto iný (alebo na inom zariadení)
+    closeShoppingMode();
+    return;
+  }
+  const items = c.items || [];
+  const p = itemProgress(c);
+  const total = itemsTotal(c);
+  $('shopName').textContent = c.name + (c.store ? ' · ' + c.store : '');
+  $('shopSub').textContent =
+    (p.total ? p.done + ' z ' + p.total + ' vybavených' : 'Zatiaľ žiadne položky') + (total !== null ? ' · zostáva ~' + formatPrice(total) : '') +
+    (c.shoppingBy !== state.email ? ' · nakupuje ' + shortName(c.shoppingBy) : '');
+  $('shopBar').style.width = (p.total ? Math.round((100 * p.done) / p.total) : 0) + '%';
+  const row = (i) =>
+    '<button type="button" class="shop-item' + itemClass(i) + '" data-shop-item="' + esc(i.id) + '">' +
+    '<span class="ms shop-check">' + itemIcon(i) + '</span>' + thumbHtml(i) +
+    '<span class="shop-text">' + esc(i.text) + (i.qty || i.price ? '<small>' + qtyHtml(i) + '</small>' : '') + '</span>' +
+    '<span class="shop-miss' + (i.missing ? ' on' : '') + '" data-miss="1" title="' + (i.missing ? 'Zrušiť – predsa mali' : 'Nemali') + '">' +
+    '<span class="ms">remove_shopping_cart</span><span>Nemali</span></span></button>';
+  const open = items.filter((i) => !i.done && !i.missing);
+  const rest = items.filter((i) => i.missing).concat(items.filter((i) => i.done));
+  const groups = byDeptMode() ? groupByDept(open) : [['', open]];
+  $('shopBody').innerHTML = items.length
+    ? groups.map(([d, list]) => (d && groups.length > 1 ? deptHead(d) : '') + list.map(row).join('')).join('') +
+      (!open.length ? '<div class="shop-all"><span class="ms">task_alt</span>Všetko vybavené</div>' : '') +
+      (rest.length ? deptHead('Vybavené (' + rest.length + ')') + rest.map(row).join('') : '')
+    : '<div class="empty compact"><span class="ms">shopping_cart</span><div>Zoznam je prázdny – pridaj dole, čo treba kúpiť.</div></div>';
+  const all = p.total > 0 && p.done === p.total;
+  const finish = $('shopFinish');
+  finish.classList.toggle('ready', all);
+  finish.classList.toggle('pulse', all);
+  finish.innerHTML = all
+    ? '<span class="ms">check</span>Ukončiť nákup'
+    : '<span class="ms">shopping_cart</span>' + (p.total ? 'Zostáva ' + (p.total - p.done) + ' z ' + p.total : 'Zoznam je prázdny');
+}
+
+/** Prebieha môj nákup? Pri otvorení appky (aj návrate do nej) ma hneď hodí na jeho obrazovku. */
+function resumeShopping() {
+  if (!state.detail || shop.id || !canRefreshView() || document.body.classList.contains('lf-open')) return;
+  const c = state.detail.cinnosti.find((x) => x.kind === 'nakup' && x.shoppingBy === state.email);
+  if (c) openShoppingMode(c.id);
 }
 
 function renderCalendar(onlyMine) {
@@ -1214,7 +1470,7 @@ function taskCard(c, mode) {
   const info = [];
   if (c.pending) info.push(tag('schedule', 'Ukladá sa…'));
   if (mode === 'overdue') info.push(tag('warning', 'od ' + formatDateShort(c.dueDate), 'tag-danger'));
-  if (c.kind === 'nakup') info.push(tag('shopping_cart', c.store || 'Nákup'));
+  if (c.kind === 'nakup' && (mode !== 'shop' || c.store)) info.push(tag('shopping_cart', c.store || 'Nákup'));
   const progress = itemProgress(c);
   if (progress.total) {
     info.push(
@@ -1227,10 +1483,14 @@ function taskCard(c, mode) {
   if (c.kind === 'nakup') info.push(totalTag(c));
   if (c.priestorId) info.push(tag('location_on', priestorName(c.priestorId)));
   if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
-  if (mode === 'plan' || c.assignedTo === ALL) info.push(tag(assigneeIcon(c.assignedTo), shortName(c.assignedTo)));
+  if ((mode === 'plan' || c.assignedTo === ALL) && mode !== 'shop') info.push(tag(assigneeIcon(c.assignedTo), shortName(c.assignedTo)));
+  if (c.shoppingBy) info.unshift(tag('shopping_cart_checkout', c.shoppingBy === state.email ? 'nakupuješ' : 'nakupuje ' + shortName(c.shoppingBy), 'tag-ok'));
 
   const action =
-    mode === 'plan'
+    mode === 'shop'
+      ? '<button class="btn small" data-start-shop="' + esc(c.id) + '"><span class="ms">shopping_cart_checkout</span>' +
+        (c.shoppingBy === state.email ? 'Pokračovať' : 'Nakupovať') + '</button>'
+      : mode === 'plan'
       ? '<button class="icon-btn" title="Upraviť" data-edit-task="' + esc(c.id) + '">' +
         '<span class="ms">edit</span></button>'
       : '<button class="btn tonal small' + (progress.total && progress.done === progress.total ? ' pulse' : '') +
@@ -1349,7 +1609,7 @@ async function toggleChecklistItem(c, itemId, refresh) {
   delete item.missing;
   refresh();
   const p = itemProgress(c);
-  if (p.total && p.done === p.total) toast('Všetko vybavené – ťukni Hotové');
+  if (p.total && p.done === p.total) toast(shop.id ? 'Všetko vybavené – ťukni Ukončiť nákup' : 'Všetko vybavené – ťukni Hotové');
   try {
     const saved = await api('toggleItem', itemId, item.done);
     item.done = saved.done;
@@ -1372,7 +1632,7 @@ async function toggleMissingItem(c, itemId, refresh) {
   else delete item.missing;
   refresh();
   const p = itemProgress(c);
-  if (p.total && p.done === p.total) toast('Všetko vybavené – ťukni Hotové');
+  if (p.total && p.done === p.total) toast(shop.id ? 'Všetko vybavené – ťukni Ukončiť nákup' : 'Všetko vybavené – ťukni Hotové');
   try {
     await api('setItemMissing', itemId, missing);
     saveSnapshot();
@@ -1402,14 +1662,11 @@ function myOverdueTasks() {
 
 function renderRozpis() {
   const myTasks = state.detail.cinnosti.filter(isMine);
-  if (!myTasks.length) {
-    return (
-      '<div class="empty"><span class="ms">checklist</span><h2>Môj rozpis</h2>' +
-      '<div>Nemáš žiadne priradené činnosti</div></div>'
-    );
+  let html = shopSectionHtml();
+  if (!myTasks.some((c) => !inShopSection(c))) {
+    return html + '<div class="empty compact"><span class="ms">checklist</span><div>Nemáš žiadne priradené činnosti</div></div>';
   }
 
-  let html = '';
   const overdue = myOverdueTasks();
   if (overdue.length) {
     html +=
@@ -1434,7 +1691,8 @@ function renderRozpis() {
 
 /** Činnosti bez termínu („niekedy treba urobiť“) – pod úlohami dňa. */
 function noDateSection(list, mode) {
-  const someday = list.filter((c) => !c.dueDate).sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+  // nákupy bez termínu sú hore v sekcii „Nákup“
+  const someday = list.filter((c) => !c.dueDate && !inShopSection(c)).sort((a, b) => a.name.localeCompare(b.name, 'sk'));
   if (!someday.length) return '';
   return (
     '<div class="section-gap"></div><div class="section-title"><span class="ms">event_busy</span>Bez termínu (' + someday.length + ')</div>' +
@@ -1552,7 +1810,7 @@ function renderPlanovanie() {
   const tasks =
     state.selectedUser === null ? all : all.filter((c) => c.assignedTo === state.selectedUser);
 
-  let html = '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
+  let html = shopSectionHtml() + '<div class="section-title">' + formatDateLong(state.selectedDate) + '</div>';
   if (users.length > 1) {
     html +=
       '<div class="chips"><button class="chip' + (state.selectedUser === null ? ' active' : '') +
@@ -1631,6 +1889,13 @@ function bindDetailEvents() {
     el.onclick = () => showTaskDetail(el.dataset.openTask);
   });
   if ($('addTaskBtn')) $('addTaskBtn').onclick = showKindStep;
+  if ($('newShopBtn')) $('newShopBtn').onclick = newShoppingList;
+  view.querySelectorAll('[data-start-shop]').forEach((el) => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      startShopping(el.dataset.startShop);
+    };
+  });
 }
 
 /** Ťuknutie na položku v karte: odškrtnúť, „nemali“, alebo zväčšiť obrázok. */
@@ -2782,7 +3047,8 @@ function missHtml(c, i) {
 
 const itemClass = (i) => (i.done ? ' done' : i.missing ? ' missing' : '');
 
-function showTaskDetail(id) {
+/** opts.focus: hneď písať položky (nový nákupný zoznam). */
+function showTaskDetail(id, opts) {
   const c = state.detail.cinnosti.find((x) => x.id === id);
   if (!c) return;
   const shopping = c.kind === 'nakup';
@@ -2797,21 +3063,31 @@ function showTaskDetail(id) {
     '<h2>' + esc(c.name) + '</h2>' +
       '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
       (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
+      (c.shoppingBy && c.shoppingBy !== state.email
+        ? '<div class="shop-note"><span class="ms">shopping_cart_checkout</span>' + esc(shortName(c.shoppingBy)) + ' práve nakupuje – čo pridáš, hneď uvidí.</div>'
+        : '') +
       '<div class="field"><div class="check-head"><label id="checkLabel"></label>' +
       (shopping ? '<button type="button" class="chip small hidden" id="sortMode"></button>' : '') + '</div>' +
       '<div class="item-add">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" placeholder="' +
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
-      '<div class="suggest hidden" id="itemSuggest"></div><div class="checklist" id="checklist"></div></div>' +
+      '<div class="suggest hidden" id="itemSuggest"></div>' +
+      (shopping
+        ? '<div class="shop-tools"><button type="button" class="btn tonal small" id="leaflets"><span class="ms">newspaper</span>Vybrať z letáku</button></div>'
+        : '') +
+      '<div class="checklist" id="checklist"></div></div>' +
       '<div class="field comments"><label><span class="ms">chat</span>Komentáre</label><div id="commentList"><div class="hint">Načítavam…</div></div>' +
       '<div class="item-add"><input id="commentInput" maxlength="500" autocomplete="off" placeholder="Napíš komentár pre ostatných…">' +
       '<button type="button" class="btn tonal small" id="commentSend" title="Poslať"><span class="ms">send</span></button></div></div>' +
       '<div class="actions">' +
       '<button type="button" class="btn text" id="edit"><span class="ms">edit</span>Upraviť</button>' +
-      (shopping ? '<button type="button" class="btn text" id="leaflets"><span class="ms">newspaper</span>Leták</button>' : '') +
       '<button type="button" class="btn text" id="cancel" style="margin-left:auto">Zavrieť</button>' +
-      '<button type="button" class="btn" id="done"><span class="ms">check</span>Hotové</button></div>',
+      (shopping
+        ? '<button type="button" class="btn" id="startShop"><span class="ms">shopping_cart_checkout</span>' +
+          (c.shoppingBy === state.email ? 'Pokračovať v nákupe' : 'Zahájiť nákup') + '</button>'
+        : '<button type="button" class="btn" id="done"><span class="ms">check</span>Hotové</button>') +
+      '</div>',
     (root) => {
       const listEl = root.querySelector('#checklist');
       const input = root.querySelector('#itemInput');
@@ -2841,7 +3117,8 @@ function showTaskDetail(id) {
           ? groups.map(([d, list]) => (byDept && groups.length > 1 ? deptHead(d) : '') + list.map(row).join('')).join('') +
             (rest.length && byDept ? deptHead('Vybavené') : '') + rest.map(row).join('')
           : '<div class="hint">Zatiaľ žiadne položky.</div>';
-        root.querySelector('#done').classList.toggle('pulse', p.total > 0 && p.done === p.total);
+        const main = root.querySelector('#done') || root.querySelector('#startShop');
+        main.classList.toggle('pulse', !shopping && p.total > 0 && p.done === p.total);
         if (shopping) loadOffersFor(items.filter(open), renderList);
         listEl.querySelectorAll('[data-item]').forEach((b) => {
           b.onclick = (e) => {
@@ -2977,11 +3254,15 @@ function showTaskDetail(id) {
       if (shopping) {
         root.querySelector('#leaflets').onclick = () => {
           closeModal(true);
-          openLeaflets({ taskId: c.id });
+          // po zatvorení letákov sa vráti sem, k zoznamu
+          openLeaflets({ taskId: c.id, store: c.store, returnTo: c.id });
         };
+        root.querySelector('#startShop').onclick = () => startShopping(c.id);
+      } else {
+        root.querySelector('#done').onclick = (e) => confirmComplete(c.id, e.currentTarget);
       }
-      root.querySelector('#done').onclick = (e) => confirmComplete(c.id, e.currentTarget);
       renderList();
+      if (opts && opts.focus) input.focus();
     },
     { focus: false, onClose: () => state.detail && renderDetail() }
   );
@@ -3773,7 +4054,11 @@ async function autoRefresh(force) {
 
 setInterval(autoRefresh, AUTO_REFRESH_MS);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) autoRefresh(true);
+  if (document.hidden) return;
+  autoRefresh(true);
+  // návrat do appky počas nákupu: rovno na jeho obrazovku (a displej znova nezhasína)
+  if (shop.id) keepScreenOn(true);
+  else resumeShopping();
 });
 
 if ('serviceWorker' in navigator) {

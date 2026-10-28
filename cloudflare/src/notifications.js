@@ -180,6 +180,101 @@ export async function notifyComment(c, cinnost, text) {
   else await work;
 }
 
+// ---- Nákupný zoznam --------------------------------------------------------------
+
+const SHOP_NOTIFY_DELAY_MS = 15000; // upozornenie odíde, keď autor 15 s nič nepridá
+const SHOP_WINDOW_MS = 30 * 60 * 1000; // staršie položky (bez upozornenia) sa už neoznamujú
+
+/** Kľúč v config: kedy naposledy odišlo upozornenie o položkách, ktoré do nákupu pridal email. */
+export const shopKey = (cinnostId, email) => 'shop:' + cinnostId + ':' + email;
+export const shopKeyPattern = (cinnostId) => 'shop:' + cinnostId + ':%';
+
+/** Komu ide upozornenie o nákupe: všetkým členom okrem autora (pri nákupe pre jedného len jemu). */
+async function shoppingRecipients(c, cinnost) {
+  const assignedTo = cinnost.assigned_to ?? cinnost.assignedTo;
+  const everyone = !assignedTo || assignedTo === ALL;
+  const { results } = await c.db
+    .prepare('SELECT email FROM members WHERE household_id = ? AND email <> ? AND (? OR email = ?)')
+    .bind(cinnost.household_id ?? cinnost.householdId, c.email, everyone ? 1 : 0, assignedTo)
+    .all();
+  return results.map((m) => m.email);
+}
+
+const shopUrl = (cinnostId) => '/gazda/?nakup=' + encodeURIComponent(cinnostId);
+
+/**
+ * Nový nákupný zoznam alebo nové položky v ňom: ostatní dostanú jedno upozornenie so
+ * všetkým, čo autor pridal – až keď 15 s nič ďalšie nepridá (nie pri každej položke).
+ * Volá sa po každom pridaní; neskoršie volanie pošle aj položky tých skorších.
+ */
+export async function notifyShopping(c, cinnostId) {
+  const since = nowIso();
+  const delay = Number(c.env && c.env.SHOP_NOTIFY_DELAY_MS !== undefined ? c.env.SHOP_NOTIFY_DELAY_MS : SHOP_NOTIFY_DELAY_MS);
+  const key = shopKey(cinnostId, c.email);
+  const work = (async () => {
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    const [task, newer, mark] = await c.db.batch([
+      c.db.prepare('SELECT * FROM cinnosti WHERE id = ?').bind(cinnostId),
+      c.db.prepare('SELECT 1 FROM polozky WHERE cinnost_id = ? AND created_by = ? AND created_at > ? LIMIT 1').bind(cinnostId, c.email, since),
+      c.db.prepare('SELECT value FROM config WHERE key = ?').bind(key),
+    ]);
+    const cinnost = task.results[0];
+    // zmazaný nákup, alebo autor ešte pridáva – upozornenie pošle jeho ďalšie volanie
+    if (!cinnost || newer.results.length) return;
+    const last = mark.results[0] ? mark.results[0].value : null;
+    const isNew = last === ''; // zoznam práve vytvorený, ostatní o ňom ešte nevedia
+    const windowStart = new Date(Date.now() - SHOP_WINDOW_MS).toISOString();
+    const from = last && last > windowStart ? last : windowStart;
+    const { results: items } = await c.db
+      .prepare('SELECT text, qty, created_at FROM polozky WHERE cinnost_id = ? AND created_by = ? AND created_at > ? ORDER BY created_at, rowid')
+      .bind(cinnostId, c.email, from)
+      .all();
+    if (!items.length && !isNew) return;
+    // značka = posledná oznámená položka (čo pribudne medzičasom, oznámi ďalšie volanie)
+    await setConfig(c.db, key, items.length ? items[items.length - 1].created_at : since);
+
+    const name = await displayName(c.db, c.email);
+    const lines = items.slice(0, 30).map((i) => '☐ ' + i.text + (i.qty ? ' – ' + i.qty : ''));
+    if (items.length > 30) lines.push('… a ďalších ' + (items.length - 30));
+    let title;
+    if (isNew) {
+      const household = await c.db.prepare('SELECT name FROM households WHERE id = ?').bind(cinnost.household_id).first();
+      title = '🛒 ' + name + ': nový nákupný zoznam';
+      if (!lines.length) lines.push('Pridaj, čo treba kúpiť.');
+      if (household) lines.unshift(household.name);
+    } else {
+      title = '🛒 ' + name + ' pridáva do nákupu' + (cinnost.name !== 'Nákup' ? ' „' + cinnost.name + '“' : '');
+    }
+    const message = { title, body: lines.join('\n'), tag: 'shop-' + cinnostId, app: 'gazda', url: shopUrl(cinnostId) };
+    const recipients = await shoppingRecipients(c, cinnost);
+    if (!recipients.length) return;
+    const ctx = await pushContext(c.db, recipients);
+    for (const email of recipients) await sendToUser(c.db, email, message, ctx);
+  })().catch((err) => console.warn('Upozornenie o nákupe sa nepodarilo odoslať: ' + err));
+  if (c.waitUntil) c.waitUntil(work);
+  else await work;
+}
+
+/** Niekto začal nakupovať – ostatní môžu ešte rýchlo doplniť, čo treba (cinnost ako ju vracia API). */
+export async function notifyShoppingStarted(c, cinnost) {
+  const work = (async () => {
+    const open = (cinnost.items || []).filter((i) => !i.done && !i.missing).length;
+    const message = {
+      title: '🛒 ' + (await displayName(c.db, c.email)) + ' nakupuje' + (cinnost.name !== 'Nákup' ? ': ' + cinnost.name : ''),
+      body: (open ? 'Na zozname: ' + open + '. ' : '') + 'Ak ešte niečo treba, pridaj to hneď.',
+      tag: 'shop-start-' + cinnost.id,
+      app: 'gazda',
+      url: shopUrl(cinnost.id),
+    };
+    const recipients = await shoppingRecipients(c, cinnost);
+    if (!recipients.length) return;
+    const ctx = await pushContext(c.db, recipients);
+    for (const email of recipients) await sendToUser(c.db, email, message, ctx);
+  })().catch((err) => console.warn('Upozornenie o nákupe sa nepodarilo odoslať: ' + err));
+  if (c.waitUntil) c.waitUntil(work);
+  else await work;
+}
+
 // ---- Ranný prehľad --------------------------------------------------------------
 
 function localHour(date) {

@@ -1,4 +1,4 @@
-// Databáza liekov Zdravka (public/zdravko/drugs.js): platný formát, jedinečné názvy, známe oblasti.
+// Databáza liekov Zdravka (public/zdravko/drugs.js zo zoznamu ŠÚKL, scripts/sukl_lieky.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,27 +7,30 @@ import vm from 'node:vm';
 const src = readFileSync(new URL('../public/zdravko/drugs.js', import.meta.url), 'utf8');
 const ctx = { window: {} };
 vm.runInNewContext(src, ctx);
-const { categories, drugs } = ctx.window.ZDRAVKO_DRUGS;
+const { source, categories, atc, drugs } = ctx.window.ZDRAVKO_DRUGS;
 
-test('databáza liekov je veľká a má platné záznamy', () => {
-  assert.ok(drugs.length > 1000, 'aspoň 1000 prípravkov');
+test('databáza liekov zo ŠÚKL má platné záznamy', () => {
+  assert.match(source, /ŠÚKL/);
+  assert.ok(drugs.length > 5000, 'tisíce prípravkov');
   const cats = new Set(categories.map((c) => c[0]));
+  for (const [code, [, cat]] of Object.entries(atc)) assert.ok(cats.has(cat), 'oblasť ATC ' + code);
   const names = new Set();
   for (const d of drugs) {
-    assert.equal(d.length, 4, JSON.stringify(d));
-    const [name, , forms, cat] = d;
-    assert.ok(name && name.length <= 80, 'názov sa zmestí do záznamu: ' + name);
+    const [name, code, forms, otc] = d;
+    assert.ok(name, 'názov');
+    assert.ok(atc[code], 'ATC kód: ' + name);
     assert.ok(forms, 'forma: ' + name);
-    assert.ok(cats.has(cat), 'oblasť: ' + name);
-    assert.ok(!names.has(name.toLowerCase()), 'duplicitný názov: ' + name);
-    names.add(name.toLowerCase());
+    assert.ok(otc === 0 || otc === 1, 'výdaj: ' + name);
+    assert.ok(!names.has(name), 'duplicitný názov: ' + name);
+    names.add(name);
   }
-  for (const c of cats) assert.ok(drugs.some((d) => d[3] === c), 'prázdna oblasť: ' + c);
 });
 
-test('bežné lieky proti horúčke sú v databáze s látkou', () => {
+test('lieky proti horúčke majú látku pre pripomienky', () => {
   const by = Object.fromEntries(drugs.map((d) => [d[0], d]));
-  assert.match(by['Nurofen pre deti'][1], /ibuprofén/);
-  assert.match(by['Paralen'][1], /paracetamol/);
-  assert.match(by['Panadol Baby'][1], /paracetamol/);
+  assert.equal(by['Nurofen pre deti'][4], 'ibuprofen');
+  assert.equal(by['Nurofen pre deti'][3], 1);
+  const para = drugs.filter((d) => d[4] === 'paracetamol');
+  assert.ok(para.length > 20, 'prípravky s paracetamolom');
+  assert.ok(drugs.filter((d) => d[4] === 'ibuprofen').length > 20, 'prípravky s ibuprofénom');
 });

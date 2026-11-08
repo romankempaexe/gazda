@@ -143,22 +143,55 @@
 
   // ---- Databáza liekov (drugs.js) ---------------------------------------------------------------
 
-  const DRUGS = window.ZDRAVKO_DRUGS || { categories: [], drugs: [] };
-  const DRUG_CATS = Object.fromEntries(DRUGS.categories.map(([id, name, icon]) => [id, { name, icon }]));
+  // Zoznam registrovaných liekov ŠÚKL (≈ 1 MB) sa načíta až pri otvorení karty Lieky alebo hľadaní lieku.
+  let DRUGS = null;
+  let DRUG_CATS = {};
+  let drugsLoading = null;
+  function loadDrugs() {
+    if (DRUGS) return Promise.resolve(DRUGS);
+    if (!drugsLoading) {
+      drugsLoading = new Promise((resolve, reject) => {
+        const done = () => {
+          if (!window.ZDRAVKO_DRUGS) return reject(new Error('Databázu liekov sa nepodarilo načítať.'));
+          DRUGS = window.ZDRAVKO_DRUGS;
+          DRUG_CATS = Object.fromEntries(DRUGS.categories.map(([id, name, icon]) => [id, { name, icon }]));
+          resolve(DRUGS);
+        };
+        if (window.ZDRAVKO_DRUGS) return done();
+        const el = document.createElement('script');
+        el.src = '/zdravko/drugs.js';
+        el.onload = done;
+        el.onerror = () => {
+          drugsLoading = null;
+          el.remove();
+          reject(new Error('Databázu liekov sa nepodarilo načítať. Skontroluj pripojenie na internet.'));
+        };
+        document.head.appendChild(el);
+      });
+    }
+    return drugsLoading;
+  }
   /** Malé písmená bez diakritiky – hľadá sa aj „paralen“, „ucinna latka“. */
-  const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   let drugIndex = null;
+  /** Prípravky: { name, atc, subs (látka podľa ATC), cat, forms: [[forma, sily]], otc, sid }. */
   function drugList() {
+    if (!DRUGS) return [];
     if (!drugIndex) {
-      drugIndex = DRUGS.drugs
-        .map(([name, subs, forms, cat]) => ({ name, subs, forms, cat, fname: fold(name), fall: fold(name + ' ' + subs + ' ' + forms) }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'sk'));
+      drugIndex = DRUGS.drugs.map(([name, atc, forms, otc, sid]) => {
+        const [subs, cat] = DRUGS.atc[atc] || ['', 'other'];
+        const list = forms.split('|').filter(Boolean).map((f) => {
+          const i = f.indexOf(':');
+          return i < 0 ? [f, ''] : [f.slice(0, i), f.slice(i + 1)];
+        });
+        return { name, atc, subs, cat, forms: list, otc: Boolean(otc), sid: sid || '', fname: fold(name), fall: fold(name + ' ' + subs + ' ' + atc + ' ' + forms) };
+      });
     }
     return drugIndex;
   }
   const drugByName = (name) => drugList().find((d) => d.name === name);
 
-  /** Hľadanie v názve, účinnej látke aj forme; najprv tie, ktorých názov začína hľadaným slovom. */
+  /** Hľadanie v názve, účinnej látke, ATC kóde aj forme; najprv tie, ktorých názov začína hľadaným slovom. */
   function searchDrugs(q, cat) {
     const words = fold(q).trim().split(/\s+/).filter(Boolean);
     const hits = drugList().filter((d) => (!cat || d.cat === cat) && words.every((w) => d.fall.includes(w)));
@@ -167,16 +200,10 @@
     return hits.map((d, i) => [rank(d), i, d]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
   }
 
-  /** Látka pre pripomienky striedania liekov proti horúčke (aj pre kombinované prípravky). */
-  function drugSubstanceId(d) {
-    if (!d) return '';
-    if (/ibuprofén/.test(d.subs)) return 'ibuprofen';
-    if (/paracetamol/.test(d.subs)) return 'paracetamol';
-    if (/^kyselina acetylsalicylová/.test(d.subs)) return 'acetylsalicylic_acid';
-    return '';
-  }
+  /** Látka pre pripomienky striedania liekov proti horúčke (ibuprofén, paracetamol aj v kombináciách). */
+  const drugSubstanceId = (d) => (d ? d.sid : '');
 
-  const drugForms = (d) => d.forms.split(';').map((x) => x.trim()).filter(Boolean);
+  const drugForms = (d) => d.forms.map(([f, sily]) => f + (sily ? ' – ' + sily : ''));
 
   // ---- Navigácia ------------------------------------------------------------------------------
 
@@ -431,17 +458,24 @@
   /** Karta „Lieky“: hľadanie podľa názvu alebo účinnej látky, filter podľa oblasti, detail lieku. */
   function renderDrugs() {
     fab('');
+    if (!DRUGS) {
+      $('view').innerHTML = '<div class="center muted">Načítavam databázu liekov…</div>';
+      loadDrugs()
+        .then(() => S.view.name === 'home' && S.view.tab === 'drugs' && renderDrugs())
+        .catch((err) => ($('view').innerHTML = '<div class="empty"><span class="ms">warning</span><div>' + esc(err.message) + '</div></div>'));
+      return;
+    }
     const st = S.drugs || (S.drugs = { q: '', cat: '', shown: DRUG_PAGE });
     const total = drugList().length;
     $('view').innerHTML =
-      '<div class="page-head"><h2>Databáza liekov</h2><p>' + plural(total, 'prípravok', 'prípravky', 'prípravkov') + ' – hľadaj podľa názvu alebo účinnej látky</p></div>' +
+      '<div class="page-head"><h2>Databáza liekov</h2><p>' + plural(total, 'prípravok', 'prípravky', 'prípravkov') + ' zo zoznamu ŠÚKL – hľadaj podľa názvu, účinnej látky alebo ATC kódu</p></div>' +
       '<div class="field zd-drug-search"><span class="ms">search</span><input type="search" id="drugQ" placeholder="napr. Nurofen, ibuprofén, sirup…" autocomplete="off" value="' + esc(st.q) + '"></div>' +
       '<div class="chips zd-drug-cats">' +
       [['', 'Všetko', 'apps'], ...DRUGS.categories]
         .map(([id, name, icon]) => '<button type="button" class="chip' + (id === st.cat ? ' active' : '') + '" data-cat="' + esc(id) + '"><span class="ms">' + icon + '</span>' + esc(name) + '</button>')
         .join('') +
       '</div><div id="drugRes"></div>' +
-      '<div class="grid-note">Len na vyhľadanie a zápis podaného lieku. Dávkovanie a upozornenia vždy podľa príbalového letáku, lekára alebo lekárnika.</div>';
+      '<div class="grid-note">Zdroj: ' + esc(DRUGS.source) + '. Len na vyhľadanie a zápis podaného lieku – dávkovanie a upozornenia vždy podľa príbalového letáku, lekára alebo lekárnika.</div>';
     const results = () => {
       const hits = searchDrugs(st.q, st.cat);
       const box = $('drugRes');
@@ -478,7 +512,7 @@
     return (
       '<div class="card zd-drug" data-drug="' + esc(d.name) + '"><div class="zd-drug-icon"><span class="ms">' + cat.icon + '</span></div>' +
       '<div class="card-body"><div class="card-title">' + esc(d.name) + '</div>' +
-      (d.subs ? '<div class="card-sub">' + esc(d.subs) + '</div>' : '') +
+      '<div class="card-sub">' + esc(d.subs || d.atc) + (d.otc ? ' · <span class="zd-otc">bez predpisu</span>' : '') + '</div>' +
       '<div class="zd-drug-forms">' + esc(drugForms(d).join(' · ')) + '</div></div><span class="ms zd-go">chevron_right</span></div>'
     );
   }
@@ -487,17 +521,18 @@
   function drugDetail(d) {
     if (!d) return;
     const cat = DRUG_CATS[d.cat] || { name: '', icon: 'medication' };
-    const same = d.subs ? drugList().filter((x) => x !== d && x.subs === d.subs).slice(0, 16) : [];
+    const same = drugList().filter((x) => x !== d && x.atc === d.atc);
     const members = (S.data && S.data.members) || [];
     openModal(
       '<h2>' + esc(d.name) + '</h2>' +
         '<div class="zd-drug-detail">' +
-        (d.subs ? '<div><span class="muted">Účinná látka</span><b>' + esc(d.subs) + '</b></div>' : '') +
+        '<div><span class="muted">Účinná látka (ATC ' + esc(d.atc) + ')</span><b>' + esc(d.subs || '–') + '</b></div>' +
+        '<div><span class="muted">Výdaj</span><b>' + (d.otc ? 'Aj bez lekárskeho predpisu' : 'Na lekársky predpis') + '</b></div>' +
         '<div><span class="muted">Oblasť</span><b><span class="ms">' + cat.icon + '</span>' + esc(cat.name) + '</b></div>' +
         '<div><span class="muted">Liekové formy a sily</span><ul>' + drugForms(d).map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>' +
         (same.length
-          ? '<div><span class="muted">Rovnaká účinná látka</span><div class="chips wrap">' +
-            same.map((x) => '<button type="button" class="chip" data-same="' + esc(x.name) + '">' + esc(x.name) + '</button>').join('') + '</div></div>'
+          ? '<div><span class="muted">Rovnaká účinná látka (' + same.length + ')</span><div class="chips wrap">' +
+            same.slice(0, 24).map((x) => '<button type="button" class="chip" data-same="' + esc(x.name) + '">' + esc(x.name) + '</button>').join('') + '</div></div>'
           : '') +
         '</div>' +
         '<div class="hint"><span class="ms">info</span> Dávkovanie a upozornenia podľa príbalového letáku alebo lekára.</div>' +
@@ -807,7 +842,7 @@
         // liek
         '<div class="zd-part" id="partMed"><div class="zd-part-head"><span class="ms">medication</span>Liek</div>' +
         '<div class="chips wrap zd-meds-pick">' + options.map(([id, name]) => '<button type="button" class="chip" data-med="' + esc(id) + '">' + esc(name) + '</button>').join('') + '</div>' +
-        '<div class="field zd-med-search"><span class="ms">search</span><input type="search" name="medSearch" placeholder="Hľadať v databáze liekov (' + drugList().length + ')…" autocomplete="off"></div>' +
+        '<div class="field zd-med-search"><span class="ms">search</span><input type="search" name="medSearch" placeholder="Hľadať v databáze liekov ŠÚKL…" autocomplete="off"></div>' +
         '<div class="zd-med-found" id="medFound"></div>' +
         '<input name="medName" class="hidden" placeholder="Názov lieku" maxlength="80" style="margin:-4px 0 12px">' +
         '<div id="medHint"></div>' +
@@ -830,7 +865,12 @@
           !choice ? '' : choice === 'other' ? f.medName.value.trim() : choice.startsWith('name:') ? choice.slice(5) : subs.find((x) => x.id === choice).name;
         const test = (c) => (r) => r.type === 'medicine' && (c.startsWith('name:') ? r.medicineName === c.slice(5) : r.substanceId === c);
         // látka pre pripomienky (základný liek alebo prípravok z databázy, napr. Nurofen → ibuprofen)
-        const sidOf = (c, name) => (!c ? '' : subs.some((x) => x.id === c) ? c : drugSubstanceId(drugByName(name)));
+        const sidOf = (c, name) => {
+          if (!c) return '';
+          if (subs.some((x) => x.id === c)) return c;
+          const prev = recordsOf(m.id).filter((r) => r.type === 'medicine' && r.medicineName === name && r.substanceId).pop();
+          return drugSubstanceId(drugByName(name)) || (prev ? prev.substanceId : '');
+        };
 
         const show = () => {
           const t = tempValue();
@@ -912,8 +952,13 @@
         };
         const found = root.querySelector('#medFound');
         let hits = [];
+        loadDrugs().catch(() => {}); // vopred, kým človek píše
         f.medSearch.oninput = () => {
           const q = f.medSearch.value.trim();
+          if (!DRUGS && q.length >= 2) {
+            found.innerHTML = '<div class="muted">Načítavam databázu liekov…</div>';
+            return loadDrugs().then(() => f.medSearch.oninput(), (err) => (found.innerHTML = '<div class="muted">' + esc(err.message) + '</div>'));
+          }
           hits = q.length < 2 ? [] : searchDrugs(q).slice(0, 8);
           found.innerHTML = q.length < 2 ? '' : hits.length
             ? hits.map((d, i) => '<button type="button" data-hit="' + i + '"><b>' + esc(d.name) + '</b><span>' + esc(d.subs || drugForms(d)[0] || '') + '</span></button>').join('')

@@ -765,3 +765,7 @@ button.zd-last-card {
   vertical-align: -4px;
   margin-right: 4px;
 }
+.zd-otc {
+  color: #15803d;
+  font-weight: 600;
+}

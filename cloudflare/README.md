@@ -168,7 +168,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   ibuprofen/paracetamol smie podať znova (6 h); časová os záznamov. Jeden záznam = teplota,
   liek a fyzikálna metóda naraz (ako v mobilnom), čas sa dá posunúť (−10 / −30 min).
 - **Kalendár:** celý mesiac naraz ako v mobilnom Zdravkovi (týždeň od pondelka, bodky podľa druhu udalosti a červená za chorobu, potiahnutím iný mesiac); návštevy lekára, vyšetrenia a očkovania (podtypy z mobilného Zdravka),
-  pripomienky týždeň / deň / hodinu pred **všetkým v rodine**, cena, poznámky. Do kalendára
+  pripomienka deň vopred **všetkým v rodine** (vo formulári sa nevyberá), poznámky. Do kalendára
   v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
   prihlasovania a bez duplikátov ako v mobilnom.
 - **Dávkovanie:** kalkulačka liekov na teplotu podľa tabuliek MUDr. Moravčíkovej

@@ -3,7 +3,8 @@
 // Aplikácia si načíta údaje rodiny naraz (getData); zmeny posiela po jednej.
 //
 // Upozornenia: nová udalosť a podaný liek hneď ostatným členom rodiny, pripomienky udalostí
-// (týždeň / deň / hodinu pred) a striedanie liekov proti horúčke (o 4 h iný, o 8 h ten istý)
+// (týždeň / deň / hodinu pred) a lieky proti horúčke podľa MUDr. Moravčíkovej (ten istý najskôr o 6 h,
+// pri teplote nad 39 °C o 4 h ten druhý)
 // sa zapíšu do zdravko_reminders a pošle ich cron.
 
 import { requireFamilyMember } from '../family.js';
@@ -241,7 +242,8 @@ export async function addRecords(c, memberId, data) {
     const cols = Object.keys(r);
     return c.db.prepare(`INSERT INTO zdravko_records (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).bind(...cols.map((k) => r[k]));
   });
-  // Liek proti horúčke: o 4 h sa smie podať ten druhý, o 8 h znova ten istý (staré pripomienky nahradí).
+  // Liek proti horúčke (drmoravcikova.sk/teplota-u-dietata): ten istý najskôr o 6 h; ak počas 6 h vystúpi
+  // teplota nad 39 °C, o 4 h sa smie podať ten druhý (staré pripomienky nahradí).
   if (medicine && ANTIPYRETICS[medicine.substance_id]) {
     const same = ANTIPYRETICS[medicine.substance_id];
     const other = medicine.substance_id === 'ibuprofen' ? 'Paracetamol' : 'Ibuprofen';
@@ -249,15 +251,15 @@ export async function addRecords(c, memberId, data) {
     statements.push(
       c.db
         .prepare(
-          `DELETE FROM zdravko_reminders WHERE sent_at = '' AND kind IN ('alt_4h', 'alt_8h')
+          `DELETE FROM zdravko_reminders WHERE sent_at = '' AND kind IN ('alt_4h', 'alt_6h', 'alt_8h')
            AND record_id IN (SELECT id FROM zdravko_records WHERE member_id = ?)`
         )
         .bind(m.id)
     );
     const add = c.db.prepare('INSERT INTO zdravko_reminders (household_id, record_id, kind, fire_at, title, body) VALUES (?, ?, ?, ?, ?, ?)');
     for (const [kind, hours, title, body] of [
-      ['alt_4h', 4, '💊 ' + m.name + ': môžeš podať ' + other, '4 hodiny od ' + same + ' (' + localTime(recordedAt) + ')'],
-      ['alt_8h', 8, '💊 ' + m.name + ': znova ' + same, '8 hodín od posledného podania ' + same + ' (' + localTime(recordedAt) + ')'],
+      ['alt_4h', 4, '🌡️ ' + m.name + ': nad 39 °C môžeš podať ' + other, '4 hodiny od ' + same + ' (' + localTime(recordedAt) + ') – len ak teplota vystúpila nad 39 °C'],
+      ['alt_6h', 6, '💊 ' + m.name + ': ' + same + ' sa už smie znova', '6 hodín od posledného podania ' + same + ' (' + localTime(recordedAt) + ')'],
     ]) {
       const fire = given + hours * 3600000;
       if (fire > Date.now()) statements.push(add.bind(m.household_id, medicine.id, kind, new Date(fire).toISOString(), title, body));

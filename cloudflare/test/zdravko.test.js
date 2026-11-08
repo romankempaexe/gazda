@@ -49,14 +49,16 @@ test('záznamy choroby: teplota + liek + metóda naraz, striedanie liekov', asyn
   assert.deepEqual(recs.map((r) => r.type), ['temperature', 'medicine', 'rest']);
   assert.equal(recs[0].temperature, 38.6);
   const rem = (await t.env.DB.prepare('SELECT kind, title FROM zdravko_reminders ORDER BY fire_at').all()).results;
-  assert.deepEqual(rem.map((r) => r.kind), ['alt_4h', 'alt_8h']);
-  assert.match(rem[0].title, /Anička: môžeš podať Paracetamol/);
+  assert.deepEqual(rem.map((r) => r.kind), ['alt_4h', 'alt_6h']);
+  assert.match(rem[0].title, /Anička: nad 39 °C môžeš podať Paracetamol/);
+  assert.match(rem[1].title, /Anička: Ibuprofen sa už smie znova/);
 
   // ďalší liek nahradí čakajúce pripomienky
   await api.addRecords(m.id, { recordedAt: new Date().toISOString(), medicine: { name: 'Paracetamol', substanceId: 'paracetamol' } });
   const rem2 = (await t.env.DB.prepare('SELECT title FROM zdravko_reminders ORDER BY fire_at').all()).results;
   assert.equal(rem2.length, 2);
   assert.match(rem2[0].title, /môžeš podať Ibuprofen/);
+  assert.match(rem2[1].title, /Paracetamol sa už smie znova/);
 
   await assert.rejects(api.addRecords(m.id, { recordedAt: given }), /Zadaj teplotu/);
   await assert.rejects(api.addRecords(m.id, { recordedAt: given, temperature: 50 }), /30 a 45/);

@@ -5,7 +5,7 @@
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v10';
+const CACHE = 'family-grid-v11';
 const APPS = ['family', 'gazda', 'zdravko', 'skladko', 'quickstash', 'financie'];
 const SHELL = [
   '/',
@@ -23,6 +23,8 @@ const SHELL = [
   '/zdravko/',
   '/zdravko/app.js',
   '/zdravko/data.js',
+  '/zdravko/drugs.js',
+  '/zdravko/fever.js',
   '/zdravko/zdravko.css',
   '/quickstash/',
   '/quickstash/app.js',

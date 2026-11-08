@@ -165,19 +165,38 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   plávajúce tlačidlo **Pridať záznam** vpravo dole: teplota (uloží sa, len keď ju zmeníš −/+ / čipom), pod ňou liek (len keď ho vyberieš, dávka nepovinná),
   zábal na požiadanie, čas Teraz / −15 / −30 min / −1 h – všetko naraz; obdobie (deň, 3 dni, týždeň, mesiac, 3 mesiace) a deň; graf teploty s pásmami
   (do 37,2 zelená, do 38 oranžová, nad 38 červená) alebo tabuľka; lieky za 3 dni a kedy sa
-  ibuprofen/paracetamol smie podať znova (8 h); časová os záznamov. Jeden záznam = teplota,
+  ibuprofen/paracetamol smie podať znova (6 h); časová os záznamov. Jeden záznam = teplota,
   liek a fyzikálna metóda naraz (ako v mobilnom), čas sa dá posunúť (−10 / −30 min).
 - **Kalendár:** celý mesiac naraz ako v mobilnom Zdravkovi (týždeň od pondelka, bodky podľa druhu udalosti a červená za chorobu, potiahnutím iný mesiac); návštevy lekára, vyšetrenia a očkovania (podtypy z mobilného Zdravka),
   pripomienky týždeň / deň / hodinu pred **všetkým v rodine**, cena, poznámky. Do kalendára
   v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
   prihlasovania a bez duplikátov ako v mobilnom.
-- **Dávkovanie:** kalkulačka ibuprofen/paracetamol podľa váhy (sirup, čípky, tablety) –
-  rovnaký výpočet ako v mobilnom Zdravkovi (`public/zdravko/data.js` z `assets/*.json`).
+- **Dávkovanie:** kalkulačka liekov na teplotu podľa tabuliek MUDr. Moravčíkovej
+  ([drmoravcikova.sk/teplota-u-dietata](https://www.drmoravcikova.sk/teplota-u-dietata/), `public/zdravko/fever.js`):
+  paracetamol – Panadol Baby sirup, Paralen čípky 100 mg a tablety 125/500 mg podľa váhy; ibuprofen –
+  sirup 20 mg/ml presne podľa tabuľky stránky (6 – 20 kg: dávka po 8 h, max. denná dávka, ml á 6 / á 8 h),
+  sirup 40 mg/ml polovičné dávky, Nurofen čípky podľa váhy, tablety podľa veku. Na hranici dvoch riadkov tabuľky
+  nižšia dávka, mimo tabuľky kalkulačka dávku nevypočíta. Pod výsledkom tabuľka so zvýrazneným riadkom,
+  zásady pri teplote, striedanie liekov a zábaly; **Zapísať podanie** otvorí záznam s liekom a dávkou.
+  Testy porovnávajú výpočet s tabuľkou zo stránky (`test/zdravko-fever.test.js`).
+- **Databáza liekov** (karta **Lieky** na úvode, `public/zdravko/drugs.js`): celý zoznam registrovaných
+  liekov ŠÚKL (≈ 9 900 prípravkov) – názov, účinná látka a ATC kód, liekové formy a sily, výdaj (bez
+  predpisu / na predpis) a oblasť podľa ATC. Hľadá sa v názve, látke, ATC kóde aj forme (aj bez
+  diakritiky), filter podľa oblasti; v detaile iné prípravky s rovnakou látkou a **Zapísať podanie**
+  členovi. Aj v **Pridať záznam** sa liek dá vyhľadať – prípravok s ibuprofénom alebo paracetamolom
+  (aj kombinovaný, napr. Coldrex) sa uloží s látkou, takže fungujú pripomienky (6 h / 4 h).
+  Súbor (≈ 1 MB, gzip ≈ 150 kB) sa načíta až pri otvorení karty Lieky alebo hľadaní lieku.
+  **Aktualizácia** (ŠÚKL zoznam mení mesačne):
+  ```bash
+  pip install openpyxl
+  curl -O https://www.sukl.sk/verejne/Zoznam_liekov/zoznam_liekov_aktualny.zip
+  python3 scripts/sukl_lieky.py zoznam_liekov_aktualny.zip > public/zdravko/drugs.js
+  ```
 - **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
   *Nastaviť ako aktuálne*.
 - **Upozornenia (ikona Zdravka):** nová udalosť, podaný liek a nameraná teplota (🌡️ / 🟠 nad 37,2 / 🔴 nad 38 °C; s liekom v jednej správe) hneď ostatným v rodine;
-  pripomienky udalostí; pri ibuprofene/paracetamole o 4 h „môžeš podať ten druhý“ a o 8 h
-  „znova ten istý“ (ďalšia dávka staré pripomienky nahradí). Posiela ich cron každých 5 minút
+  pripomienky udalostí; pri ibuprofene/paracetamole podľa MUDr. Moravčíkovej o 6 h
+  „ten istý sa už smie znova“ a o 4 h „nad 39 °C môžeš podať ten druhý“ (ďalšia dávka staré pripomienky nahradí). Posiela ich cron každých 5 minút
   (`zdravko_reminders`; zmeškané o viac ako 6 h sa už neposielajú).
 - Tabuľky `zdravko_members`, `zdravko_records`, `zdravko_measurements`, `zdravko_reminders`
   (migrácia 0014), funkcie `POST /api/zdravko/<funkcia>` v `src/zdravko/api.js`.

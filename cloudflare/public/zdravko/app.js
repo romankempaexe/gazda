@@ -25,6 +25,8 @@
   };
   const REMINDERS = { week_before: '1 týždeň pred', day_before: '1 deň pred', hour_before: '1 hodinu pred' };
   const UNITS = [['tbl', 'tableta'], ['ml', 'mililiter'], ['kvp', 'kvapky'], ['kps', 'kapsula'], ['g', 'gram'], ['čípok', 'čípok']];
+  // ten istý liek proti horúčke najskôr o 6 h (drmoravcikova.sk/teplota-u-dietata)
+  const SAME_MS = 6 * 3600000;
   const RECENT_MS = 48 * 3600000; // prehľad navrchu a predvyplnenie: posledné 2 dni
   const RANGES = [['day', 'Deň', 1], ['3days', '3 dni', 3], ['week', 'Týždeň', 7], ['month', 'Mesiac', 30], ['3months', '3 mesiace', 90]];
   const MONTHS = ['január', 'február', 'marec', 'apríl', 'máj', 'jún', 'júl', 'august', 'september', 'október', 'november', 'december'];
@@ -140,6 +142,70 @@
   }
 
   const recordIcon = (r) => ({ temperature: 'thermometer', medicine: 'medication', rest: 'water_drop' })[r.type] || EVENT_TYPES[r.eventType].icon;
+
+  // ---- Databáza liekov (drugs.js) ---------------------------------------------------------------
+
+  // Zoznam registrovaných liekov ŠÚKL (≈ 1 MB) sa načíta až pri otvorení karty Lieky alebo hľadaní lieku.
+  let DRUGS = null;
+  let DRUG_CATS = {};
+  let drugsLoading = null;
+  function loadDrugs() {
+    if (DRUGS) return Promise.resolve(DRUGS);
+    if (!drugsLoading) {
+      drugsLoading = new Promise((resolve, reject) => {
+        const done = () => {
+          if (!window.ZDRAVKO_DRUGS) return reject(new Error('Databázu liekov sa nepodarilo načítať.'));
+          DRUGS = window.ZDRAVKO_DRUGS;
+          DRUG_CATS = Object.fromEntries(DRUGS.categories.map(([id, name, icon]) => [id, { name, icon }]));
+          resolve(DRUGS);
+        };
+        if (window.ZDRAVKO_DRUGS) return done();
+        const el = document.createElement('script');
+        el.src = '/zdravko/drugs.js';
+        el.onload = done;
+        el.onerror = () => {
+          drugsLoading = null;
+          el.remove();
+          reject(new Error('Databázu liekov sa nepodarilo načítať. Skontroluj pripojenie na internet.'));
+        };
+        document.head.appendChild(el);
+      });
+    }
+    return drugsLoading;
+  }
+  /** Malé písmená bez diakritiky – hľadá sa aj „paralen“, „ucinna latka“. */
+  const fold = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  let drugIndex = null;
+  /** Prípravky: { name, atc, subs (látka podľa ATC), cat, forms: [[forma, sily]], otc, sid }. */
+  function drugList() {
+    if (!DRUGS) return [];
+    if (!drugIndex) {
+      drugIndex = DRUGS.drugs.map(([name, atc, forms, otc, sid]) => {
+        const [subs, cat] = DRUGS.atc[atc] || ['', 'other'];
+        const list = forms.split('|').filter(Boolean).map((f) => {
+          const i = f.indexOf(':');
+          return i < 0 ? [f, ''] : [f.slice(0, i), f.slice(i + 1)];
+        });
+        return { name, atc, subs, cat, forms: list, otc: Boolean(otc), sid: sid || '', fname: fold(name), fall: fold(name + ' ' + subs + ' ' + atc + ' ' + forms) };
+      });
+    }
+    return drugIndex;
+  }
+  const drugByName = (name) => drugList().find((d) => d.name === name);
+
+  /** Hľadanie v názve, účinnej látke, ATC kóde aj forme; najprv tie, ktorých názov začína hľadaným slovom. */
+  function searchDrugs(q, cat) {
+    const words = fold(q).trim().split(/\s+/).filter(Boolean);
+    const hits = drugList().filter((d) => (!cat || d.cat === cat) && words.every((w) => d.fall.includes(w)));
+    if (!words.length) return hits;
+    const rank = (d) => (d.fname.startsWith(words[0]) ? 0 : d.fname.includes(words[0]) ? 1 : 2);
+    return hits.map((d, i) => [rank(d), i, d]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+  }
+
+  /** Látka pre pripomienky striedania liekov proti horúčke (ibuprofén, paracetamol aj v kombináciách). */
+  const drugSubstanceId = (d) => (d ? d.sid : '');
+
+  const drugForms = (d) => d.forms.map(([f, sily]) => f + (sily ? ' – ' + sily : ''));
 
   // ---- Navigácia ------------------------------------------------------------------------------
 
@@ -267,8 +333,9 @@
   function renderHome() {
     header('Zdravko', false);
     const tab = S.view.tab || 'members';
-    tabs([['members', 'group', 'Členovia'], ['calendar', 'calendar_month', 'Kalendár']], tab, (t) => go({ name: 'home', tab: t }, true));
+    tabs([['members', 'group', 'Členovia'], ['calendar', 'calendar_month', 'Kalendár'], ['drugs', 'medication', 'Lieky']], tab, (t) => go({ name: 'home', tab: t }, true));
     if (tab === 'calendar') return renderCalendar(null);
+    if (tab === 'drugs') return renderDrugs();
     const d = S.data;
     const cards = d.members
       .map((m) => {
@@ -386,6 +453,109 @@
     $('editMember').onclick = () => memberForm(m);
   }
 
+  // ---- Databáza liekov ------------------------------------------------------------------------------
+
+  const DRUG_PAGE = 60;
+
+  /** Karta „Lieky“: hľadanie podľa názvu alebo účinnej látky, filter podľa oblasti, detail lieku. */
+  function renderDrugs() {
+    fab('');
+    if (!DRUGS) {
+      $('view').innerHTML = '<div class="center muted">Načítavam databázu liekov…</div>';
+      loadDrugs()
+        .then(() => S.view.name === 'home' && S.view.tab === 'drugs' && renderDrugs())
+        .catch((err) => ($('view').innerHTML = '<div class="empty"><span class="ms">warning</span><div>' + esc(err.message) + '</div></div>'));
+      return;
+    }
+    const st = S.drugs || (S.drugs = { q: '', cat: '', shown: DRUG_PAGE });
+    const total = drugList().length;
+    $('view').innerHTML =
+      '<div class="page-head"><h2>Databáza liekov</h2><p>' + plural(total, 'prípravok', 'prípravky', 'prípravkov') + ' zo zoznamu ŠÚKL – hľadaj podľa názvu, účinnej látky alebo ATC kódu</p></div>' +
+      '<div class="field zd-drug-search"><span class="ms">search</span><input type="search" id="drugQ" placeholder="napr. Nurofen, ibuprofén, sirup…" autocomplete="off" value="' + esc(st.q) + '"></div>' +
+      '<div class="chips zd-drug-cats">' +
+      [['', 'Všetko', 'apps'], ...DRUGS.categories]
+        .map(([id, name, icon]) => '<button type="button" class="chip' + (id === st.cat ? ' active' : '') + '" data-cat="' + esc(id) + '"><span class="ms">' + icon + '</span>' + esc(name) + '</button>')
+        .join('') +
+      '</div><div id="drugRes"></div>' +
+      '<div class="grid-note">Zdroj: ' + esc(DRUGS.source) + '. Len na vyhľadanie a zápis podaného lieku – dávkovanie a upozornenia vždy podľa príbalového letáku, lekára alebo lekárnika.</div>';
+    const results = () => {
+      const hits = searchDrugs(st.q, st.cat);
+      const box = $('drugRes');
+      if (!hits.length) {
+        box.innerHTML = '<div class="empty compact"><span class="ms">search</span><div>Nič sa nenašlo. Skús iný názov alebo účinnú látku (aj bez diakritiky).</div></div>';
+        return;
+      }
+      box.innerHTML =
+        '<div class="zd-drug-count muted">' + plural(hits.length, 'výsledok', 'výsledky', 'výsledkov') + '</div>' +
+        hits.slice(0, st.shown).map((d) => drugCard(d)).join('') +
+        (hits.length > st.shown ? '<button type="button" class="btn text" id="drugMore"><span class="ms">expand_more</span>Zobraziť ďalšie (' + (hits.length - st.shown) + ')</button>' : '');
+      box.querySelectorAll('[data-drug]').forEach((el) => (el.onclick = () => drugDetail(drugByName(el.dataset.drug))));
+      const more = $('drugMore');
+      if (more) more.onclick = () => ((st.shown += DRUG_PAGE * 2), results());
+    };
+    $('drugQ').oninput = (e) => {
+      st.q = e.target.value;
+      st.shown = DRUG_PAGE;
+      results();
+    };
+    $('view').querySelectorAll('[data-cat]').forEach((b) => {
+      b.onclick = () => {
+        st.cat = b.dataset.cat;
+        st.shown = DRUG_PAGE;
+        $('view').querySelectorAll('[data-cat]').forEach((x) => x.classList.toggle('active', x === b));
+        results();
+      };
+    });
+    results();
+  }
+
+  function drugCard(d) {
+    const cat = DRUG_CATS[d.cat] || { name: '', icon: 'medication' };
+    return (
+      '<div class="card zd-drug" data-drug="' + esc(d.name) + '"><div class="zd-drug-icon"><span class="ms">' + cat.icon + '</span></div>' +
+      '<div class="card-body"><div class="card-title">' + esc(d.name) + '</div>' +
+      '<div class="card-sub">' + esc(d.subs || d.atc) + (d.otc ? ' · <span class="zd-otc">bez predpisu</span>' : '') + '</div>' +
+      '<div class="zd-drug-forms">' + esc(drugForms(d).join(' · ')) + '</div></div><span class="ms zd-go">chevron_right</span></div>'
+    );
+  }
+
+  /** Detail lieku: látka, formy a sily, iné prípravky s rovnakou látkou, zápis podania členovi. */
+  function drugDetail(d) {
+    if (!d) return;
+    const cat = DRUG_CATS[d.cat] || { name: '', icon: 'medication' };
+    const same = drugList().filter((x) => x !== d && x.atc === d.atc);
+    const members = (S.data && S.data.members) || [];
+    openModal(
+      '<h2>' + esc(d.name) + '</h2>' +
+        '<div class="zd-drug-detail">' +
+        '<div><span class="muted">Účinná látka (ATC ' + esc(d.atc) + ')</span><b>' + esc(d.subs || '–') + '</b></div>' +
+        '<div><span class="muted">Výdaj</span><b>' + (d.otc ? 'Aj bez lekárskeho predpisu' : 'Na lekársky predpis') + '</b></div>' +
+        '<div><span class="muted">Oblasť</span><b><span class="ms">' + cat.icon + '</span>' + esc(cat.name) + '</b></div>' +
+        '<div><span class="muted">Liekové formy a sily</span><ul>' + drugForms(d).map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>' +
+        (same.length
+          ? '<div><span class="muted">Rovnaká účinná látka (' + same.length + ')</span><div class="chips wrap">' +
+            same.slice(0, 24).map((x) => '<button type="button" class="chip" data-same="' + esc(x.name) + '">' + esc(x.name) + '</button>').join('') + '</div></div>'
+          : '') +
+        '</div>' +
+        '<div class="hint"><span class="ms">info</span> Dávkovanie a upozornenia podľa príbalového letáku alebo lekára.</div>' +
+        (members.length ? '<div class="field"><label>Zapísať podanie</label><div class="chips wrap">' +
+          members.map((m) => '<button type="button" class="chip" data-give="' + esc(m.id) + '"><span class="ms">' + (m.isChild ? 'child_care' : 'person') + '</span>' + esc(m.name) + '</button>').join('') +
+          '</div></div>' : '') +
+        '<div class="actions"><button type="button" class="btn text" id="close">Zavrieť</button></div>',
+      (root) => {
+        root.querySelector('#close').onclick = closeModal;
+        root.querySelectorAll('[data-same]').forEach((b) => (b.onclick = () => drugDetail(drugByName(b.dataset.same))));
+        root.querySelectorAll('[data-give]').forEach((b) => {
+          b.onclick = () => {
+            const m = member(b.dataset.give);
+            if (m) recordForm(m, d.name);
+          };
+        });
+      },
+      { focus: false }
+    );
+  }
+
   // ---- Záznam choroby ------------------------------------------------------------------------------
 
   function period() {
@@ -476,7 +646,7 @@
     const when = (r) => esc(dayLabel(ymd(new Date(r.recordedAt)))) + ' ' + hm(r.recordedAt) + ' · <span data-ago="' + esc(r.recordedAt) + '">' + esc(ago(r.recordedAt)) + '</span>';
     let next = '';
     if (med && (med.substanceId === 'ibuprofen' || med.substanceId === 'paracetamol')) {
-      const ok = Date.parse(med.recordedAt) + 8 * 3600000;
+      const ok = Date.parse(med.recordedAt) + SAME_MS;
       next =
         ok <= Date.now()
           ? '<div class="zd-last-next ok"><span class="ms">check_circle</span>Už sa smie podať znova</div>'
@@ -512,11 +682,11 @@
       .filter((s) => bySubstance[s])
       .map((s) => {
         const last = Date.parse(bySubstance[s].recordedAt);
-        const ok = last + 8 * 3600000;
+        const ok = last + SAME_MS;
         const name = s === 'ibuprofen' ? 'Ibuprofen' : 'Paracetamol';
         return ok <= Date.now()
           ? '<div><span class="ms">check_circle</span>' + name + ' sa už smie podať znova</div>'
-          : '<div><span class="ms">timer</span>' + name + ' znova najskôr o ' + hm(new Date(ok).toISOString()) + ' (8 h od ' + hm(bySubstance[s].recordedAt) + ')</div>';
+          : '<div><span class="ms">timer</span>' + name + ' znova najskôr o ' + hm(new Date(ok).toISOString()) + ' (6 h od ' + hm(bySubstance[s].recordedAt) + ')</div>';
       });
     return (
       '<div class="section-title zd-sec"><span class="ms">medication</span>Lieky za posledné 3 dni</div><div class="members zd-meds">' +
@@ -650,10 +820,12 @@
    * naozaj zadal – teplota, keď ju zmenil (−/+, čip, prepísanie), liek, keď ho vybral; dávka je
    * nepovinná. Všetko naraz s jedným časom.
    */
-  function recordForm(m) {
+  function recordForm(m, presetName, presetDose) {
     const subs = DATA.substances;
     const lastTemp = lastOf(m, (r) => r.type === 'temperature', true);
-    const used = [...new Set(recordsOf(m.id).filter((r) => r.type === 'medicine' && !r.substanceId).map((r) => r.medicineName))].slice(-4);
+    // naposledy podané lieky mimo základných látok (napr. Nurofen pre deti z databázy liekov)
+    const isBase = (n) => subs.some((x) => x.name === n);
+    const used = [...new Set(recordsOf(m.id).filter((r) => r.type === 'medicine' && !isBase(r.medicineName)).map((r) => r.medicineName))].slice(-4);
     const options = [...subs.map((x) => [x.id, x.name]), ...used.map((n) => ['name:' + n, n]), ['other', 'Iný liek']];
     let tempOn = false; // teplota sa uloží, len keď ju človek zmení
     let choice = null; // vybraný liek
@@ -672,6 +844,8 @@
         // liek
         '<div class="zd-part" id="partMed"><div class="zd-part-head"><span class="ms">medication</span>Liek</div>' +
         '<div class="chips wrap zd-meds-pick">' + options.map(([id, name]) => '<button type="button" class="chip" data-med="' + esc(id) + '">' + esc(name) + '</button>').join('') + '</div>' +
+        '<div class="field zd-med-search"><span class="ms">search</span><input type="search" name="medSearch" placeholder="Hľadať v databáze liekov ŠÚKL…" autocomplete="off"></div>' +
+        '<div class="zd-med-found" id="medFound"></div>' +
         '<input name="medName" class="hidden" placeholder="Názov lieku" maxlength="80" style="margin:-4px 0 12px">' +
         '<div id="medHint"></div>' +
         '<button type="button" class="btn text small hidden" id="doseOn" style="padding-left:0"><span class="ms">add</span>Dávka (nepovinné)</button>' +
@@ -691,7 +865,14 @@
         const tempValue = () => Number(String(f.temp.value).replace(',', '.'));
         const nameOf = () =>
           !choice ? '' : choice === 'other' ? f.medName.value.trim() : choice.startsWith('name:') ? choice.slice(5) : subs.find((x) => x.id === choice).name;
-        const test = (c) => (r) => r.type === 'medicine' && (c.startsWith('name:') ? !r.substanceId && r.medicineName === c.slice(5) : r.substanceId === c);
+        const test = (c) => (r) => r.type === 'medicine' && (c.startsWith('name:') ? r.medicineName === c.slice(5) : r.substanceId === c);
+        // látka pre pripomienky (základný liek alebo prípravok z databázy, napr. Nurofen → ibuprofen)
+        const sidOf = (c, name) => {
+          if (!c) return '';
+          if (subs.some((x) => x.id === c)) return c;
+          const prev = recordsOf(m.id).filter((r) => r.type === 'medicine' && r.medicineName === name && r.substanceId).pop();
+          return drugSubstanceId(drugByName(name)) || (prev ? prev.substanceId : '');
+        };
 
         const show = () => {
           const t = tempValue();
@@ -725,9 +906,10 @@
           if (d && UNITS.some(([u]) => u === d[2])) f.unit.value = d[2];
           // ibuprofen / paracetamol: kedy naposledy a či sa už smie
           let hint = '';
-          if (choice === 'ibuprofen' || choice === 'paracetamol') {
-            const p = lastOf(m, test(choice));
-            const ok = p ? Date.parse(p.recordedAt) + 8 * 3600000 : 0;
+          const sid = sidOf(choice, nameOf());
+          if (sid === 'ibuprofen' || sid === 'paracetamol') {
+            const p = lastOf(m, test(sid));
+            const ok = p ? Date.parse(p.recordedAt) + SAME_MS : 0;
             const when = p ? esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) : '';
             if (p && ok > Date.now()) {
               hint = '<div class="zd-med-hint warn"><span class="ms">warning</span>Naposledy ' + when + ' – znova najskôr o ' + hm(new Date(ok).toISOString()) + '</div>';
@@ -751,6 +933,53 @@
           setTemp(lastTemp ? lastTemp.temperature : 37, false);
         };
         root.querySelectorAll('[data-med]').forEach((b) => (b.onclick = () => pick(b.dataset.med)));
+        // liek z databázy: pridá sa ako čip (pred „Iný liek“) a vyberie sa
+        const pickName = (name) => {
+          const base = subs.find((x) => x.name === name);
+          if (base) {
+            if (choice !== base.id) pick(base.id);
+            return;
+          }
+          const id = 'name:' + name;
+          if (![...root.querySelectorAll('[data-med]')].some((x) => x.dataset.med === id)) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'chip';
+            b.dataset.med = id;
+            b.textContent = name;
+            b.onclick = () => pick(id);
+            root.querySelector('[data-med="other"]').before(b);
+          }
+          if (choice !== id) pick(id);
+        };
+        const found = root.querySelector('#medFound');
+        let hits = [];
+        loadDrugs().catch(() => {}); // vopred, kým človek píše
+        f.medSearch.oninput = () => {
+          const q = f.medSearch.value.trim();
+          if (!DRUGS && q.length >= 2) {
+            found.innerHTML = '<div class="muted">Načítavam databázu liekov…</div>';
+            return loadDrugs().then(() => f.medSearch.oninput(), (err) => (found.innerHTML = '<div class="muted">' + esc(err.message) + '</div>'));
+          }
+          hits = q.length < 2 ? [] : searchDrugs(q).slice(0, 8);
+          found.innerHTML = q.length < 2 ? '' : hits.length
+            ? hits.map((d, i) => '<button type="button" data-hit="' + i + '"><b>' + esc(d.name) + '</b><span>' + esc(d.subs || drugForms(d)[0] || '') + '</span></button>').join('')
+            : '<div class="muted">Nenašlo sa – zvoľ „Iný liek“ a napíš názov.</div>';
+          found.querySelectorAll('[data-hit]').forEach((b) => (b.onclick = () => choose(hits[Number(b.dataset.hit)])));
+        };
+        const choose = (d) => {
+          if (!d) return;
+          f.medSearch.value = '';
+          found.innerHTML = '';
+          hits = [];
+          pickName(d.name);
+        };
+        f.medSearch.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            choose(hits[0]);
+          }
+        };
         root.querySelector('#doseOn').onclick = () => {
           doseOn = true;
           show();
@@ -774,6 +1003,14 @@
           };
         });
         show();
+        if (presetName) pickName(presetName);
+        // dávka z kalkulačky (napr. 4 ml, ¾ čípku)
+        if (presetDose && UNITS.some(([u]) => u === presetDose.unit)) {
+          doseOn = true;
+          f.amount.value = fmt(presetDose.amount, 2);
+          f.unit.value = presetDose.unit;
+          show();
+        }
         root.querySelector('#cancel').onclick = closeModal;
         f.onsubmit = (e) => {
           e.preventDefault();
@@ -784,13 +1021,13 @@
             const name = nameOf();
             if (!name) return toast('Zadaj názov lieku.', true);
             const amount = doseOn ? f.amount.value.trim().replace(',', '.') : '';
-            substanceId = subs.some((x) => x.id === choice) ? choice : '';
+            substanceId = sidOf(choice, name);
             data.medicine = { name, substanceId, dosage: amount ? amount + ' ' + f.unit.value : '' };
           }
           if (rest) data.rest = { method: rest, durationHours: hours };
           if (!data.temperature && !data.medicine && !data.rest) return toast('Zmeň teplotu alebo vyber liek.', true);
           saveQuick(m, data, root.querySelector('#save'),
-            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 4 h a 8 h príde pripomienka' : ''));
+            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 6 h príde pripomienka (pri teplote nad 39 °C už o 4 h)' : ''));
         };
       },
       { focus: false }
@@ -1017,70 +1254,72 @@
 
   // ---- Dávkovanie (ibuprofen, paracetamol) --------------------------------------------------------------
 
-  const round05 = (v) => Math.round(v * 2) / 2;
+  const FEVER = window.ZDRAVKO_FEVER;
+  const yearsOld = (birth) => (birth ? (Date.now() - parseYmd(birth).getTime()) / (365.25 * 86400000) : null);
 
-  /** Výpočet ako v mobilnom Zdravkovi (assets/medication_dosages.json). */
-  function dosage(medId, formId, concIdx, weight) {
-    const med = DATA.dosages[medId];
-    const form = med && med.forms[formId];
-    if (!form) return 'Vyber liek a formu.';
-    let w = weight;
-    if (!(w > 0)) return 'Zadaj váhu dieťaťa.';
-    if (formId === 'suppositories') w = Math.ceil(w);
-    const every = medId === 'ibuprofen' ? 'každých 6 – 8 hodín' : 'každých 4 – 6 hodín';
-    const match = (rules) => rules.find((r) => w >= r.minWeight && w <= r.maxWeight);
-    if (form.weightBasedDosages) {
-      const r = match(form.weightBasedDosages);
-      return r ? med.name + ': ' + fmt(r.dose, 2) + ' ' + r.unit + ' ' + every : 'Váha ' + fmt(w) + ' kg nie je v podporovanom rozsahu pre túto formu.';
-    }
-    const conc = form.concentrations && form.concentrations[concIdx];
-    if (!conc) return 'Vyber koncentráciu.';
-    if (conc.weightBasedDosages) {
-      const r = match(conc.weightBasedDosages);
-      return r ? med.name + ': ' + fmt(r.dose, 2) + ' ' + r.unit + ' ' + every : 'Váha ' + fmt(w) + ' kg nie je v podporovanom rozsahu pre túto koncentráciu.';
-    }
-    const mg = round05(w * (medId === 'ibuprofen' ? 10 : 15));
-    const ml = round05(mg / conc.value);
-    return med.name + ': ' + fmt(mg) + ' mg (' + fmt(ml) + ' ml) ' + every;
-  }
-
+  /**
+   * Kalkulačka liekov na teplotu podľa tabuliek MUDr. Moravčíkovej (fever.js): liek, forma, váha
+   * (pri tabletách ibuprofenu vek) → dávka, riadok tabuľky, interval; celá tabuľka so zvýrazneným riadkom.
+   */
   function renderDosage(m, head) {
-    const st = S.dose || (S.dose = { med: 'ibuprofen', form: 'syrup', conc: 0 });
+    const st = S.dose || (S.dose = { med: 'paracetamol', form: 'syrup' });
+    const med = FEVER.MEDS[st.med];
+    if (!med.forms[st.form]) st.form = Object.keys(med.forms)[0];
+    const form = med.forms[st.form];
     const weight = st.weight ?? m.weight ?? '';
-    const med = DATA.dosages[st.med];
-    const form = med.forms[st.form] || Object.values(med.forms)[0];
+    const years = st.age ?? (m.birthDate ? Math.floor(yearsOld(m.birthDate)) : '');
+    const chips = (list, active, attr) =>
+      '<div class="chips wrap zd-seg">' + list.map(([k, v]) => '<button type="button" class="chip' + (k === active ? ' active' : '') + '" data-' + attr + '="' + k + '">' + esc(v) + '</button>').join('') + '</div>';
+    const table = form.bands
+      ? '<details class="zd-dose-table"><summary>Tabuľka – ' + esc(form.product) + '</summary><table>' +
+        form.bands.map((b, i) => '<tr data-row="' + i + '"><td>' + esc(b[2]) + '</td><td>' + esc(b[1]) + '</td></tr>').join('') + '</table></details>'
+      : '';
     $('view').innerHTML =
       head +
-      '<div class="section-title zd-sec"><span class="ms">calculate</span>Kalkulačka dávkovania</div>' +
-      '<div class="field"><label>Váha dieťaťa (kg)</label><input id="w" inputmode="decimal" value="' + esc(weight === '' ? '' : fmt(weight, 2)) + '"></div>' +
-      '<div class="field"><label>Liek</label><div class="chips zd-seg">' + Object.entries(DATA.dosages).map(([k, v]) => '<button type="button" class="chip' + (k === st.med ? ' active' : '') + '" data-med="' + k + '">' + esc(v.name) + '</button>').join('') + '</div>' +
-      '<div class="hint">' + esc(med.brands.join(', ')) + '</div></div>' +
-      '<div class="field"><label>Forma</label><div class="chips zd-seg">' + Object.entries(med.forms).map(([k, v]) => '<button type="button" class="chip' + (k === st.form ? ' active' : '') + '" data-form="' + k + '">' + esc(v.name) + '</button>').join('') + '</div></div>' +
-      (form.concentrations
-        ? '<div class="field"><label>Koncentrácia</label><div class="chips wrap">' + form.concentrations.map((c, i) => '<button type="button" class="chip' + (i === st.conc ? ' active' : '') + '" data-conc="' + i + '">' + c.value + ' ' + esc(c.unit) + '</button>').join('') + '</div></div>'
-        : '') +
-      '<div class="zd-dose"><div class="muted">Odporúčané dávkovanie</div><b id="result"></b>' + (med.interval ? '<div class="hint">' + esc(med.interval) + '</div>' : '') + '</div>' +
-      '<div class="grid-note">Len orientačne podľa príbalového letáku – pri pochybnostiach sa poraď s lekárom alebo lekárnikom. Ibuprofen a paracetamol sa môžu striedať (o 4 h ten druhý, o 8 h ten istý) – Zdravko pripomenie, keď podanie zapíšeš.</div>';
+      '<div class="section-title zd-sec"><span class="ms">calculate</span>Lieky na teplotu</div>' +
+      '<div class="field"><label>Liek</label>' + chips(Object.entries(FEVER.MEDS).map(([k, v]) => [k, v.name]), st.med, 'med') +
+      '<div class="hint">' + esc(med.brands) + '</div></div>' +
+      '<div class="field"><label>Forma</label>' + chips(Object.entries(med.forms).map(([k, v]) => [k, v.name]), st.form, 'form') + '</div>' +
+      (form.byAge
+        ? '<div class="field"><label>Vek dieťaťa (roky)</label><input id="a" inputmode="numeric" value="' + esc(years === '' ? '' : String(years)) + '"></div>'
+        : '<div class="field"><label>Váha dieťaťa (kg)</label><input id="w" inputmode="decimal" value="' + esc(weight === '' ? '' : fmt(weight, 2)) + '"></div>') +
+      '<div class="zd-dose" id="doseBox"></div>' + table +
+      '<div class="section-title zd-sec"><span class="ms">thermometer</span>Zásady pri teplote</div>' +
+      '<ul class="zd-rules">' + FEVER.RULES.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>' +
+      '<div class="section-title zd-sec"><span class="ms">swap_horiz</span>Striedanie liekov</div><p class="zd-rules">' + esc(FEVER.ALTERNATE) + '</p>' +
+      '<div class="section-title zd-sec"><span class="ms">water_drop</span>Zábaly</div>' +
+      '<ul class="zd-rules">' + FEVER.WRAPS.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul>' +
+      '<div class="grid-note">Podľa stránky <a href="' + FEVER.SOURCE.url + '" target="_blank" rel="noopener">' + esc(FEVER.SOURCE.name) + '</a>. ' +
+      'Orientačne – riaď sa príbalovým letákom konkrétneho lieku a pri pochybnostiach sa poraď s lekárom.</div>';
+
     const update = () => {
-      const w = parseFloat(String($('w').value).replace(',', '.'));
-      st.weight = Number.isFinite(w) ? w : '';
-      $('result').textContent = dosage(st.med, st.form, st.conc, w);
+      const w = $('w') ? parseFloat(String($('w').value).replace(',', '.')) : NaN;
+      const a = $('a') ? parseFloat(String($('a').value).replace(',', '.')) : NaN;
+      if ($('w')) st.weight = Number.isFinite(w) ? w : '';
+      if ($('a')) st.age = Number.isFinite(a) ? a : '';
+      const r = FEVER.calc(st.med, st.form, w, a);
+      $('view').querySelectorAll('[data-row]').forEach((tr) => tr.classList.toggle('active', r.ok && Number(tr.dataset.row) === r.index));
+      $('doseBox').className = 'zd-dose' + (r.ok ? '' : ' none');
+      $('doseBox').innerHTML = r.ok
+        ? '<div class="muted">' + esc(r.product) + '</div><b>' + esc(r.dose) + '</b>' +
+          '<div class="hint">' + esc(r.row) + '</div>' +
+          r.lines.map((l) => '<div class="hint">' + esc(l) + '</div>').join('') +
+          '<div class="hint"><span class="ms">timer</span>' + esc(r.interval) + '</div>' +
+          '<button type="button" class="btn small" id="give"><span class="ms">add</span>Zapísať podanie</button>'
+        : '<div class="muted"><span class="ms">info</span> ' + esc(r.message) + '</div>';
+      const give = $('give');
+      if (give) give.onclick = () => recordForm(m, med.name, r.record);
     };
-    $('w').oninput = update;
+    if ($('w')) $('w').oninput = update;
+    if ($('a')) $('a').oninput = update;
     update();
     $('view').querySelectorAll('[data-med]').forEach((b) => (b.onclick = () => {
       st.med = b.dataset.med;
-      st.form = Object.keys(DATA.dosages[st.med].forms)[0];
-      st.conc = 0;
+      st.form = Object.keys(FEVER.MEDS[st.med].forms)[0];
       render();
     }));
     $('view').querySelectorAll('[data-form]').forEach((b) => (b.onclick = () => {
       st.form = b.dataset.form;
-      st.conc = 0;
-      render();
-    }));
-    $('view').querySelectorAll('[data-conc]').forEach((b) => (b.onclick = () => {
-      st.conc = Number(b.dataset.conc);
       render();
     }));
     fab('');

@@ -769,3 +769,51 @@ button.zd-last-card {
   color: #15803d;
   font-weight: 600;
 }
+
+/* Kalkulačka liekov na teplotu */
+.zd-dose.none {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+}
+.zd-dose .hint {
+  margin-top: 4px;
+}
+.zd-dose .ms {
+  font-size: 16px;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.zd-dose .btn {
+  margin-top: 12px;
+}
+.zd-dose-table {
+  margin: 10px 0 4px;
+  font-size: 14px;
+}
+.zd-dose-table summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 6px 0;
+}
+.zd-dose-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.zd-dose-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.zd-dose-table tr.active td {
+  background: var(--primary-soft);
+  font-weight: 700;
+}
+.zd-rules {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+p.zd-rules {
+  padding-left: 0;
+}

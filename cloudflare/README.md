@@ -171,8 +171,14 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   pripomienky týždeň / deň / hodinu pred **všetkým v rodine**, cena, poznámky. Do kalendára
   v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
   prihlasovania a bez duplikátov ako v mobilnom.
-- **Dávkovanie:** kalkulačka ibuprofen/paracetamol podľa váhy (sirup, čípky, tablety) –
-  rovnaký výpočet ako v mobilnom Zdravkovi (`public/zdravko/data.js` z `assets/*.json`).
+- **Dávkovanie:** kalkulačka liekov na teplotu podľa tabuliek MUDr. Moravčíkovej
+  ([drmoravcikova.sk/teplota-u-dietata](https://www.drmoravcikova.sk/teplota-u-dietata/), `public/zdravko/fever.js`):
+  paracetamol – Panadol Baby sirup, Paralen čípky 100 mg a tablety 125/500 mg podľa váhy; ibuprofen –
+  sirup 20 a 40 mg/ml výpočtom 25 mg/kg/deň v 3 dávkach (po 8 h) s maximom 30 mg/kg/deň (aj dávka pri
+  podaní po 6 h), Nurofen čípky podľa váhy, tablety podľa veku. Na hranici dvoch riadkov tabuľky
+  nižšia dávka, mimo tabuľky kalkulačka dávku nevypočíta. Pod výsledkom tabuľka so zvýrazneným riadkom,
+  zásady pri teplote, striedanie liekov a zábaly; **Zapísať podanie** otvorí záznam s liekom a dávkou.
+  Testy porovnávajú výpočet s tabuľkou zo stránky (`test/zdravko-fever.test.js`).
 - **Databáza liekov** (karta **Lieky** na úvode, `public/zdravko/drugs.js`): celý zoznam registrovaných
   liekov ŠÚKL (≈ 9 900 prípravkov) – názov, účinná látka a ATC kód, liekové formy a sily, výdaj (bez
   predpisu / na predpis) a oblasť podľa ATC. Hľadá sa v názve, látke, ATC kóde aj forme (aj bez

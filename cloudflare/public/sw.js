@@ -24,6 +24,7 @@ const SHELL = [
   '/zdravko/app.js',
   '/zdravko/data.js',
   '/zdravko/drugs.js',
+  '/zdravko/fever.js',
   '/zdravko/zdravko.css',
   '/quickstash/',
   '/quickstash/app.js',

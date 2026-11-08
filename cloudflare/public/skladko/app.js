@@ -292,29 +292,64 @@
 
   // ---- Domov: sklady ------------------------------------------------------------------------------
 
+  // Každý sklad má svoju farbu (podľa poradia) – skupiny a veci v ňom ju zdedia.
+  const HUES = 8;
+  const hueOf = (warehouseId) => Math.max(0, S.data.warehouses.findIndex((w) => w.id === warehouseId)) % HUES;
+
+  /** Prehľad stavu vecí: dochádza, končí trvanlivosť do 7 dní, po trvanlivosti. */
+  function stats(items) {
+    const exp = (i) => (i.expirationDate ? daysUntil(i.expirationDate) : null);
+    return {
+      low: items.filter(isLow).length,
+      soon: items.filter((i) => exp(i) !== null && exp(i) >= 0 && exp(i) <= 7).length,
+      expired: items.filter((i) => exp(i) !== null && exp(i) < 0).length,
+    };
+  }
+
+  /** Malé štítky stavu na karte skladu alebo skupiny. */
+  function badges(st) {
+    const out = [];
+    if (st.expired) out.push('<span class="sk-badge bad" title="Po trvanlivosti">' + ic('warning') + st.expired + '</span>');
+    if (st.soon) out.push('<span class="sk-badge warn" title="Končí trvanlivosť do 7 dní">' + ic('hourglass_bottom') + st.soon + '</span>');
+    if (st.low) out.push('<span class="sk-badge low" title="Dochádza">' + ic('production_quantity_limits') + st.low + '</span>');
+    return out.length ? '<div class="sk-badges">' + out.join('') + '</div>' : '';
+  }
+
   function renderHome() {
     header('Skládko', false);
     const d = S.data;
+    const all = stats(d.items);
     const cards = d.warehouses
-      .map((w) => {
+      .map((w, idx) => {
         const items = d.items.filter((i) => i.warehouseId === w.id);
-        const warn = items.filter((i) => isLow(i) || (i.expirationDate && daysUntil(i.expirationDate) <= 7)).length;
+        const groups = d.groups.filter((g) => g.warehouseId === w.id).length;
         return (
-          '<div class="sk-card place" data-w="' + esc(w.id) + '">' +
+          '<div class="sk-card sk-wh hue-' + (idx % HUES) + '" data-w="' + esc(w.id) + '">' +
           '<button type="button" class="icon-btn small sk-more" data-wmenu="' + esc(w.id) + '" title="Možnosti"><span class="ms">more_vert</span></button>' +
           '<div class="sk-icon">' + ic(w.icon, 'location_on') + '</div>' +
           '<div class="sk-name">' + esc(w.name) + '</div>' +
-          '<div class="sk-sub">' + plural(items.length, 'vec', 'veci', 'vecí') + '</div>' +
-          (warn ? '<span class="sk-flag" title="Dochádza alebo končí trvanlivosť">' + warn + '</span>' : '') +
+          '<div class="sk-sub">' + [plural(items.length, 'vec', 'veci', 'vecí'), groups ? plural(groups, 'skupina', 'skupiny', 'skupín') : ''].filter(Boolean).join(' · ') + '</div>' +
+          badges(stats(items)) +
           '</div>'
         );
       })
       .join('');
+    const tile = (cls, icon, n, label, tab) =>
+      '<button type="button" class="sk-stat ' + cls + (n ? '' : ' zero') + '" data-filter="' + tab + '">' + ic(icon) + '<b>' + n + '</b><span>' + label + '</span></button>';
+    const summary = d.items.length
+      ? all.low || all.soon || all.expired
+        ? '<div class="sk-stats">' +
+          tile('low', 'production_quantity_limits', all.low, 'dochádza', 'low') +
+          tile('warn', 'hourglass_bottom', all.soon, 'končí do 7 dní', 'exp') +
+          tile('bad', 'warning', all.expired, 'po trvanlivosti', 'exp') +
+          '</div>'
+        : '<div class="sk-ok">' + ic('check_circle') + '<div><b>Všetko v poriadku</b><span>Nič nedochádza ani nekončí trvanlivosť.</span></div></div>'
+      : '';
     $('view').innerHTML =
       FG.householdPickerHtml() + movingBar() + importBanner() +
       '<div class="page-head"><h2>Moje sklady</h2><p>' +
       (d.warehouses.length ? plural(d.items.length, 'vec', 'veci', 'vecí') + ' v ' + plural(d.warehouses.length, 'sklade', 'skladoch', 'skladoch') : 'Začni pridaním skladu – špajza, chladnička, garáž…') +
-      '</p></div>' +
+      '</p></div>' + summary +
       '<div class="sk-grid">' + cards +
       '<button type="button" class="sk-card add" id="addWarehouse"><span class="ms">add</span><div class="sk-name">Pridať sklad</div></button></div>' +
       (d.warehouses.length ? '' : '<div class="grid-note">Máš veci v mobilnom Skládku? Prenesieš ich v <b>Môj účet</b> → <b>Preniesť z mobilného Skládka</b>.</div>');
@@ -326,6 +361,7 @@
     });
     bindImportBanner();
     $('addWarehouse').onclick = () => warehouseForm();
+    $('view').querySelectorAll('[data-filter]').forEach((b) => (b.onclick = () => go({ name: 'filter', tab: b.dataset.filter })));
     $('view').querySelectorAll('[data-w]').forEach((el) => {
       el.onclick = (e) => {
         if (e.target.closest('[data-wmenu]')) return;
@@ -412,30 +448,39 @@
 
   function itemCard(i, showPath) {
     const e = expiry(i);
+    const state = i.quantity === 0 ? ' zero' : isLow(i) ? ' low' : '';
+    const note = i.quantity === 0 ? 'Minulo sa' : isLow(i) ? 'Dochádza' : '';
     return (
-      '<div class="sk-card item' + (i.quantity === 0 ? ' empty-qty' : '') + '" data-item="' + esc(i.id) + '">' +
-      (e ? '<span class="sk-exp ' + e.cls + '">' + esc(e.text) + '</span>' : '') +
-      '<span class="sk-qty' + (isLow(i) ? ' low' : '') + '">' + i.quantity + '</span>' +
+      '<div class="sk-card item hue-' + hueOf(i.warehouseId) + state + (e && e.cls === 'bad' ? ' expired' : '') + '" data-item="' + esc(i.id) + '">' +
+      (e ? '<span class="sk-exp ' + e.cls + '">' + ic(e.cls === 'ok' ? 'schedule' : 'hourglass_bottom') + esc(e.text) + '</span>' : '') +
       (i.image ? '<img class="sk-photo" src="' + esc(i.image) + '" alt="" loading="lazy">' : '<div class="sk-icon round">' + ic(i.icon) + '</div>') +
       '<div class="sk-name">' + esc(i.name) + '</div>' +
       (showPath ? '<div class="sk-sub">' + esc(pathText(i.warehouseId, i.groupId)) + '</div>' : i.description ? '<div class="sk-sub">' + esc(i.description) + '</div>' : '') +
+      (note ? '<div class="sk-note">' + esc(note) + (i.minQty > 0 ? ' · min. ' + i.minQty : '') + '</div>' : '') +
       '<div class="sk-steps"><button type="button" class="sk-step" data-step="-1" ' + (i.quantity <= 0 ? 'disabled' : '') + ' title="Ubrať"><span class="ms">remove</span></button>' +
+      '<span class="sk-count">' + i.quantity + '<small>ks</small></span>' +
       '<button type="button" class="sk-step" data-step="1" title="Pridať"><span class="ms">add</span></button></div>' +
       '</div>'
     );
   }
 
-  function groupCard(g) {
+  /** Skupina ako riadok (nad vecami): ikona, názov, počet, stav, šípka. */
+  function groupCard(g, showPath) {
+    const ids = subtree(g.id);
     const subs = S.data.groups.filter((x) => x.parentId === g.id).length;
-    const items = S.data.items.filter((x) => x.groupId === g.id).length;
+    const items = S.data.items.filter((x) => ids.has(x.groupId));
     return (
-      '<div class="sk-card group" data-group="' + esc(g.id) + '">' +
-      '<button type="button" class="icon-btn small sk-more" data-gmenu="' + esc(g.id) + '" title="Možnosti"><span class="ms">more_vert</span></button>' +
+      '<div class="sk-row hue-' + hueOf(g.warehouseId) + '" data-group="' + esc(g.id) + '">' +
       '<div class="sk-icon">' + ic(g.icon, 'folder') + '</div>' +
-      '<div class="sk-name">' + esc(g.name) + '</div>' +
-      '<div class="sk-sub">' + [subs ? plural(subs, 'skupina', 'skupiny', 'skupín') : '', plural(items, 'vec', 'veci', 'vecí')].filter(Boolean).join(', ') + '</div></div>'
+      '<div class="sk-row-body"><div class="sk-name">' + esc(g.name) + '</div>' +
+      '<div class="sk-sub">' + [showPath ? pathText(g.warehouseId, g.parentId) : '', subs ? plural(subs, 'skupina', 'skupiny', 'skupín') : '', plural(items.length, 'vec', 'veci', 'vecí')].filter(Boolean).map(esc).join(' · ') + '</div></div>' +
+      badges(stats(items)) +
+      '<button type="button" class="icon-btn small" data-gmenu="' + esc(g.id) + '" title="Možnosti"><span class="ms">more_vert</span></button>' +
+      '<span class="ms sk-chev">chevron_right</span></div>'
     );
   }
+
+  const groupRows = (groups, showPath) => (groups.length ? '<div class="sk-rows">' + groups.map((g) => groupCard(g, showPath)).join('') + '</div>' : '');
 
   function bindCards(root) {
     root.querySelectorAll('[data-item]').forEach((el) => {
@@ -469,11 +514,15 @@
           ? '<span>' + esc(p.name) + '</span>'
           : '<a href="#" data-crumb="' + idx + '">' + esc(p.name) + '</a>')
       .join('<span class="ms">chevron_right</span>');
+    const inside = S.data.items.filter((i) => i.warehouseId === warehouseId && (!groupId || subtree(groupId).has(i.groupId)));
     $('view').innerHTML =
       movingBar() +
+      '<div class="sk-hero hue-' + hueOf(warehouseId) + '"><div class="sk-icon">' + ic(here.icon, groupId ? 'folder' : 'location_on') + '</div><div>' +
       '<div class="sk-crumbs"><a href="#" data-crumb="home">Sklady</a><span class="ms">chevron_right</span>' + crumbs + '</div>' +
+      '<div class="sk-sub">' + plural(inside.length, 'vec', 'veci', 'vecí') + (groups.length ? ' · ' + plural(groups.length, 'skupina', 'skupiny', 'skupín') : '') + '</div>' +
+      badges(stats(inside)) + '</div></div>' +
       (groups.length || items.length
-        ? '<div class="sk-grid">' + groups.map(groupCard).join('') + items.map((i) => itemCard(i)).join('') + '</div>'
+        ? groupRows(groups) + (items.length ? (groups.length ? '<div class="section-title sk-sec">Veci</div>' : '') + '<div class="sk-grid">' + items.map((i) => itemCard(i)).join('') + '</div>' : '')
         : '<div class="empty"><span class="ms">inventory_2</span><h2>' + (groupId ? 'Skupina je prázdna' : 'Sklad je prázdny') + '</h2>' +
           '<div>Pridaj vec alebo skupinu (napr. „Konzervy“, „Horná polica“) tlačidlami dole.</div></div>');
     $('view').querySelectorAll('[data-crumb]').forEach((a) => {
@@ -816,9 +865,7 @@
         return;
       }
       box.innerHTML =
-        '<div class="sk-grid">' +
-        groups.map((g) => groupCard(g).replace('<div class="sk-sub">', '<div class="sk-sub">' + esc(pathText(g.warehouseId, g.parentId)) + ' · ')).join('') +
-        items.map((i) => itemCard(i, true)).join('') + '</div>';
+        groupRows(groups, true) + (items.length ? '<div class="sk-grid">' + items.map((i) => itemCard(i, true)).join('') + '</div>' : '');
       bindCards(box);
     };
     input.oninput = show;

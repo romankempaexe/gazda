@@ -173,6 +173,14 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   prihlasovania a bez duplikátov ako v mobilnom.
 - **Dávkovanie:** kalkulačka ibuprofen/paracetamol podľa váhy (sirup, čípky, tablety) –
   rovnaký výpočet ako v mobilnom Zdravkovi (`public/zdravko/data.js` z `assets/*.json`).
+- **Databáza liekov** (karta **Lieky** na úvode, `public/zdravko/drugs.js`): vyše 1300 prípravkov
+  zo slovenských lekární – názov, účinná látka, liekové formy a sily a oblasť (bolesť a horúčka,
+  prechladnutie, alergia, trávenie, antibiotiká, srdce a tlak, cukrovka, hormóny, psychika, dýchanie,
+  koža, oči a uši, kĺby, močové cesty, gynekológia, vitamíny, iné). Hľadá sa v názve, látke aj forme
+  (aj bez diakritiky), filter podľa oblasti; v detaile iné prípravky s rovnakou látkou a **Zapísať
+  podanie** členovi. Aj v **Pridať záznam** sa liek dá vyhľadať v databáze – prípravok s ibuprofénom
+  alebo paracetamolom (napr. Nurofen pre deti, Paralen) sa uloží s látkou, takže fungujú pripomienky
+  striedania (4 h / 8 h). Len na vyhľadanie a zápis, nie náhrada príbalového letáku.
 - **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
   *Nastaviť ako aktuálne*.
 - **Upozornenia (ikona Zdravka):** nová udalosť, podaný liek a nameraná teplota (🌡️ / 🟠 nad 37,2 / 🔴 nad 38 °C; s liekom v jednej správe) hneď ostatným v rodine;

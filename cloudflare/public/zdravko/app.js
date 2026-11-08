@@ -1245,9 +1245,6 @@
         '<div class="chips zd-types">' + Object.entries(EVENT_TYPES).map(([k, v]) => '<button type="button" class="chip' + (k === type ? ' active' : '') + '" data-type="' + k + '"><span class="ms">' + v.icon + '</span>' + v.name + '</button>').join('') + '</div>' +
         '<div class="field"><label>Podtyp (lekár, vyšetrenie, očkovanie)</label><input name="subtype" list="subtypes" required maxlength="120" autocomplete="off" placeholder="Začni písať, napr. pediater" value="' + esc(e ? e.subtype : '') + '"><datalist id="subtypes"></datalist></div>' +
         '<div class="field"><label>Dátum a čas</label><input type="datetime-local" name="at" required value="' + at + '"></div>' +
-        '<div class="field"><label>Pripomenúť (všetkým v rodine)</label><div class="chips wrap">' +
-        Object.entries(REMINDERS).map(([k, v]) => '<label class="chip zd-check"><input type="checkbox" name="rem" value="' + k + '"' + (e && e.reminders.includes(k) ? ' checked' : !e && k === 'day_before' ? ' checked' : '') + '>' + v + '</label>').join('') + '</div></div>' +
-        '<div class="row"><div class="field"><label>Cena (€, nepovinné)</label><input name="cost" inputmode="decimal" value="' + esc(e && e.cost ? fmt(e.cost, 2) : '') + '"></div></div>' +
         '<div class="field"><label>Poznámky</label><textarea name="notes" rows="2" maxlength="1000" placeholder="napr. vziať kartičku poistenca">' + esc(e ? e.notes : '') + '</textarea></div>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Uložiť</button></div></form>',
       (root) => {
@@ -1273,8 +1270,9 @@
               eventType: type,
               subtype: f.subtype.value,
               eventAt: new Date(f.at.value).toISOString(),
-              reminders: [...f.querySelectorAll('[name=rem]:checked')].map((x) => x.value),
-              cost: f.cost.value,
+              // bez výberu vo formulári: nová udalosť pripomenie deň vopred, úprava ponechá pôvodné
+              reminders: e ? e.reminders : ['day_before'],
+              cost: e && e.cost ? String(e.cost) : '',
               notes: f.notes.value,
             }),
             e ? 'Udalosť uložená' : 'Udalosť pridaná'

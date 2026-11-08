@@ -25,6 +25,8 @@
   };
   const REMINDERS = { week_before: '1 týždeň pred', day_before: '1 deň pred', hour_before: '1 hodinu pred' };
   const UNITS = [['tbl', 'tableta'], ['ml', 'mililiter'], ['kvp', 'kvapky'], ['kps', 'kapsula'], ['g', 'gram'], ['čípok', 'čípok']];
+  // ten istý liek proti horúčke najskôr o 6 h (drmoravcikova.sk/teplota-u-dietata)
+  const SAME_MS = 6 * 3600000;
   const RECENT_MS = 48 * 3600000; // prehľad navrchu a predvyplnenie: posledné 2 dni
   const RANGES = [['day', 'Deň', 1], ['3days', '3 dni', 3], ['week', 'Týždeň', 7], ['month', 'Mesiac', 30], ['3months', '3 mesiace', 90]];
   const MONTHS = ['január', 'február', 'marec', 'apríl', 'máj', 'jún', 'júl', 'august', 'september', 'október', 'november', 'december'];
@@ -644,7 +646,7 @@
     const when = (r) => esc(dayLabel(ymd(new Date(r.recordedAt)))) + ' ' + hm(r.recordedAt) + ' · <span data-ago="' + esc(r.recordedAt) + '">' + esc(ago(r.recordedAt)) + '</span>';
     let next = '';
     if (med && (med.substanceId === 'ibuprofen' || med.substanceId === 'paracetamol')) {
-      const ok = Date.parse(med.recordedAt) + 8 * 3600000;
+      const ok = Date.parse(med.recordedAt) + SAME_MS;
       next =
         ok <= Date.now()
           ? '<div class="zd-last-next ok"><span class="ms">check_circle</span>Už sa smie podať znova</div>'
@@ -680,11 +682,11 @@
       .filter((s) => bySubstance[s])
       .map((s) => {
         const last = Date.parse(bySubstance[s].recordedAt);
-        const ok = last + 8 * 3600000;
+        const ok = last + SAME_MS;
         const name = s === 'ibuprofen' ? 'Ibuprofen' : 'Paracetamol';
         return ok <= Date.now()
           ? '<div><span class="ms">check_circle</span>' + name + ' sa už smie podať znova</div>'
-          : '<div><span class="ms">timer</span>' + name + ' znova najskôr o ' + hm(new Date(ok).toISOString()) + ' (8 h od ' + hm(bySubstance[s].recordedAt) + ')</div>';
+          : '<div><span class="ms">timer</span>' + name + ' znova najskôr o ' + hm(new Date(ok).toISOString()) + ' (6 h od ' + hm(bySubstance[s].recordedAt) + ')</div>';
       });
     return (
       '<div class="section-title zd-sec"><span class="ms">medication</span>Lieky za posledné 3 dni</div><div class="members zd-meds">' +
@@ -907,7 +909,7 @@
           const sid = sidOf(choice, nameOf());
           if (sid === 'ibuprofen' || sid === 'paracetamol') {
             const p = lastOf(m, test(sid));
-            const ok = p ? Date.parse(p.recordedAt) + 8 * 3600000 : 0;
+            const ok = p ? Date.parse(p.recordedAt) + SAME_MS : 0;
             const when = p ? esc(dayLabel(ymd(new Date(p.recordedAt)))).toLowerCase() + ' o ' + hm(p.recordedAt) : '';
             if (p && ok > Date.now()) {
               hint = '<div class="zd-med-hint warn"><span class="ms">warning</span>Naposledy ' + when + ' – znova najskôr o ' + hm(new Date(ok).toISOString()) + '</div>';
@@ -1025,7 +1027,7 @@
           if (rest) data.rest = { method: rest, durationHours: hours };
           if (!data.temperature && !data.medicine && !data.rest) return toast('Zmeň teplotu alebo vyber liek.', true);
           saveQuick(m, data, root.querySelector('#save'),
-            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 4 h a 8 h príde pripomienka' : ''));
+            'Uložené' + (['ibuprofen', 'paracetamol'].includes(substanceId) ? ' – o 6 h príde pripomienka (pri teplote nad 39 °C už o 4 h)' : ''));
         };
       },
       { focus: false }

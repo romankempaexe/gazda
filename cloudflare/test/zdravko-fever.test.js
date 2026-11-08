@@ -7,27 +7,37 @@ import vm from 'node:vm';
 
 const ctx = { window: {} };
 vm.runInNewContext(readFileSync(new URL('../public/zdravko/fever.js', import.meta.url), 'utf8'), ctx);
-const { calc, ibuprofenSyrup, MEDS } = ctx.window.ZDRAVKO_FEVER;
+const { calc } = ctx.window.ZDRAVKO_FEVER;
 
-test('ibuprofen sirup 20 mg/ml – rovnaké čísla ako tabuľka na stránke', () => {
-  // váha: [dávka po 8 h, max. denná, max. po 6 h, max. po 8 h] v ml
+test('ibuprofen sirup 20 mg/ml – presne tabuľka zo stránky', () => {
+  // váha: [dávka po 8 h, text max. dennej dávky]
   const page = {
-    6: [2.5, 9, 2.2, 3], 8: [3.3, 12, 3.0, 4], 10: [4.2, 15, 3.7, 5], 12: [5.0, 18, 4.5, 6],
-    14: [5.8, 21, 5.2, 7], 16: [6.7, 24, 6.0, 8], 18: [7.5, 27, 6.7, 9],
-    20: [8.3, 30, 7.5, 10], // stránka uvádza 8,4 ml, presne 20 × 25 / 3 / 20 = 8,33 ml
+    6: ['2,5', '9,0 ml (2,2 ml á 6 hod alebo 3,0 ml á 8 hod)'],
+    8: ['3,3', '12,0 ml (3,0 ml á 6 hod alebo 4,0 ml á 8 hod)'],
+    10: ['4,2', '15,0 ml (3,7 ml á 6 hod alebo 5,0 ml á 8 hod)'],
+    12: ['5,0', '18,0 ml (4,5 ml á 6 hod alebo 6,0 ml á 8 hod)'],
+    14: ['5,8', '21,0 ml (5,2 ml á 6 hod alebo 7,0 ml á 8 hod)'],
+    16: ['6,7', '24,0 ml (6,0 ml á 6 hod alebo 8,0 ml á 8 hod)'],
+    18: ['7,5', '27,0 ml (6,7 ml á 6 hod alebo 9,0 ml á 8 hod)'],
+    20: ['8,4', '30,0 ml (7,5 ml á 6 hod alebo 10,0 ml á 8 hod)'],
   };
-  for (const [w, [dose, day, h6, h8]] of Object.entries(page)) {
-    const r = ibuprofenSyrup(MEDS.ibuprofen.forms.syrup20, Number(w));
-    assert.deepEqual([r.ml, r.maxDayMl, r.max6hMl, r.max8hMl], [dose, day, h6, h8], w + ' kg');
+  for (const [w, [dose, max]] of Object.entries(page)) {
+    const r = calc('ibuprofen', 'syrup20', Number(w));
+    assert.equal(r.dose, dose + ' ml sirupu po 8 hod.', w + ' kg');
+    assert.equal(r.lines[0], 'Max. denná dávka ' + max + '.', w + ' kg');
   }
+  // medzi riadkami nižší riadok, mimo tabuľky nič
+  assert.equal(calc('ibuprofen', 'syrup20', 7).dose, '2,5 ml sirupu po 8 hod.');
+  assert.equal(calc('ibuprofen', 'syrup20', 15.9).dose, '5,8 ml sirupu po 8 hod.');
+  assert.equal(calc('ibuprofen', 'syrup20', 20.5).dose, '8,4 ml sirupu po 8 hod.');
+  assert.equal(calc('ibuprofen', 'syrup20', 5.9).ok, false);
+  assert.equal(calc('ibuprofen', 'syrup20', 21).ok, false);
 });
 
 test('ibuprofen sirup 40 mg/ml – polovičné dávky', () => {
-  const r = calc('ibuprofen', 'syrup40', 12);
-  assert.equal(r.record.amount, 2.5);
-  assert.match(r.dose, /^2,5 ml/);
-  assert.equal(calc('ibuprofen', 'syrup20', 5).ok, false, 'pod 6 kg tabuľka nie je');
-  assert.equal(calc('ibuprofen', 'syrup20', 25).ok, false, 'nad 20 kg tabuľka nie je');
+  assert.equal(calc('ibuprofen', 'syrup40', 8).dose, '1,65 ml sirupu po 8 hod.');
+  assert.equal(calc('ibuprofen', 'syrup40', 12).record.amount, 2.5);
+  assert.equal(calc('ibuprofen', 'syrup40', 20).dose, '4,2 ml sirupu po 8 hod.');
 });
 
 test('paracetamol – riadky tabuliek, na hranici nižšia dávka', () => {

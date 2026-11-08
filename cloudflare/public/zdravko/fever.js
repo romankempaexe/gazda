@@ -6,8 +6,8 @@
 // a celé kilá v zápise „4 – 5 kg“ znamenajú do 5,99 kg. Na spoločnej hranici sa teda vždy použije
 // nižšia dávka. Mimo tabuľky kalkulačka dávku nevymýšľa.
 //
-// Ibuprofen v sirupe: stránka počíta s priemernou dennou dávkou 25 mg/kg/deň rozdelenou do 3 dávok
-// (po 8 h) a s maximálnou dennou dávkou 30 mg/kg/deň (= 4 dávky po 6 h alebo 3 dávky po 8 h).
+// Ibuprofen v sirupe: hodnoty presne z tabuľky stránky (6 – 20 kg po 2 kg; priemerná dávka 25 mg/kg/deň
+// po 8 h, maximum 30 mg/kg/deň); váha medzi riadkami → nižší riadok. Sirup 40 mg/ml = polovičné dávky.
 
 (function (root) {
   const SOURCE = {
@@ -66,8 +66,8 @@
       brands: 'Ibalgin, Nurofen, Brufen',
       interval: 'Interval medzi dvoma dávkami je minimálne 6 hodín.',
       forms: {
-        syrup20: { name: 'Sirup 20 mg/ml', product: 'Ibuprofen sirup 20 mg/ml (100 mg/5 ml)', conc: 20, from: 6, to: 20 },
-        syrup40: { name: 'Sirup 40 mg/ml', product: 'Ibuprofen sirup 40 mg/ml (4 %, „forte“)', conc: 40, from: 6, to: 20 },
+        syrup20: { name: 'Sirup 20 mg/ml', product: 'Ibuprofen sirup 20 mg/ml (Ibalgin, Nurofen, Brufen)', ibuSyrup: 1 },
+        syrup40: { name: 'Sirup 40 mg/ml', product: 'Ibuprofen sirup 40 mg/ml – polovičné dávky', ibuSyrup: 0.5 },
         supp: {
           name: 'Čípky',
           product: 'Nurofen čípky 60 mg / 125 mg',
@@ -91,6 +91,18 @@
     },
   };
 
+  // Ibuprofen 20 mg/ml – tabuľka zo stránky: [kg, ml po 8 h, max. denná dávka ml, ml á 6 h, ml á 8 h]
+  const IBU_SYRUP = [
+    [6, 2.5, 9, 2.2, 3],
+    [8, 3.3, 12, 3.0, 4],
+    [10, 4.2, 15, 3.7, 5],
+    [12, 5.0, 18, 4.5, 6],
+    [14, 5.8, 21, 5.2, 7],
+    [16, 6.7, 24, 6.0, 8],
+    [18, 7.5, 27, 6.7, 9],
+    [20, 8.4, 30, 7.5, 10],
+  ];
+
   const RULES = [
     'Teplotu znižuj u dojčaťa nad 37,5 °C, u staršieho dieťaťa nad 38 °C – zvýšená teplota pomáha imunite.',
     'Pri meraní v konečníku odpočítaj 0,7 °C u detí do 6 mesiacov, 0,5 °C u starších detí.',
@@ -113,10 +125,6 @@
     const s = (Math.round(v * 10 ** d) / 10 ** d).toFixed(d).replace('.', ',');
     return s;
   };
-  // na 0,1 ml: dávka zaokrúhlená, maximá vždy nadol (nikdy nad maximum)
-  const round1 = (v) => Math.round(v * 10 + 1e-9) / 10;
-  const floor1 = (v) => Math.floor(v * 10 + 1e-9) / 10;
-
   /** Riadok tabuľky pre hodnotu (váha v kg alebo vek v rokoch) – alebo dôvod, prečo žiadny. */
   function band(form, value) {
     if (value < form.from) return { below: true };
@@ -124,18 +132,16 @@
     return i < 0 ? { above: true } : { row: form.bands[i], index: i };
   }
 
-  /** Ibuprofen v sirupe podľa váhy: priemerná dávka po 8 h a maximá (30 mg/kg/deň). */
-  function ibuprofenSyrup(form, w) {
-    const doseMg = (w * 25) / 3;
-    const maxDayMg = w * 30;
-    const ml = round1(doseMg / form.conc);
-    return {
-      ml,
-      mg: doseMg,
-      maxDayMl: floor1(maxDayMg / form.conc),
-      max6hMl: floor1(maxDayMg / 4 / form.conc),
-      max8hMl: floor1(maxDayMg / 3 / form.conc),
-    };
+  // ml na 1 – 2 desatinné miesta (polovičné dávky pri 40 mg/ml: 1,65 ml)
+  const ml = (v) => num(v, 2).replace(/0$/, '');
+
+  /** Ibuprofen v sirupe podľa tabuľky stránky: riadok s najväčšou váhou ≤ váha dieťaťa (do 20,99 kg). */
+  function ibuprofenSyrup(factor, w) {
+    if (!(w >= IBU_SYRUP[0][0]) || w >= 21) return null;
+    let i = 0;
+    while (i + 1 < IBU_SYRUP.length && IBU_SYRUP[i + 1][0] <= w) i++;
+    const [kg, ml, maxDay, h6, h8] = IBU_SYRUP[i].map((v, k) => (k ? v * factor : v));
+    return { index: i, kg, ml, maxDay, h6, h8 };
   }
 
   /**
@@ -158,25 +164,17 @@
     if (!(weight > 0)) return { ok: false, message: 'Zadaj váhu dieťaťa.' };
     const kg = num(weight, 1).replace(/,0$/, '') + ' kg';
 
-    if (form.conc) {
-      if (weight < form.from || weight > form.to) {
-        return {
-          ok: false,
-          message: 'Tabuľka na stránke je pre ' + form.from + ' – ' + form.to + ' kg (' + kg + ' je mimo). Poraď sa s lekárom' +
-            (weight > form.to ? ', staršiemu dieťaťu tablety podľa veku.' : '.'),
-        };
-      }
-      const r = ibuprofenSyrup(form, weight);
+    if (form.ibuSyrup) {
+      const r = ibuprofenSyrup(form.ibuSyrup, weight);
+      if (!r) return { ok: false, message: 'Tabuľka na stránke je pre 6 – 20 kg (' + kg + ' je mimo) – poraď sa s lekárom' + (weight >= 21 ? ', staršiemu dieťaťu tablety podľa veku.' : '.') };
       return {
         ok: true,
         ...base,
-        dose: num(r.ml, 1) + ' ml každých 8 hodín',
-        row: kg + ' × 25 mg/kg/deň ÷ 3 dávky = ' + num(r.mg, 0) + ' mg',
-        lines: [
-          'Maximálna denná dávka ' + num(r.maxDayMl, 1) + ' ml (30 mg/kg/deň).',
-          'Ak treba každých 6 hodín: najviac ' + num(r.max6hMl, 1) + ' ml na dávku (najviac ' + num(r.max8hMl, 1) + ' ml po 8 hodinách).',
-        ],
+        dose: ml(r.ml) + ' ml sirupu po 8 hod.',
+        row: 'Riadok tabuľky: ' + r.kg + ' kg' + (r.kg === weight ? '' : ' (' + kg + ' v tabuľke nie je – nižší riadok)'),
+        lines: ['Max. denná dávka ' + ml(r.maxDay) + ' ml (' + ml(r.h6) + ' ml á 6 hod alebo ' + ml(r.h8) + ' ml á 8 hod).'],
         record: { amount: r.ml, unit: 'ml' },
+        index: r.index,
       };
     }
 
@@ -186,5 +184,11 @@
     return { ok: true, ...base, dose: b.row[1], row: 'Riadok tabuľky: ' + b.row[2], lines: [], record: b.row[3], index: b.index };
   }
 
-  root.ZDRAVKO_FEVER = { SOURCE, MEDS, RULES, ALTERNATE, WRAPS, calc, ibuprofenSyrup };
+  // tabuľka na zobrazenie (rovnaký tvar ako bands): [kg, dávka, riadok]
+  for (const f of Object.values(MEDS.ibuprofen.forms)) {
+    if (!f.ibuSyrup) continue;
+    f.bands = IBU_SYRUP.map((r) => [r[0], ml(r[1] * f.ibuSyrup) + ' ml po 8 hod. (max. ' + ml(r[2] * f.ibuSyrup) + ' ml/deň)', r[0] + ' kg']);
+  }
+
+  root.ZDRAVKO_FEVER = { SOURCE, MEDS, IBU_SYRUP, RULES, ALTERNATE, WRAPS, calc, ibuprofenSyrup };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -186,11 +186,16 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   členovi. Aj v **Pridať záznam** sa liek dá vyhľadať – prípravok s ibuprofénom alebo paracetamolom
   (aj kombinovaný, napr. Coldrex) sa uloží s látkou, takže fungujú pripomienky (6 h / 4 h).
   Súbor (≈ 1 MB, gzip ≈ 150 kB) sa načíta až pri otvorení karty Lieky alebo hľadaní lieku.
+  V detaile aj **skupina lieku** podľa ATC číselníka a **„Na čo sa používa“** – časť 1 príbalového letáku
+  (≈ 6 100 liekov; `public/zdravko/drug-info/NN.json`, 32 častí po ≈ 50 kB gzip, načíta sa len tá, ktorú treba).
+  Lieky schválené celoeurópsky (EMA) leták v archíve ŠÚKL nemajú.
   **Aktualizácia** (ŠÚKL zoznam mení mesačne):
   ```bash
-  pip install openpyxl
+  pip install openpyxl xlrd
   curl -O https://www.sukl.sk/verejne/Zoznam_liekov/zoznam_liekov_aktualny.zip
   python3 scripts/sukl_lieky.py zoznam_liekov_aktualny.zip > public/zdravko/drugs.js
+  # popisy z letákov: stiahne len potrebné letáky (≈ 1,6 GB) z archívu SPC/PIL; treba pdftotext a LibreOffice
+  python3 scripts/sukl_letaky.py --cache /tmp/sukl-pil
   ```
 - **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
   *Nastaviť ako aktuálne*.

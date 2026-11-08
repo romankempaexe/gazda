@@ -4,7 +4,7 @@
 Zoznam sa mesačne aktualizuje na https://www.sukl.sk/verejne/Zoznam_liekov/
 (zoznam_liekov_aktualny.zip → zoznam_liekov.xlsx). Použitie:
 
-    pip install openpyxl
+    pip install openpyxl xlrd
     curl -O https://www.sukl.sk/verejne/Zoznam_liekov/zoznam_liekov_aktualny.zip
     python3 scripts/sukl_lieky.py zoznam_liekov_aktualny.zip > public/zdravko/drugs.js
 
@@ -12,6 +12,7 @@ Jeden riadok databázy = jeden prípravok (rovnaký názov), formy a sily sú zl
 Vynechané sú rádiofarmaká, diagnostiká a kontrastné látky (ATC V04, V07, V08, V09, V10).
 """
 import io
+import os
 import json
 import re
 import sys
@@ -19,6 +20,7 @@ import zipfile
 from collections import Counter, defaultdict
 
 import openpyxl
+import xlrd
 
 CATEGORIES = [
     ['pain', 'Bolesť a horúčka', 'healing'],
@@ -137,16 +139,38 @@ def category(atc):
     return ATC_CATS.get(best, 'other')
 
 
+def nice(name):
+    """Názov skupiny ATC: bez nezlomiteľných medzier, VEĽKÉ PÍSMENÁ → prvé veľké."""
+    name = re.sub(r'\s+', ' ', str(name).replace('\xa0', ' ')).strip()
+    return name[:1] + name[1:].lower() if name.isupper() else name
+
+
+def atc_groups(z, codes):
+    """Skupina lieku podľa ATC číselníka (atc.xls): „3. úroveň › 4. úroveň“ pre každý 5-znakový kód."""
+    name = next((n for n in z.namelist() if n.lower().endswith('atc.xls')), None)
+    if not name:
+        return {}
+    sheet = xlrd.open_workbook(file_contents=z.read(name), logfile=open(os.devnull, 'w')).sheet_by_index(0)
+    names = {str(sheet.cell_value(i, 0)).strip(): nice(sheet.cell_value(i, 2)) for i in range(1, sheet.nrows)}
+    out = {}
+    for code in sorted({c[:5] for c in codes if len(c) >= 5}):
+        parts = [names.get(code[:4]), names.get(code)]
+        parts = [p for i, p in enumerate(parts) if p and (i == 0 or p != parts[0])]
+        if parts:
+            out[code] = ' › '.join(parts)
+    return out
+
+
 def natural(s):
     return [float(x.replace(',', '.')) if re.fullmatch(r'[\d,]+', x) and x.count(',') <= 1 else x
             for x in re.findall(r'[\d,]+|\D+', s)]
 
 
 def main(path):
-    with zipfile.ZipFile(path) as z:
-        name = next(n for n in z.namelist() if n.lower().endswith('zoznam_liekov.xlsx'))
-        info = z.getinfo(name)
-        data = z.read(name)
+    z = zipfile.ZipFile(path)
+    name = next(n for n in z.namelist() if n.lower().endswith('zoznam_liekov.xlsx'))
+    info = z.getinfo(name)
+    data = z.read(name)
     ws = openpyxl.load_workbook(io.BytesIO(data), read_only=True).worksheets[0]
     rows = ws.iter_rows(values_only=True)
     head = list(next(rows))
@@ -192,6 +216,7 @@ def main(path):
     out.write('window.ZDRAVKO_DRUGS = {\n')
     out.write(' "source": ' + json.dumps('ŠÚKL – zoznam registrovaných liekov, ' + date, ensure_ascii=False) + ',\n')
     out.write(' "categories": ' + json.dumps(CATEGORIES, ensure_ascii=False) + ',\n')
+    out.write(' "groups": ' + json.dumps(atc_groups(z, used_atc), ensure_ascii=False, separators=(',', ':')) + ',\n')
     out.write(' "atc": ' + json.dumps(dict(sorted(used_atc.items())), ensure_ascii=False, separators=(',', ':')) + ',\n')
     out.write(' "drugs": [\n' + ',\n'.join(json.dumps(d, ensure_ascii=False, separators=(',', ':')) for d in drugs) + '\n ]\n};\n')
     print(len(drugs), 'prípravkov,', len(used_atc), 'ATC kódov', file=sys.stderr)

@@ -186,7 +186,8 @@
           const i = f.indexOf(':');
           return i < 0 ? [f, ''] : [f.slice(0, i), f.slice(i + 1)];
         });
-        return { name, atc, subs, cat, forms: list, otc: Boolean(otc), sid: sid || '', fname: fold(name), fall: fold(name + ' ' + subs + ' ' + atc + ' ' + forms) };
+        const group = (DRUGS.groups && DRUGS.groups[atc.slice(0, 5)]) || '';
+        return { name, atc, subs, group, cat, forms: list, otc: Boolean(otc), sid: sid || '', fname: fold(name), fall: fold(name + ' ' + subs + ' ' + atc + ' ' + group + ' ' + forms) };
       });
     }
     return drugIndex;
@@ -204,6 +205,26 @@
 
   /** Látka pre pripomienky striedania liekov proti horúčke (ibuprofén, paracetamol aj v kombináciách). */
   const drugSubstanceId = (d) => (d ? d.sid : '');
+
+  // Popis z príbalového letáku („Čo je X a na čo sa používa“) – 32 častí podľa názvu (scripts/sukl_letaky.py).
+  const drugInfoShards = {};
+  function drugShard(name) {
+    let h = 0;
+    for (const ch of name) h = (Math.imul(h, 31) + ch.codePointAt(0)) >>> 0;
+    return h % 32;
+  }
+  function drugInfo(name) {
+    const n = drugShard(name);
+    if (!drugInfoShards[n]) {
+      drugInfoShards[n] = fetch('/zdravko/drug-info/' + String(n).padStart(2, '0') + '.json')
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .catch((err) => {
+          delete drugInfoShards[n];
+          throw err;
+        });
+    }
+    return drugInfoShards[n].then((s) => (s.names[name] ? s.pil[s.names[name]] : ''));
+  }
 
   const drugForms = (d) => d.forms.map(([f, sily]) => f + (sily ? ' – ' + sily : ''));
 
@@ -528,7 +549,9 @@
     openModal(
       '<h2>' + esc(d.name) + '</h2>' +
         '<div class="zd-drug-detail">' +
-        '<div><span class="muted">Účinná látka (ATC ' + esc(d.atc) + ')</span><b>' + esc(d.subs || '–') + '</b></div>' +
+        '<div><span class="muted">Účinná látka (ATC ' + esc(d.atc) + ')</span><b>' + esc(d.subs || '–') + '</b>' +
+        (d.group ? '<div class="zd-drug-group">' + esc(d.group) + '</div>' : '') + '</div>' +
+        '<div><span class="muted">Na čo sa používa</span><div class="zd-desc" id="drugDesc"><span class="muted">Načítavam z príbalového letáku…</span></div></div>' +
         '<div><span class="muted">Výdaj</span><b>' + (d.otc ? 'Aj bez lekárskeho predpisu' : 'Na lekársky predpis') + '</b></div>' +
         '<div><span class="muted">Oblasť</span><b><span class="ms">' + cat.icon + '</span>' + esc(cat.name) + '</b></div>' +
         '<div><span class="muted">Liekové formy a sily</span><ul>' + drugForms(d).map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>' +
@@ -544,6 +567,16 @@
         '<div class="actions"><button type="button" class="btn text" id="close">Zavrieť</button></div>',
       (root) => {
         root.querySelector('#close').onclick = closeModal;
+        const box = root.querySelector('#drugDesc');
+        drugInfo(d.name).then(
+          (text) => {
+            if (!box.isConnected) return; // medzitým iný liek
+            box.innerHTML = text
+              ? text.split('\n').map((p) => '<p>' + esc(p) + '</p>').join('') + '<div class="zd-desc-src">Z príbalového letáku (ŠÚKL)</div>'
+              : '<span class="muted">Popis nie je k dispozícii – pri tomto lieku nie je v databáze ŠÚKL príbalový leták (napr. lieky schválené celoeurópsky).</span>';
+          },
+          () => box.isConnected && (box.innerHTML = '<span class="muted">Popis sa nepodarilo načítať (bez internetu?).</span>')
+        );
         root.querySelectorAll('[data-same]').forEach((b) => (b.onclick = () => drugDetail(drugByName(b.dataset.same))));
         root.querySelectorAll('[data-give]').forEach((b) => {
           b.onclick = () => {

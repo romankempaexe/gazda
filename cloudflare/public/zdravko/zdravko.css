@@ -817,3 +817,26 @@ button.zd-last-card {
 p.zd-rules {
   padding-left: 0;
 }
+
+/* Popis lieku z príbalového letáku */
+.zd-drug-group {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.zd-desc p {
+  margin: 0 0 6px;
+  line-height: 1.5;
+  font-size: 14.5px;
+}
+.zd-desc-src {
+  font-size: 12px;
+  color: var(--muted);
+}
+.zd-drug-detail {
+  grid-template-columns: minmax(0, 1fr);
+}
+.zd-drug-detail .chip {
+  white-space: normal;
+  text-align: left;
+}

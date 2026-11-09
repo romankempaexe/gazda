@@ -80,17 +80,18 @@ ostali domáce práce a činnosti). Nákup je na serveri stále činnosť s `kin
   a dostane len domáce práce. História: `getHistory(rodina, pred, 'nakup' | 'tasks')`.
 - **Bez termínu:** nákup nemá dátum, čas ani opakovanie – zoznam sa len vytvorí a nakúpi sa, keď
   sa bude dať (formulár nákupu ich nemá; staré nákupy s termínom sa pri úprave termínu zbavia).
-- **Obrazovka Nákupy:** všetky zoznamy rodiny (kto práve nakupuje, potom spoločné, moje a ostatné).
-  Na karte obchod, kto, priebeh, odhad sumy a položky na odškrtnutie (aj „Nemali“); keď je všetko
+- **Obrazovka Nákupy:** všetky zoznamy rodiny (najprv ten, ktorý práve niekto nakupuje).
+  Na karte obchod, priebeh, odhad sumy a položky na odškrtnutie (aj „Nemali“); keď je všetko
   vybavené, **Hotové**.
+- **Nikomu nepridelené:** nákupný zoznam sa len vytvorí – formulár nemá „kto nakúpi“, každý nákup
+  je spoločný pre celú rodinu (`assignedTo = '*'`; upozornenia dostanú všetci okrem autora).
 - **Pridanie položky:** pole na názov je na celý riadok, počet, mikrofón a „+“ sú pod ním.
-- **Vpravo dole:** **Nákupný zoznam** (spoločný – existujúci alebo nový), **+** nový nákup (obchod,
-  komu) a **Letáky** obchodov.
+- **Vpravo dole:** **Nákupný zoznam** (spoločný – existujúci alebo nový), **+** nový nákup (názov,
+  obchod) a **Letáky** obchodov.
 - **História** nákupov s tlačidlami **Znova** a **Vrátiť**; odhad sumy a čo nemali.
 - Posledné údaje sú v telefóne (`localStorage` `nakupy.snap.<rodina>`), takže zoznam sa otvorí aj
   v obchode bez signálu; pri odhlásení sa zmažú.
-- **Dlaždica** na rozcestníku: koľko vecí treba kúpiť (nákupy moje, spoločné a nepriradené),
-  alebo kto práve nakupuje.
+- **Dlaždica** na rozcestníku: koľko vecí treba kúpiť vo všetkých nákupoch rodiny, alebo kto práve nakupuje.
 - Staré odkazy Gazdy (`/gazda/?akcia=nakup`, `/gazda/?nakup=<id>` z upozornení) presmerujú do Nákupov.
 
 Podrobnosti o nákupe (letáky, akcie, oddelenia, nákup v obchode, upozornenia) sú nižšie v častiach

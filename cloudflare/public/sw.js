@@ -1,12 +1,12 @@
 // Service worker Family Grid (jeden pre rozcestník aj všetky podaplikácie):
 // - aplikácia sa otvorí aj bez internetu (posledná verzia stránky + posledné údaje z pamäte telefónu),
-// - push notifikácie – každá podaplikácia s vlastnou ikonou (Gazda, Zdravko, Skládko, QuickStash, Financie).
+// - push notifikácie – každá podaplikácia s vlastnou ikonou (Gazda, Nákupy, Zdravko, Skládko, QuickStash, Financie).
 //
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v11';
-const APPS = ['family', 'gazda', 'zdravko', 'skladko', 'quickstash', 'financie'];
+const CACHE = 'family-grid-v12';
+const APPS = ['family', 'gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie'];
 const SHELL = [
   '/',
   '/shared/app.css',
@@ -15,8 +15,10 @@ const SHELL = [
   '/grid.js',
   '/gazda/',
   '/gazda/app.js',
-  '/gazda/produkty.js',
-  '/gazda/letaky.js',
+  '/nakupy/',
+  '/nakupy/app.js',
+  '/nakupy/produkty.js',
+  '/nakupy/letaky.js',
   '/skladko/',
   '/skladko/app.js',
   '/skladko/skladko.css',
@@ -79,7 +81,7 @@ self.addEventListener('push', (event) => {
   }
   // Staré správy bez „app“ sú z Gazdy.
   const app = APPS.includes(data.app) ? data.app : 'gazda';
-  const names = { family: 'Family Grid', gazda: 'Gazda', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie' };
+  const names = { family: 'Family Grid', gazda: 'Gazda', nakupy: 'Nákupy', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie' };
   event.waitUntil(
     self.registration.showNotification(data.title || names[app], {
       body: data.body || '',
@@ -102,7 +104,7 @@ self.addEventListener('notificationclick', (event) => {
       const open = list.find((c) => c.url.startsWith(self.location.origin) && 'focus' in c);
       if (!open) return self.clients.openWindow(url);
       const samePage = new URL(open.url).pathname === new URL(url).pathname;
-      // aj na tej istej stránke, keď upozornenie otvára niečo konkrétne (napr. /gazda/?nakup=<id>)
+      // aj na tej istej stránke, keď upozornenie otvára niečo konkrétne (napr. /nakupy/?nakup=<id>)
       if ((!samePage || new URL(url).search) && 'navigate' in open) {
         try {
           const moved = await open.navigate(url);

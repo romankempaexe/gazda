@@ -1,4 +1,4 @@
-// Family Grid – spoločná časť pre rozcestník a podaplikácie Zdravko, Skládko, QuickStash a Financie
+// Family Grid – spoločná časť pre rozcestník a podaplikácie Nákupy, Zdravko, Skládko, QuickStash a Financie
 // (Gazda má svoju vlastnú, staršiu verziu tých istých funkcií v gazda/app.js):
 // volania servera, prihlásenie Google účtom, okná, upozornenia, inštalácia, vzhľad,
 // výber rodiny a zapamätanie poslednej podaplikácie.
@@ -8,13 +8,14 @@
 
 (function () {
   const APPS = {
-    gazda: { name: 'Gazda', desc: 'Domáce práce, nákupy a letáky', url: '/gazda/' },
+    gazda: { name: 'Gazda', desc: 'Domáce práce a činnosti', url: '/gazda/' },
+    nakupy: { name: 'Nákupy', desc: 'Nákupné zoznamy, letáky a akcie', url: '/nakupy/' },
     zdravko: { name: 'Zdravko', desc: 'Zdravie rodiny: teplota, lieky, lekári', url: '/zdravko/' },
     skladko: { name: 'Skládko', desc: 'Čo máme doma a kde to je', url: '/skladko/' },
     quickstash: { name: 'QuickStash', desc: 'Texty, odkazy a heslá na skopírovanie', url: '/quickstash/' },
     financie: { name: 'Financie', desc: 'Rodinný rozpočet: príjmy, výdavky, rezerva', url: '/financie/' },
   };
-  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', zdravko: '#1d72b8', skladko: '#ea580c', quickstash: '#0d9488', financie: '#7c3aed' };
+  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', nakupy: '#db2777', zdravko: '#1d72b8', skladko: '#ea580c', quickstash: '#0d9488', financie: '#7c3aed' };
   const LAST_APP_KEY = 'fg.lastApp';
   const THEME_KEY = 'gazda.theme'; // spoločné s Gazdou
   const LOGGED_OUT_KEY = 'gazda.loggedOut';
@@ -227,7 +228,7 @@
     state.email = '';
     ['backBtn', 'bellBtn', 'avatar', 'tabs'].forEach((id) => $(id) && $(id).classList.add('hidden'));
     document.body.classList.remove('with-tabs');
-    // Prihlásenie je spoločné pre celý Family Grid (Gazda, Zdravko, Skládko, QuickStash, Financie).
+    // Prihlásenie je spoločné pre celý Family Grid (Gazda, Nákupy, Zdravko, Skládko, QuickStash, Financie).
     $('view').innerHTML =
       '<div class="empty login"><img class="login-logo" src="/icons/family/icon.svg" alt="">' +
       '<h2>Prihlás sa do Family Grid</h2>' +
@@ -366,7 +367,7 @@
   function forgetDevice() {
     try {
       Object.keys(localStorage)
-        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|zdravko\.|skladko\.|quickstash\.|financie\.)/.test(k))
+        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|nakupy\.|zdravko\.|skladko\.|quickstash\.|financie\.)/.test(k))
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
   }
@@ -468,7 +469,7 @@
   // ---- Rodina a zdieľanie Family Grid ---------------------------------------------------------
 
   /**
-   * Rodina = komu je Family Grid zdieľaný. Všetci jej členovia vidia a menia údaje Gazdy,
+   * Rodina = komu je Family Grid zdieľaný. Všetci jej členovia vidia a menia údaje Gazdy, Nákupov,
    * Zdravka aj Skládka tejto rodiny. onChange() sa zavolá po zmene (iná rodina, nový člen…).
    */
   function showFamily(onChange) {
@@ -591,7 +592,7 @@
         const del = root.querySelector('#delete');
         if (del) {
           del.onclick = async () => {
-            if (!(await confirmDialog('Vymazať rodinu ' + h.name + '?', 'Vymažú sa <b>všetky</b> jej údaje – úlohy a nákupy v Gazde, zdravotné záznamy v Zdravkovi aj sklady v Skládku – pre všetkých členov. Nedá sa to vrátiť.', 'Vymazať všetko', true))) return;
+            if (!(await confirmDialog('Vymazať rodinu ' + h.name + '?', 'Vymažú sa <b>všetky</b> jej údaje – úlohy v Gazde, nákupy, zdravotné záznamy v Zdravkovi aj sklady v Skládku – pre všetkých členov. Nedá sa to vrátiť.', 'Vymazať všetko', true))) return;
             try {
               state.households = (await api('deleteHousehold', h.id)).households;
               writeStore('fg.household', null);
@@ -637,7 +638,7 @@
   /** Pozvánka: adresa Family Grid na poslanie (prihlási sa Google účtom s tým e-mailom). */
   function invite(emails) {
     const url = location.origin + '/';
-    const text = 'Pridal(a) som ťa do Family Grid (Gazda, Zdravko, Skládko, QuickStash, Financie). Otvor ' + url + ' a prihlás sa Google účtom' +
+    const text = 'Pridal(a) som ťa do Family Grid (Gazda, Nákupy, Zdravko, Skládko, QuickStash, Financie). Otvor ' + url + ' a prihlás sa Google účtom' +
       (emails.length === 1 ? ' ' + emails[0] : '') + '.';
     openModal(
       '<h2>Daj im vedieť</h2><div class="subtitle">' + (emails.length ? esc(emails.join(', ')) + ' sa prihlási' + (emails.length > 1 ? 'a' : '') + ' Google účtom s tým e-mailom. ' : '') +
@@ -694,7 +695,7 @@
         '<h2>Kalendár na plochu</h2>' +
           '<div class="subtitle">Udalosti Zdravka (lekár, vyšetrenia, očkovania) a úlohy Gazdy v Google Kalendári alebo v kalendári iPhonu – ' +
           'na plochu potom dáš widget kalendára s najbližšími udalosťami.</div>' +
-          '<div class="field"><label>Úlohy z Gazdy</label><div class="chips">' +
+          '<div class="field"><label>Úlohy z Gazdy a nákupy s termínom</label><div class="chips">' +
           [['mine', 'Moje a spoločné'], ['all', 'Všetky'], ['none', 'Žiadne']]
             .map(([v, l]) => '<button type="button" class="chip' + (gazda === v ? ' active' : '') + '" data-g="' + v + '">' + l + '</button>')
             .join('') +
@@ -921,7 +922,8 @@
   async function showNotificationSettings() {
     const what =
       '<div class="members">' +
-      '<div><img src="/icons/gazda/icon.svg" alt="" class="notif-app">Gazda: ranný prehľad úloh, pridelené úlohy, akcie</div>' +
+      '<div><img src="/icons/gazda/icon.svg" alt="" class="notif-app">Gazda: ranný prehľad úloh, pridelené úlohy, komentáre</div>' +
+      '<div><img src="/icons/nakupy/icon.svg" alt="" class="notif-app">Nákupy: nový zoznam, čo kto pridal, kto nakupuje, akcie</div>' +
       '<div><img src="/icons/zdravko/icon.svg" alt="" class="notif-app">Zdravko: lieky, návštevy lekára, očkovania</div>' +
       '<div><img src="/icons/skladko/icon.svg" alt="" class="notif-app">Skládko: čo dochádza a čomu končí trvanlivosť</div></div>';
     let status;
@@ -1030,7 +1032,7 @@
     $('view').insertAdjacentHTML(
       'afterbegin',
       '<div class="install-banner" id="installBanner"><img src="/icons/family/icon.svg" alt="">' +
-        '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Zdravko, Skládko, QuickStash a Financie v jednej aplikácii</div>' +
+        '<div class="text"><b>Nainštaluj si Family Grid</b>Gazda, Nákupy, Zdravko, Skládko, QuickStash a Financie v jednej aplikácii</div>' +
         '<button type="button" class="btn small" data-install>Inštalovať</button>' +
         '<button type="button" class="icon-btn small" data-install-close title="Teraz nie"><span class="ms">close</span></button></div>'
     );

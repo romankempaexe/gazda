@@ -1,11 +1,11 @@
-// Family Grid – spoločná časť pre všetky podaplikácie (Gazda, Zdravko, Skládko, QuickStash, Financie):
+// Family Grid – spoločná časť pre všetky podaplikácie (Gazda, Nákupy, Zdravko, Skládko, QuickStash, Financie):
 // kto je prihlásený, jeho rodiny (= domácnosti z Gazdy), naposledy otvorená
 // podaplikácia a krátky prehľad na dlaždice rozcestníka.
 
 import { getHouseholds } from './api.js';
 import { ALL, AppError, requireText } from './domain.js';
 
-export const APPS = ['gazda', 'zdravko', 'skladko', 'quickstash', 'financie'];
+export const APPS = ['gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie'];
 
 /** Člen rodiny (domácnosti)? Inak chyba 403. Spoločné pre Zdravka, Skládko, QuickStash a Financie. */
 export async function requireFamilyMember(c, householdId) {
@@ -20,14 +20,14 @@ export async function requireFamilyMember(c, householdId) {
 /** Údaje pre rozcestník: používateľ, rodiny, posledná podaplikácia a prehľad dlaždíc. */
 export async function getFamily(c) {
   const res = await getHouseholds(c);
-  const [user, gazda, skladko, zdravko, quickstash, financie] = await c.db.batch([
+  const [user, gazda, skladko, zdravko, quickstash, financie, nakupy] = await c.db.batch([
     c.db.prepare('SELECT last_app, last_household_id FROM users WHERE email = ?').bind(c.email),
-    // Gazda: moje úlohy (aj spoločné) na dnes a po termíne – ako „Môj rozpis“.
+    // Gazda: moje domáce práce (aj spoločné) na dnes a po termíne – ako „Môj rozpis“ (nákupy sú v Nákupoch).
     c.db
       .prepare(
         `SELECT SUM(c.due_date = ?1) AS today, SUM(c.due_date < ?1) AS overdue
          FROM cinnosti c JOIN members m ON m.household_id = c.household_id AND m.email = ?2
-         WHERE c.due_date <> '' AND c.due_date <= ?1 AND (c.assigned_to = ?2 OR c.assigned_to = '${ALL}')`
+         WHERE c.kind <> 'nakup' AND c.due_date <> '' AND c.due_date <= ?1 AND (c.assigned_to = ?2 OR c.assigned_to = '${ALL}')`
       )
       .bind(c.today, c.email),
     // Skládko: počet vecí, koľko dochádza a koľkým končí trvanlivosť (do 7 dní alebo už prešla).
@@ -66,8 +66,22 @@ export async function getFamily(c) {
            (SELECT household_id FROM members WHERE email = ?1 ORDER BY rowid LIMIT 1))`
       )
       .bind(c.email),
+    // Nákupy: koľko vecí treba ešte kúpiť (nákupy moje, spoločné a nepriradené) a kto práve nakupuje.
+    c.db
+      .prepare(
+        `SELECT COUNT(DISTINCT c.id) AS lists,
+                (SELECT COUNT(*) FROM polozky p WHERE p.cinnost_id IN (
+                   SELECT c2.id FROM cinnosti c2 JOIN members m2 ON m2.household_id = c2.household_id AND m2.email = ?1
+                   WHERE c2.kind = 'nakup' AND (c2.assigned_to IN (?1, '${ALL}', '')))
+                   AND p.done = 0 AND p.missing = 0) AS open,
+                MAX(CASE WHEN c.shopping_by <> '' AND c.shopping_by <> ?1 THEN c.shopping_by ELSE '' END) AS shopping_by
+         FROM cinnosti c JOIN members m ON m.household_id = c.household_id AND m.email = ?1
+         WHERE c.kind = 'nakup' AND (c.assigned_to IN (?1, '${ALL}', ''))`
+      )
+      .bind(c.email),
   ]);
   const u = user.results[0] || {};
+  const n = nakupy.results[0] || {};
   const g = gazda.results[0] || {};
   const k = skladko.results[0] || {};
   const z = zdravko.results[0] || {};
@@ -79,6 +93,7 @@ export async function getFamily(c) {
     lastHouseholdId: u.last_household_id || '',
     overview: {
       gazda: { today: g.today || 0, overdue: g.overdue || 0 },
+      nakupy: { lists: n.lists || 0, open: n.open || 0, ...(n.shopping_by && { shoppingBy: n.shopping_by }) },
       skladko: { items: k.items || 0, low: k.low || 0, expiring: k.expiring || 0 },
       zdravko: { upcoming: z.upcoming || 0, nextAt: z.next_at || '' },
       quickstash: { entries: q.entries || 0 },

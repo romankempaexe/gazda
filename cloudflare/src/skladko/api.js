@@ -7,7 +7,7 @@
 
 import { addItem as gazdaAddItem } from '../api.js';
 import { requireFamilyMember } from '../family.js';
-import { AppError, DATE_RE, nowIso, requireText } from '../domain.js';
+import { ALL, AppError, DATE_RE, nowIso, requireText } from '../domain.js';
 
 const uuid = () => crypto.randomUUID();
 const MAX_NAME = 80;
@@ -88,7 +88,7 @@ export async function getData(c, householdId) {
     q('SELECT * FROM skladko_warehouses WHERE household_id = ? ORDER BY position, created_at'),
     q('SELECT * FROM skladko_groups WHERE household_id = ? ORDER BY name COLLATE NOCASE'),
     q('SELECT * FROM skladko_items WHERE household_id = ? ORDER BY name COLLATE NOCASE'),
-    // Otvorené nákupy v Gazde (položku z Skládka sa dá pridať do nákupu).
+    // Otvorené nákupy rodiny v Nákupoch (vec zo Skládka sa dá pridať do nákupu).
     q("SELECT id, name, store FROM cinnosti WHERE household_id = ? AND kind = 'nakup' ORDER BY due_date = '', due_date, rowid"),
   ]);
   return {
@@ -334,8 +334,8 @@ export async function deleteItem(c, itemId) {
 }
 
 /**
- * Pridá položku do nákupu v Gazde (cinnostId = existujúci nákup; prázdne = prvý nákup rodiny,
- * a keď žiadny nie je, vytvorí sa „Nákup“). Vráti názov nákupu.
+ * Pridá položku do nákupu v Nákupoch (cinnostId = existujúci nákup; prázdne = prvý nákup rodiny,
+ * a keď žiadny nie je, vytvorí sa spoločný „Nákup“ pre všetkých). Vráti názov nákupu.
  */
 export async function addToShopping(c, itemId, cinnostId) {
   const item = await findItem(c, itemId);
@@ -345,7 +345,7 @@ export async function addToShopping(c, itemId, cinnostId) {
       .prepare("SELECT id, name FROM cinnosti WHERE id = ? AND household_id = ? AND kind = 'nakup'")
       .bind(String(cinnostId), item.household_id)
       .first();
-    if (!task) throw new AppError('Nákup v Gazde neexistuje.', 404);
+    if (!task) throw new AppError('Nákup neexistuje (možno ho medzičasom niekto ukončil).', 404);
   } else {
     task = await c.db
       .prepare("SELECT id, name FROM cinnosti WHERE household_id = ? AND kind = 'nakup' ORDER BY due_date = '', due_date, rowid LIMIT 1")
@@ -356,9 +356,9 @@ export async function addToShopping(c, itemId, cinnostId) {
       await c.db
         .prepare(
           `INSERT INTO cinnosti (id, household_id, priestor_id, name, assigned_to, icon, color, due_date, periodicity, kind, store, created_at)
-           VALUES (?, ?, '', 'Nákup', '', 'shopping', '#FF9800', '', 'none', 'nakup', '', ?)`
+           VALUES (?, ?, '', 'Nákup', ?, 'shopping', '#FF9800', '', 'none', 'nakup', '', ?)`
         )
-        .bind(task.id, item.household_id, nowIso())
+        .bind(task.id, item.household_id, ALL, nowIso())
         .run();
     }
   }

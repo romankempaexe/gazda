@@ -229,25 +229,34 @@ export async function deleteHousehold(c, householdId) {
  * Údaje pri štarte aplikácie: zoznam domácností a ak má používateľ uloženú
  * naposledy otvorenú domácnosť, rovno aj jej detail.
  */
-export async function getStartData(c) {
+export async function getStartData(c, scope) {
   const res = await getHouseholds(c);
   const user = await c.db.prepare('SELECT last_household_id FROM users WHERE email = ?').bind(c.email).first();
   const lastId = user && user.last_household_id;
   if (lastId && res.households.some((h) => h.id === lastId)) {
-    res.lastDetail = await getHouseholdData(c, lastId);
+    res.lastDetail = await getHouseholdData(c, lastId, scope);
   }
   return res;
 }
 
-export async function getHouseholdData(c, householdId) {
+// Ktoré činnosti chce podaplikácia: Gazda len domáce práce ('tasks'), Nákupy len nákupy ('nakup').
+const SCOPE_SQL = { tasks: " AND kind <> 'nakup'", nakup: " AND kind = 'nakup'" };
+
+export async function getHouseholdData(c, householdId, scope) {
   const member = await requireMember(c, householdId);
   const q = (sql) => c.db.prepare(sql).bind(householdId);
+  const only = SCOPE_SQL[scope] || '';
   const [household, members, priestory, cinnosti, polozky, obchody, produkty, komentare] = await c.db.batch([
     q('SELECT * FROM households WHERE id = ?'),
     q(MEMBERS_SQL + ' WHERE m.household_id = ? ORDER BY m.rowid'),
     q('SELECT * FROM priestory WHERE household_id = ? ORDER BY rowid'),
-    q('SELECT * FROM cinnosti WHERE household_id = ? ORDER BY rowid'),
-    q(ITEMS_SQL + ' WHERE p.household_id = ? ORDER BY p.position, p.rowid'),
+    q('SELECT * FROM cinnosti WHERE household_id = ?' + only + ' ORDER BY rowid'),
+    q(
+      ITEMS_SQL +
+        ' WHERE p.household_id = ?' +
+        (only ? ' AND p.cinnost_id IN (SELECT id FROM cinnosti WHERE household_id = p.household_id' + only + ')' : '') +
+        ' ORDER BY p.position, p.rowid'
+    ),
     q('SELECT name FROM obchody WHERE household_id = ?'),
     q('SELECT name FROM produkty WHERE household_id = ? ORDER BY uses DESC, last_used DESC LIMIT 500'),
     q('SELECT cinnost_id, COUNT(*) AS n FROM komentare WHERE household_id = ? GROUP BY cinnost_id'),
@@ -277,6 +286,17 @@ export async function getHouseholdData(c, householdId) {
     stores: obchody.results.map((o) => o.name).sort((a, b) => a.localeCompare(b, 'sk')),
     products: produkty.results.map((p) => p.name),
   };
+}
+
+/**
+ * Podaplikácia Nákupy: nákupné zoznamy rodiny (činnosti kind = 'nakup') s položkami,
+ * členovia, obchody a produkty na našepkávanie a verzia (rev) na nákup naživo.
+ */
+export async function getShoppingData(c, householdId) {
+  const detail = await getHouseholdData(c, householdId, 'nakup');
+  delete detail.priestory; // nákup priestor nemá
+  const row = await c.db.prepare('SELECT rev FROM households WHERE id = ?').bind(householdId).first();
+  return { ...detail, householdId, rev: row ? row.rev : 0 };
 }
 
 // ---- Priestory a činnosti ------------------------------------------------------
@@ -828,10 +848,15 @@ export async function restoreHistory(c, historyId) {
 const HISTORY_PAGE = 40;
 
 /** História domácnosti od najnovších; before = completedAt posledného načítaného záznamu. */
-export async function getHistory(c, householdId, before) {
+export async function getHistory(c, householdId, before, scope) {
   await requireMember(c, householdId);
+  // Gazda ukazuje len domáce práce ('tasks'), Nákupy len nákupy ('nakup'); bez scope všetko.
   const { results } = await c.db
-    .prepare('SELECT * FROM historia WHERE household_id = ? AND completed_at < ? ORDER BY completed_at DESC LIMIT ?')
+    .prepare(
+      'SELECT * FROM historia WHERE household_id = ? AND completed_at < ?' +
+        (SCOPE_SQL[scope] || '') +
+        ' ORDER BY completed_at DESC LIMIT ?'
+    )
     .bind(householdId, String(before || '9999'), HISTORY_PAGE + 1)
     .all();
   return {

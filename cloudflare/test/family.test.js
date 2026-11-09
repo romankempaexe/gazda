@@ -15,19 +15,26 @@ test('rozcestník: rodiny, posledná podaplikácia a prehľad Gazdy', async () =
   assert.equal(start.email, 'jana@example.com');
   assert.equal(start.lastApp, '');
   assert.deepEqual(start.overview.gazda, { today: 0, overdue: 0 });
+  assert.deepEqual(start.overview.nakupy, { lists: 0, open: 0 });
   assert.deepEqual(start.overview.skladko, { items: 0, low: 0, expiring: 0 });
 
   const { households } = await jana.api.createHousehold('Doma', 'peter@example.com');
   const id = households[0].id;
-  await jana.api.addCinnost(id, { name: 'Smeti', dueDate: '2026-10-23', assignedTo: 'jana@example.com', periodicity: 'none', kind: 'nakup' });
-  await jana.api.addCinnost(id, { name: 'Okná', dueDate: '2026-10-20', assignedTo: '*', periodicity: 'none', kind: 'nakup' });
-  await jana.api.addCinnost(id, { name: 'Peter', dueDate: '2026-10-20', assignedTo: 'peter@example.com', periodicity: 'none', kind: 'nakup' });
+  const p = await jana.api.addPriestor(id, 'Kuchyňa');
+  await jana.api.addCinnost(id, { name: 'Smeti', priestorId: p.id, dueDate: '2026-10-23', assignedTo: 'jana@example.com', periodicity: 'none' });
+  await jana.api.addCinnost(id, { name: 'Okná', priestorId: p.id, dueDate: '2026-10-20', assignedTo: '*', periodicity: 'none' });
+  await jana.api.addCinnost(id, { name: 'Peter', priestorId: p.id, dueDate: '2026-10-20', assignedTo: 'peter@example.com', periodicity: 'none' });
+  // nákupy patria Nákupom – do prehľadu Gazdy sa nerátajú
+  const shop = await jana.api.addCinnost(id, { name: 'Nákup', kind: 'nakup', dueDate: '2026-10-20', assignedTo: '*', items: ['Mlieko', 'Chlieb', 'Maslo'] });
+  await jana.api.toggleItem(shop.items[0].id, true);
+  await jana.api.addCinnost(id, { name: 'Peterov nákup', kind: 'nakup', dueDate: '', assignedTo: 'peter@example.com', items: ['Pivo'] });
 
   await jana.api.setLastApp('skladko');
   const res = await jana.api.getFamily();
   assert.equal(res.lastApp, 'skladko');
   assert.equal(res.households.length, 1);
   assert.deepEqual(res.overview.gazda, { today: 1, overdue: 1 });
+  assert.deepEqual(res.overview.nakupy, { lists: 1, open: 2 });
   await assert.rejects(jana.api.setLastApp('nieco'), /Neznáma aplikácia/);
 });
 

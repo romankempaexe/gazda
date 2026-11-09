@@ -18,7 +18,8 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 | Adresa | Čo to je |
 |---|---|
 | `/` | rozcestník Family Grid (`public/index.html`, `public/grid.js`) |
-| `/gazda/` | Gazda (`public/gazda/`) |
+| `/gazda/` | Gazda – domáce práce a činnosti (`public/gazda/`) |
+| `/nakupy/` | Nákupy – nákupné zoznamy, letáky a akcie (`public/nakupy/`) – pozri nižšie |
 | `/zdravko/` | Zdravko – zdravie rodiny (`public/zdravko/`, `src/zdravko/`) – pozri nižšie |
 | `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
 | `/quickstash/` | QuickStash – texty, odkazy a heslá na skopírovanie (`public/quickstash/`, `src/quickstash/`) – pozri nižšie |
@@ -39,14 +40,15 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 - **Zvolená rodina** je spoločná pre všetky podaplikácie (`setCurrentFamily` →
   `users.last_household_id`, podľa nej sa otvorí aj Gazda); kto má viac rodín, prepne ich v
   dialógu rodiny alebo v Gazde.
-- **Upozornenia:** správa má pole `app` (`gazda` | `zdravko` | `skladko` | `quickstash` | `financie` | `family`);
+- **Upozornenia:** správa má pole `app` (`gazda` | `nakupy` | `zdravko` | `skladko` | `quickstash` | `financie` | `family`);
   service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
   a po ťuknutí otvorí `/<app>/`.
 - **Spoločný kód v prehliadači:** `public/shared/app.css` (vzhľad), `public/shared/fg.css`
   (farby podaplikácií, dlaždice) a `public/shared/fg.js` (server, prihlásenie, okná,
   upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
-  (priečinky `family`, `gazda`, `zdravko`, `skladko`, `quickstash`, `financie`).
+  (priečinky `family`, `gazda`, `nakupy`, `zdravko`, `skladko`, `quickstash`, `financie`);
+  len jednu podaplikáciu: `node scripts/render-icons.cjs public/icons nakupy`.
 
 ## Kalendár na plochu (Google Kalendár / iPhone)
 
@@ -64,6 +66,33 @@ opakované úlohy ako séria, s časom alebo celodenné) zo všetkých rodín po
   *Plán*), alebo `webcal://` (iPhone). Google si odoberané kalendáre obnovuje sám, zvyčajne
   raz za niekoľko hodín – widget preto nie je okamžitý (upozornenia z Family Grid áno).
 
+## Nákupy (`/nakupy/`)
+
+Nákupné zoznamy rodiny – samostatná podaplikácia Family Grid (doteraz boli súčasťou Gazdy, Gazde
+ostali domáce práce a činnosti). Nákup je na serveri stále činnosť s `kind = 'nakup'` (tabuľky
+`cinnosti`, `polozky`, `historia`), preto sa nič neprenáša a funkcie API sú spoločné
+(`createShoppingList`, `addItem`, `toggleItem`, `setItemMissing`, `setItemPrice`, `startShopping`,
+`completeCinnost`, `getOffers`, letáky…). Nákupy pracujú so **zvolenou rodinou** Family Grid
+(prepínač rodiny hore, ako Zdravko či Skládko).
+
+- **Načítanie:** `nakupy/getData(rodina)` – len nákupy rodiny s položkami, členovia, obchody, produkty
+  na našepkávanie a `rev`; Gazda volá `getHouseholdData(…, 'tasks')` / `getStartData('tasks')`
+  a dostane len domáce práce. História: `getHistory(rodina, pred, 'nakup' | 'tasks')`.
+- **Obrazovka Nákupy:** zoznamy na teraz (kto nakupuje, potom bez termínu a dnešné / po termíne,
+  spoločné prvé), pod nimi **Naplánované** (s budúcim termínom). Na karte obchod, termín, kto,
+  priebeh, odhad sumy a položky na odškrtnutie (aj „Nemali“); keď je všetko vybavené, **Hotové**.
+- **Vpravo dole:** **Nákupný zoznam** (spoločný – existujúci alebo nový), **+** nový nákup (obchod,
+  termín, opakovanie, komu) a **Letáky** obchodov.
+- **História** nákupov s tlačidlami **Znova** a **Vrátiť**; odhad sumy a čo nemali.
+- Posledné údaje sú v telefóne (`localStorage` `nakupy.snap.<rodina>`), takže zoznam sa otvorí aj
+  v obchode bez signálu; pri odhlásení sa zmažú.
+- **Dlaždica** na rozcestníku: koľko vecí treba kúpiť (nákupy moje, spoločné a nepriradené),
+  alebo kto práve nakupuje.
+- Staré odkazy Gazdy (`/gazda/?akcia=nakup`, `/gazda/?nakup=<id>` z upozornení) presmerujú do Nákupov.
+
+Podrobnosti o nákupe (letáky, akcie, oddelenia, nákup v obchode, upozornenia) sú nižšie v častiach
+*Letáky* a *Nákup*.
+
 ## Skládko (`/skladko/`)
 
 Čo máme doma a kde to je – webová verzia mobilného Skládka (Flutter + Firebase), teraz
@@ -77,7 +106,7 @@ ako podaplikácia Family Grid. Sklady (špajza, chladnička…) → skupiny (ľu
   „aj veci, ktorých je najviac N ks“ ako v mobilnom Skládku.
 - **Trvanlivosť:** farebný štítok na karte (zelená / o pár dní / dnes alebo prešla) a upozornenie
   3 dni pred dátumom (každý dátum raz, cez deň 8:00–20:59, cron každých 5 min).
-- **Do nákupu v Gazde:** v detaile veci – pridá ju do nákupu rodiny v Gazde (keď žiadny nie je, vytvorí „Nákup“).
+- **Do nákupu:** v detaile veci – pridá ju do nákupu rodiny v Nákupoch (keď žiadny nie je, vytvorí spoločný „Nákup“).
 - **Presun:** vec aj celú skupinu (s obsahom) – *Presunúť* → otvor cieľ → *Vložiť sem*.
   (Mobilný Skládko pri presune v rámci jedného skladu vec omylom zmazal – tu je to jeden `UPDATE`.)
 - **Mazanie skupiny** zmaže aj podskupiny a veci v nej (mobilný ich nechal „visieť“).
@@ -238,8 +267,9 @@ Vygenerovať nový súkromný kľúč).
 | `src/import.js` | Prenos dát zo starej Gazdy (jednorazový kód, čistenie, hromadný zápis) |
 | `src/leaflets.js` | Letáky Lidl: zoznam a stránky letákov (pamäť v D1), obrázky cez náš server |
 | `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
-| `public/index.html`, `app.js`, `app.css`, `produkty.js` | Aplikácia (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
-| `public/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie → miniatúra do nákupu |
+| `public/gazda/` | Gazda – domáce práce (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
+| `public/nakupy/app.js`, `produkty.js` | Nákupy: zoznamy, nákup v obchode, akcie, oddelenia (`PRODUKTY_ODDELENIA`), hlas |
+| `public/nakupy/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie → miniatúra do nákupu |
 | `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
 | `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
@@ -257,7 +287,9 @@ Funkcie: `getHouseholds`, `getStartData`, `createHousehold`, `shareHousehold`,
 `deleteHousehold`, `getHouseholdData`, `setNickname`, `addPriestor`, `addCinnost`, `updateCinnost`,
 `addItem`, `toggleItem`, `deleteCinnost`, `completeCinnost`, `getPushKey`,
 `subscribePush`, `unsubscribePush`, `testPush`, `getLeaflets(store)`, `getLeaflet`, `analyzeLeafletPage`,
-`identifyLeafletProduct`, `setItemMissing`, `getHistory`.
+`identifyLeafletProduct`, `setItemMissing`, `getHistory`, `nakupy/getData`.
+`getStartData(scope)`, `getHouseholdData(id, scope)` a `getHistory(id, pred, scope)` – `scope`
+`'tasks'` (Gazda – len domáce práce) alebo `'nakup'` (len nákupy); bez neho všetko.
 `GET /api/health` overí databázu.
 
 `addItem(cinnostId, text, qty, image, price)` – voliteľná cena („2,49“) a miniatúra ako `data:image/jpeg;base64,…`
@@ -354,7 +386,7 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 ## Nákup: oddelenia, akcie, naživo
 
 - **Oddelenia:** položky nákupu sa zoskupujú podľa oddelení obchodu (`PRODUKTY_ODDELENIA`
-  v `public/produkty.js` + začiatky slov v `app.js`); čip prepne na poradie pridania.
+  v `public/nakupy/produkty.js` + začiatky slov v `nakupy/app.js`); čip prepne na poradie pridania.
 - **Akcie a ceny:** `getOffers(text)` číta stránku produktu na kimbino.sk (`/hladat/?q=` →
   `/produkty/…/`, dáta Nuxt) – ponuky v platných letákoch všetkých obchodov, v `config`
   (`offers:<výraz>`) na 6 h. Pri položke nákupu sa ukáže najlacnejšia, ťuknutím všetky
@@ -366,16 +398,16 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 
 ## Nákup: zoznam jedným ťuknutím a nákup v obchode
 
-- **Nákupný zoznam:** v *Plánovaní* vpravo dole sú dve malé ikonky – košík (nákupný zoznam)
-  a + (nová činnosť). Košík vytvorí spoločný nákup (Všetci, bez termínu – `createShoppingList`),
-  alebo otvorí ten, ktorý už existuje, a hneď sa píšu položky; **Vybrať z letáku** otvorí letáky
-  a po ich zatvorení sa vráti k zoznamu. Nákupy bez termínu sú hore v sekcii **Nákup**
-  (v *Môj rozpis* aj v *Plánovaní*).
+- **Nákupný zoznam:** v Nákupoch vpravo dole. Vytvorí spoločný nákup (Všetci, bez termínu –
+  `createShoppingList`), alebo otvorí ten, ktorý už existuje, a hneď sa píšu položky; **Vybrať
+  z letáku** otvorí letáky a po ich zatvorení sa vráti k zoznamu.
 - **Upozornenia:** ostatní členovia (nie autor) dostanú „nový nákupný zoznam“ a potom
   „X pridáva do nákupu“ so zoznamom nových položiek (`notifyShopping` v `src/notifications.js`).
   Upozornenie odíde, až keď autor 15 s nič nepridá – jedna správa za celé písanie, nie za
   každú položku (značka v `config`, kľúč `shop:<nákup>:<e-mail>`). Platí pre každé pridanie
-  do nákupu (aj z letáku a zo Skládka). Ťuknutie otvorí rovno zoznam (`/gazda/?nakup=<id>`).
+  do nákupu (aj z letáku a zo Skládka). Ťuknutie otvorí rovno zoznam (`/nakupy/?nakup=<id>`).
+  Všetky upozornenia o nákupoch (aj pridelený nákup, komentár, pripomienka v čase, akcie) majú
+  ikonu Nákupov (`app: 'nakupy'`).
 - **Zahájiť nákup** (`startShopping`, stĺpce `shopping_by`, `shopping_since`, migrácia 0018):
   zoznam na celú obrazovku – veľké položky podľa oddelení, *Nemali*, pridanie ďalšej položky,
   naživo zmeny od ostatných, displej nezhasína. Ostatní dostanú „X nakupuje“. Kto nakupuje,
@@ -387,10 +419,11 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
 
 - Činnosť môže mať čas (`due_time`, migrácia 0010); cron každých 5 min pošle pripomienku
   v ten čas (raz pre daný termín a čas).
-- Sprievodca novou činnosťou ponúka šablóny (`SABLONY` v `app.js`).
+- Sprievodca novou činnosťou (komu → názov alebo šablóna → miestnosť → popis → checklist)
+  ponúka šablóny (`SABLONY` v `gazda/app.js`).
 - Vzhľad v účte: podľa telefónu / svetlý / tmavý (`data-theme` na `<html>`).
-- Skratky ikony (manifest `shortcuts`): `/?akcia=nakup` (pridávanie do nákupu), `/?akcia=nova`.
-- Hlasové pridávanie: mikrofón pri poli na pridanie (Web Speech API telefónu, nie Workers AI);
+- Skratky ikony (manifest `shortcuts`): `/nakupy/?akcia=nakup` (pridávanie do nákupu), `/gazda/?akcia=nova`.
+- Hlasové pridávanie (v Nákupoch): mikrofón pri poli na pridanie (Web Speech API telefónu, nie Workers AI);
   „mlieko, dva chleby a maslo“ sa rozdelí na položky aj s počtom.
 - Činnosť bez termínu (`due_date` prázdny, len bez opakovania) – sekcia „Bez termínu“.
 - Komentáre pri činnosti (tabuľka `komentare`, migrácia 0011) – upozornenie riešiteľovi, naživo.
@@ -402,9 +435,10 @@ pre každé zariadenie zvlášť. Chodia, aj keď Gazda nie je otvorená:
 
 | Upozornenie | Kedy |
 |---|---|
-| 🏠 **Dnes ťa čaká X úloh** | ráno o 8:00 (najneskôr do 11:59, ak by Cloudflare meškal) |
-| ⚠️ **Po termíne: X úloh** | ráno spolu s prehľadom |
-| 📝 **Prezývka: názov úlohy** | hneď, keď ti niekto iný pridelí činnosť – s obchodom, termínom a checklistom |
+| 🏠 **Dnes ťa čaká X úloh** | ráno o 8:00 (najneskôr do 11:59, ak by Cloudflare meškal) – domáce práce (Gazda) |
+| ⚠️ **Po termíne: X úloh** | ráno spolu s prehľadom (Gazda) |
+| 🛒 **Dnes nakúpiť** | ráno spolu s prehľadom – nákupy s dnešným termínom alebo po termíne (Nákupy) |
+| 📝 **Prezývka: názov úlohy** | hneď, keď ti niekto iný pridelí činnosť alebo nákup – s obchodom, termínom a checklistom |
 
 - **Android (Chrome):** funguje priamo v prehliadači aj v aplikácii z plochy.
 - **iPhone (iOS 16.4+):** len v Gazdovi pridanom na plochu (*Zdieľať* → *Pridať na plochu*);

@@ -110,6 +110,13 @@ async function displayName(db, email) {
   return (row && row.nickname) || email.split('@')[0];
 }
 
+/** Podaplikácia, ktorá upozornenie ukáže: nákupy sú v Nákupoch (rovno ten zoznam), ostatné v Gazde. */
+export function appOf(kind, cinnostId) {
+  return kind === 'nakup'
+    ? { app: 'nakupy', url: '/nakupy/?nakup=' + encodeURIComponent(cinnostId) }
+    : { app: 'gazda', url: '/gazda/' };
+}
+
 // ---- Nová pridelená úloha ------------------------------------------------------
 
 /** Text upozornenia o pridelenej činnosti (cinnost s items, ako ju vracia API). */
@@ -137,8 +144,7 @@ export async function assignedMessage(db, cinnost, priestor, fromEmail) {
     title: '📝 ' + (await displayName(db, fromEmail)) + ': ' + cinnost.name,
     body: lines.join('\n'),
     tag: 'assigned-' + cinnost.id,
-    app: 'gazda',
-    url: '/gazda/',
+    ...appOf(cinnost.kind, cinnost.id),
   };
 }
 
@@ -166,8 +172,7 @@ export async function notifyComment(c, cinnost, text) {
       title: '💬 ' + (await displayName(c.db, c.email)) + ': ' + cinnost.name,
       body: text,
       tag: 'comment-' + cinnost.id,
-      app: 'gazda',
-      url: '/gazda/',
+      ...appOf(cinnost.kind, cinnost.id),
     };
     const everyone = !cinnost.assigned_to || cinnost.assigned_to === ALL;
     const { results } = await c.db
@@ -200,7 +205,7 @@ async function shoppingRecipients(c, cinnost) {
   return results.map((m) => m.email);
 }
 
-const shopUrl = (cinnostId) => '/gazda/?nakup=' + encodeURIComponent(cinnostId);
+const shopUrl = (cinnostId) => '/nakupy/?nakup=' + encodeURIComponent(cinnostId);
 
 /**
  * Nový nákupný zoznam alebo nové položky v ňom: ostatní dostanú jedno upozornenie so
@@ -245,7 +250,7 @@ export async function notifyShopping(c, cinnostId) {
     } else {
       title = '🛒 ' + name + ' pridáva do nákupu' + (cinnost.name !== 'Nákup' ? ' „' + cinnost.name + '“' : '');
     }
-    const message = { title, body: lines.join('\n'), tag: 'shop-' + cinnostId, app: 'gazda', url: shopUrl(cinnostId) };
+    const message = { title, body: lines.join('\n'), tag: 'shop-' + cinnostId, app: 'nakupy', url: shopUrl(cinnostId) };
     const recipients = await shoppingRecipients(c, cinnost);
     if (!recipients.length) return;
     const ctx = await pushContext(c.db, recipients);
@@ -263,7 +268,7 @@ export async function notifyShoppingStarted(c, cinnost) {
       title: '🛒 ' + (await displayName(c.db, c.email)) + ' nakupuje' + (cinnost.name !== 'Nákup' ? ': ' + cinnost.name : ''),
       body: (open ? 'Na zozname: ' + open + '. ' : '') + 'Ak ešte niečo treba, pridaj to hneď.',
       tag: 'shop-start-' + cinnost.id,
-      app: 'gazda',
+      app: 'nakupy',
       url: shopUrl(cinnost.id),
     };
     const recipients = await shoppingRecipients(c, cinnost);
@@ -343,8 +348,7 @@ export async function sendTimedReminders(db, now = new Date()) {
       title: '⏰ ' + c.name,
       body: parts.join(' · ') + (c.description ? '\n' + c.description : ''),
       tag: 'remind-' + c.id,
-      app: 'gazda',
-      url: '/gazda/',
+      ...appOf(c.kind, c.id),
     }, ctx);
   }
   return sent;
@@ -376,11 +380,12 @@ export async function sendMorningDigest(db, today) {
     return parts.join(' · ');
   };
 
+  // Domáce práce idú do Gazdy (dnes / po termíne), nákupy s termínom jednou správou do Nákupov.
   const byUser = new Map();
   for (const c of results) {
     if (!DATE_RE.test(c.due_date)) continue;
-    if (!byUser.has(c.recipient)) byUser.set(c.recipient, { today: [], overdue: [] });
-    byUser.get(c.recipient)[c.due_date === today ? 'today' : 'overdue'].push(c);
+    if (!byUser.has(c.recipient)) byUser.set(c.recipient, { today: [], overdue: [], shopping: [] });
+    byUser.get(c.recipient)[c.kind === 'nakup' ? 'shopping' : c.due_date === today ? 'today' : 'overdue'].push(c);
   }
 
   const ctx = await pushContext(db, [...byUser.keys()]);
@@ -402,6 +407,17 @@ export async function sendMorningDigest(db, today) {
         tag: 'digest-overdue',
         app: 'gazda',
         url: '/gazda/',
+      }, ctx);
+    }
+    if (tasks.shopping.length) {
+      sent += await sendToUser(db, email, {
+        title: '🛒 Dnes nakúpiť' + (tasks.shopping.length > 1 ? ' (' + tasks.shopping.length + ' zoznamy)' : ': ' + tasks.shopping[0].name),
+        body: tasks.shopping
+          .map((c) => '• ' + c.name + (c.due_date < today ? ' – od ' + formatShortDate(c.due_date) : '') + ' (' + where(c) + ')')
+          .join('\n'),
+        tag: 'digest-shopping',
+        app: 'nakupy',
+        url: '/nakupy/',
       }, ctx);
     }
   }

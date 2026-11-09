@@ -1,5 +1,5 @@
 /**
- * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/),
+ * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/), Nákupy (/nakupy/),
  * Zdravko (/zdravko/), Skládko (/skladko/), QuickStash (/quickstash/) a Financie (/financie/) – jedno prihlásenie,
  * jedna databáza.
  *
@@ -80,6 +80,9 @@ const METHODS = {
   getLeaflet,
   analyzeLeafletPage,
   identifyLeafletProduct,
+  // Nákupy (nákupné zoznamy sú činnosti Gazdy s kind = 'nakup' – ostatné funkcie sú spoločné:
+  // createShoppingList, addItem, toggleItem, setItemMissing, startShopping, completeCinnost, getOffers, letáky…)
+  'nakupy/getData': api.getShoppingData,
   // Skládko
   'skladko/getData': skladko.getData,
   'skladko/getRev': skladko.getRev,
@@ -140,9 +143,11 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return handleApi(request, env, url, ctx);
     if (url.pathname === '/manifest.webmanifest') return manifest();
-    // Staré odkazy Gazdy (skratky ikony „/?akcia=…“) – Gazda je teraz podaplikácia na /gazda/.
+    // Staré odkazy Gazdy (skratky ikony „/?akcia=…“) – Gazda je teraz podaplikácia na /gazda/,
+    // pridávanie do nákupu patrí Nákupom (/nakupy/).
     if (url.pathname === '/' && url.searchParams.has('akcia')) {
-      return Response.redirect(url.origin + '/gazda/' + url.search, 302);
+      const app = url.searchParams.get('akcia') === 'nakup' ? '/nakupy/' : '/gazda/';
+      return Response.redirect(url.origin + app + url.search, 302);
     }
     return env.ASSETS.fetch(request);
   },
@@ -275,7 +280,7 @@ function manifest() {
     id: '/',
     name: 'Family Grid',
     short_name: 'Family Grid',
-    description: 'Rodinné aplikácie na jednom mieste – Gazda, Zdravko, Skládko, QuickStash a Financie',
+    description: 'Rodinné aplikácie na jednom mieste – Gazda, Nákupy, Zdravko, Skládko, QuickStash a Financie',
     lang: 'sk',
     start_url: '/',
     scope: '/',
@@ -289,7 +294,7 @@ function manifest() {
     ],
     // dlhé podržanie ikony (Android) – skratky; dajú sa aj pretiahnuť na plochu
     shortcuts: [
-      { name: 'Gazda – pridať do nákupu', short_name: 'Do nákupu', url: '/gazda/?akcia=nakup', icons: icon('gazda') },
+      { name: 'Nákupy – pridať do nákupu', short_name: 'Do nákupu', url: '/nakupy/?akcia=nakup', icons: icon('nakupy') },
       { name: 'Gazda – nová činnosť', short_name: 'Nová činnosť', url: '/gazda/?akcia=nova', icons: icon('gazda') },
       { name: 'Zdravko', short_name: 'Zdravko', url: '/zdravko/', icons: icon('zdravko') },
       { name: 'Skládko', short_name: 'Skládko', url: '/skladko/', icons: icon('skladko') },

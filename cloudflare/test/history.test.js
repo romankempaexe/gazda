@@ -153,3 +153,34 @@ test('vrátenie z histórie: opakovaná činnosť dostane späť termín a kúpe
     [['Káva', false, false], ['Mlieko', true, false], ['Chlieb', false, true], ['Maslo', false, false]]
   );
 });
+
+test('Gazda a Nákupy: každá vidí len svoje činnosti aj históriu', async () => {
+  const hid = await chata();
+  const nakup = (extra) => roman.api.addCinnost(hid, { kind: 'nakup', store: 'Lidl', dueDate: '2026-10-07', assignedTo: 'roman@exe.sk', ...extra });
+  const kuchyna = await roman.api.addPriestor(hid, 'Kuchyňa');
+  const task = await roman.api.addCinnost(hid, { name: 'Umyť riad', priestorId: kuchyna.id, dueDate: '2026-10-07', assignedTo: '*', items: ['Hrnce'] });
+  const shop = await nakup({ name: 'Nákup na víkend', items: ['Pivo'] });
+  const gazda = await jana.api.getHouseholdData(hid, 'tasks');
+  assert.ok(gazda.cinnosti.some((c) => c.id === task.id));
+  assert.ok(gazda.cinnosti.every((c) => c.kind !== 'nakup'));
+  assert.deepEqual(gazda.cinnosti.find((c) => c.id === task.id).items.map((i) => i.text), ['Hrnce']);
+  const start = await jana.api.getStartData('tasks');
+  assert.ok(start.lastDetail.cinnosti.every((c) => c.kind !== 'nakup'));
+
+  const data = await jana.api['nakupy/getData'](hid);
+  assert.equal(data.householdId, hid);
+  assert.equal(data.rev, await jana.api.getRev(hid));
+  assert.equal(data.priestory, undefined);
+  assert.ok(data.cinnosti.length && data.cinnosti.every((c) => c.kind === 'nakup'));
+  assert.deepEqual(data.cinnosti.find((c) => c.id === shop.id).items.map((i) => i.text), ['Pivo']);
+  assert.ok(Array.isArray(data.products) && Array.isArray(data.stores) && data.members.length === 2);
+  await assert.rejects(cudzi.api['nakupy/getData'](hid), /nemáš prístup/);
+
+  await roman.api.completeCinnost(task.id);
+  await roman.api.completeCinnost(shop.id);
+  const tasks = (await roman.api.getHistory(hid, '', 'tasks')).entries;
+  const shopping = (await roman.api.getHistory(hid, '', 'nakup')).entries;
+  assert.ok(tasks.some((e) => e.name === 'Umyť riad') && tasks.every((e) => e.kind !== 'nakup'));
+  assert.ok(shopping.some((e) => e.name === 'Nákup na víkend') && shopping.every((e) => e.kind === 'nakup'));
+  assert.equal((await roman.api.getHistory(hid)).entries.length, tasks.length + shopping.length);
+});

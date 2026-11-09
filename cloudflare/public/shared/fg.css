@@ -7,6 +7,13 @@
   --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
   --bg: #f5f5fa;
 }
+:root[data-app='nakupy'] {
+  --primary: #db2777;
+  --primary-strong: #be185d;
+  --primary-soft: #fce7f3;
+  --primary-gradient: linear-gradient(135deg, #f472b6 0%, #be185d 100%);
+  --bg: #faf4f7;
+}
 :root[data-app='zdravko'] {
   --primary: #1d72b8;
   --primary-strong: #155e99;
@@ -43,6 +50,12 @@
     --primary-soft: rgba(129, 140, 248, 0.16);
     --bg: #0c0c12;
   }
+  :root[data-app='nakupy']:not([data-theme='light']) {
+    --primary: #f472b6;
+    --primary-strong: #f9a8d4;
+    --primary-soft: rgba(244, 114, 182, 0.16);
+    --bg: #110a0e;
+  }
   :root[data-app='zdravko']:not([data-theme='light']) {
     --primary: #5fb3ec;
     --primary-strong: #93cdf5;
@@ -73,6 +86,12 @@
   --primary-strong: #a5b4fc;
   --primary-soft: rgba(129, 140, 248, 0.16);
   --bg: #0c0c12;
+}
+:root[data-app='nakupy'][data-theme='dark'] {
+  --primary: #f472b6;
+  --primary-strong: #f9a8d4;
+  --primary-soft: rgba(244, 114, 182, 0.16);
+  --bg: #110a0e;
 }
 :root[data-app='zdravko'][data-theme='dark'] {
   --primary: #5fb3ec;
@@ -201,6 +220,7 @@
 }
 
 .fg-tile[data-app='gazda'] .info { color: #15803d; }
+.fg-tile[data-app='nakupy'] .info { color: #be185d; }
 .fg-tile[data-app='zdravko'] .info { color: #1d72b8; }
 .fg-tile[data-app='skladko'] .info { color: #c2410c; }
 .fg-tile[data-app='quickstash'] .info { color: #0f766e; }

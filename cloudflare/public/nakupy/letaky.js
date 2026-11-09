@@ -1,5 +1,5 @@
-// Letáky obchodov v Gazde (Lidl, Tesco, Kaufland, Billa, …): prehliadanie strán, krúžkovanie tovaru prstom a pridanie
-// vystrihnutej miniatúry do nákupného zoznamu. Používa funkcie z app.js (api,
+// Letáky obchodov v Nákupoch (Lidl, Tesco, Kaufland, Billa, …): prehliadanie strán, krúžkovanie tovaru prstom a pridanie
+// vystrihnutej miniatúry do nákupného zoznamu. Používa funkcie z nakupy/app.js (api,
 // state, openModal, toast…). Obrázky idú cez náš server (/api/leaflets/image),
 // preto sa z nich na plátne (canvas) dá vystrihnúť kúsok.
 
@@ -825,7 +825,7 @@ function lfConfirm(thumb, mark, key, product, live) {
         let taskId = root.querySelector('#lfTarget').value;
         try {
           if (taskId === NEW_SHOPPING) {
-            const c = await api('addCinnost', state.detail.household.id, {
+            const c = await api('addCinnost', state.hh, {
               priestorId: '',
               name: 'Nákup ' + storeName,
               description: '',

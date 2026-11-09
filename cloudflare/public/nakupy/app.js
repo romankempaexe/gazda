@@ -14,13 +14,6 @@
 
 const COLORS = { 'Zelená': '#4CAF50' };
 
-const PERIODICITY = {
-  none: { label: 'Bez opakovania' },
-  weekly: { label: 'Týždenne', unit: 'týždňov', hint: 'Napr. 2 = každé 2 týždne' },
-  monthly: { label: 'Mesačne', unit: 'mesiacov', hint: 'Napr. 3 = každé 3 mesiace' },
-  annually: { label: 'Ročne', unit: 'rokov', hint: 'Napr. 2 = každé 2 roky' },
-};
-
 const WEEKDAYS_SHORT = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
 const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
 
@@ -179,12 +172,6 @@ function nicknameOf(email) {
   return '';
 }
 
-function periodicityLabel(c) {
-  const p = PERIODICITY[c.periodicity] || PERIODICITY.none;
-  if (c.periodicity === 'none') return p.label;
-  const n = c.repeatInterval || 1;
-  return n === 1 ? p.label : p.label + ' (každých ' + n + ' ' + p.unit + ')';
-}
 
 // -------------------------------------------------------------------------
 // Načítanie a obrazovka so zoznamami
@@ -247,14 +234,10 @@ function switchFamily(id) {
     .catch(showError);
 }
 
-/** Poradie: kto práve nakupuje, potom zoznamy na teraz (spoločné prvé), potom podľa termínu. */
+/** Poradie: kto práve nakupuje, potom spoločné, potom moje, potom podľa názvu. */
 function listOrder(a, b) {
-  const today = todayYmd();
-  const later = (c) => Boolean(c.dueDate && c.dueDate > today);
   return (
     Number(Boolean(b.shoppingBy)) - Number(Boolean(a.shoppingBy)) ||
-    Number(later(a)) - Number(later(b)) ||
-    (a.dueDate || '').localeCompare(b.dueDate || '') ||
     Number(b.assignedTo === ALL) - Number(a.assignedTo === ALL) ||
     Number(isMine(b)) - Number(isMine(a)) ||
     a.name.localeCompare(b.name, 'sk')
@@ -262,10 +245,7 @@ function listOrder(a, b) {
 }
 
 function renderLists() {
-  const today = todayYmd();
   const lists = state.detail.cinnosti.slice().sort(listOrder);
-  const now = lists.filter((c) => c.shoppingBy || !c.dueDate || c.dueDate <= today);
-  const later = lists.filter((c) => !now.includes(c));
   let html = '';
   if (!lists.length) {
     html +=
@@ -273,12 +253,7 @@ function renderLists() {
       '<div>Ťukni na <b>Nákupný zoznam</b> – vznikne spoločný zoznam pre celú rodinu a ostatní dostanú upozornenie. ' +
       'Tovar sa dá vybrať aj z letákov obchodov.</div></div>';
   }
-  if (now.length) html += now.map((c) => taskCard(c)).join('');
-  if (later.length) {
-    html +=
-      '<div class="section-gap"></div><div class="section-title"><span class="ms">event</span>Naplánované (' + later.length + ')</div>' +
-      later.map((c) => taskCard(c)).join('');
-  }
+  html += lists.map((c) => taskCard(c)).join('');
   // vpravo dole: letáky, nový nákup (s obchodom, termínom…) a hlavné tlačidlo – spoločný nákupný zoznam
   html +=
     '<div class="fab-bar">' +
@@ -589,23 +564,14 @@ function resumeShopping() {
   if (c) openShoppingMode(c.id);
 }
 
-/** Karta nákupu v zozname: obchod, termín, kto, priebeh a položky priamo v karte. */
+/** Karta nákupu v zozname: obchod, kto, priebeh a položky priamo v karte (nákup nemá termín). */
 function taskCard(c) {
   const tag = (icon, text, cls) =>
     '<span class="tag' + (cls ? ' ' + cls : '') + '"><span class="ms">' + icon + '</span>' + esc(text) + '</span>';
-  const today = todayYmd();
-  const overdue = Boolean(c.dueDate && c.dueDate < today);
   const info = [];
   if (c.pending) info.push(tag('schedule', 'Ukladá sa…'));
   if (c.shoppingBy) info.push(tag('shopping_cart_checkout', c.shoppingBy === state.email ? 'nakupuješ' : 'nakupuje ' + shortName(c.shoppingBy), 'tag-ok'));
   if (c.store) info.push(tag('storefront', c.store));
-  if (c.dueDate) {
-    info.push(
-      overdue
-        ? tag('warning', 'od ' + formatDateShort(c.dueDate), 'tag-danger')
-        : tag('calendar_month', c.dueDate === today ? 'dnes' : formatDateShort(c.dueDate))
-    );
-  }
   const progress = itemProgress(c);
   if (progress.total) {
     info.push(
@@ -613,10 +579,8 @@ function taskCard(c) {
         '<span class="ms">checklist</span><span>' + progress.done + '/' + progress.total + '</span></span>'
     );
   }
-  if (c.dueTime) info.push(tag('alarm', c.dueTime));
   if (c.comments) info.push(tag('chat', String(c.comments)));
   info.push(totalTag(c));
-  if (c.periodicity !== 'none') info.push(tag('repeat', periodicityLabel(c)));
   // spoločný nákup je bežný – meno len pri nákupe pre niekoho
   if (c.assignedTo !== ALL) info.push(tag(assigneeIcon(c.assignedTo), shortName(c.assignedTo)));
 
@@ -628,7 +592,7 @@ function taskCard(c) {
         (c.shoppingBy === state.email ? 'Pokračovať' : 'Nakupovať') + '</button>';
 
   return (
-    '<div class="card clickable' + (overdue ? ' overdue' : '') + (progress.total ? ' has-list' : '') +
+    '<div class="card clickable' + (progress.total ? ' has-list' : '') +
     (c.pending ? ' pending' : '') +
     '" data-open-task="' + esc(c.id) + '">' +
     '<span class="ms task-icon" style="background:var(--primary-gradient)">shopping_cart</span>' +
@@ -784,7 +748,7 @@ function showEditCinnost(id) {
 
 /**
  * Formulár nového nákupu, alebo úpravy existujúceho (existing): názov, položky (a leták),
- * komu a kedy (aj bez termínu a opakovane), obchod a popis.
+ * kto nakúpi, obchod a popis. Nákup nemá termín (ani opakovanie).
  * opts: { assignedTo, prefill: { name, items, store }, draft (po chybe pri ukladaní) }
  */
 function showCinnostForm(existing, opts) {
@@ -831,9 +795,6 @@ function showCinnostForm(existing, opts) {
       .map((e) => chip('data-assign', e, 'person', e === state.email ? shortName(e) + ' (ja)' : shortName(e), e === v.assignedTo))
       .join('') +
     chip('data-assign', '', 'person_off', 'Nikto', !v.assignedTo);
-  const periodChips = Object.keys(PERIODICITY)
-    .map((k) => chip('data-period', k, '', k === 'none' ? 'Raz' : PERIODICITY[k].label, k === v.periodicity))
-    .join('');
 
   const section = (icon, title, body) =>
     '<section class="fsec"><div class="fsec-title"><span class="ms">' + icon + '</span>' + title + '</div>' + body + '</section>';
@@ -850,7 +811,7 @@ function showCinnostForm(existing, opts) {
       section(
         'checklist',
         'Nakúpiť<span class="fsec-count" id="itemsCount"></span>',
-        '<div class="item-add">' + stepperHtml('id="qtyInput"') +
+        '<div class="item-add stacked">' + stepperHtml('id="qtyInput"') +
           '<input id="itemInput" maxlength="100" autocomplete="off" placeholder="Pridať produkt…">' +
           '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +
           '<div class="suggest hidden" id="itemSuggest"></div>' +
@@ -858,19 +819,10 @@ function showCinnostForm(existing, opts) {
           '<div class="checklist" id="itemList"></div>'
       ) +
       section(
-        'event',
-        'Kto a kedy',
-        '<div class="field"><label>Kto nakúpi</label><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
-          '<div class="chips wrap">' + memberChips + '</div></div>' +
-          '<label class="switch nodate"><input type="checkbox" name="noDate"' + (v.dueDate ? '' : ' checked') + '>' +
-          '<span class="switch-track"></span><span class="ms">event_busy</span>Bez termínu (keď sa bude dať)</label>' +
-          '<div class="row" id="dateRow"><div class="field"><label>' + (edit ? 'Ďalší termín' : 'Termín') + '</label><input type="date" name="dueDate" required value="' + esc(v.dueDate || todayYmd()) + '"></div>' +
-          '<div class="field field-time"><label>Pripomenúť o</label><input type="time" name="dueTime" value="' + esc(v.dueTime || '') + '"></div></div>' +
-          '<div class="field" id="periodField"><label>Opakovanie</label><input type="hidden" name="periodicity" value="' + esc(v.periodicity) + '">' +
-          '<div class="chips seg">' + periodChips + '</div>' +
-          '<div class="interval hidden" id="intervalField"><span>každých</span>' +
-          '<input type="number" name="repeatInterval" min="1" max="99" value="' + esc(v.repeatInterval || 1) + '">' +
-          '<span id="intervalLabel"></span></div><div class="hint" id="intervalHint"></div></div>'
+        'group',
+        'Kto nakúpi',
+        '<div class="field"><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
+          '<div class="chips wrap">' + memberChips + '</div></div>'
       ) +
       section(
         'notes',
@@ -943,13 +895,6 @@ function showCinnostForm(existing, opts) {
       attachVoice(itemInput, addItemText);
       renderItems();
 
-      // Kto a kedy
-      form.periodicity.onchange = () => {
-        const p = PERIODICITY[form.periodicity.value];
-        root.querySelector('#intervalField').classList.toggle('hidden', form.periodicity.value === 'none');
-        root.querySelector('#intervalLabel').textContent = p.unit || '';
-        root.querySelector('#intervalHint').textContent = p.hint || '';
-      };
       const pickChip = (attr, input, onPick) => {
         root.querySelectorAll('[' + attr + ']').forEach((b) => {
           b.onclick = () => {
@@ -960,21 +905,6 @@ function showCinnostForm(existing, opts) {
         });
       };
       pickChip('data-assign', form.assignedTo);
-      pickChip('data-period', form.periodicity, () => form.periodicity.onchange());
-      // bez termínu: dátum, čas ani opakovanie sa nezadávajú
-      const applyNoDate = () => {
-        const none = form.noDate.checked;
-        root.querySelector('#dateRow').classList.toggle('hidden', none);
-        root.querySelector('#periodField').classList.toggle('hidden', none);
-        form.dueDate.required = !none;
-        if (none) {
-          form.periodicity.value = 'none';
-          root.querySelectorAll('[data-period]').forEach((x) => x.classList.toggle('active', x.dataset.period === 'none'));
-        }
-        form.periodicity.onchange();
-      };
-      form.noDate.onchange = applyNoDate;
-      applyNoDate();
       root.querySelector('#cancel').onclick = closeModal;
       if (edit) setTimeout(() => document.activeElement && document.activeElement.blur(), 0);
 
@@ -994,10 +924,11 @@ function showCinnostForm(existing, opts) {
           name: form.name.value,
           description: form.description.value,
           assignedTo: form.assignedTo.value,
-          dueDate: form.noDate.checked ? '' : form.dueDate.value,
-          dueTime: form.noDate.checked ? '' : form.dueTime.value,
-          periodicity: form.periodicity.value,
-          repeatInterval: form.repeatInterval.value,
+          // nákup nemá termín – zoznam sa len vytvorí a nakúpi, keď sa bude dať
+          dueDate: '',
+          dueTime: '',
+          periodicity: 'none',
+          repeatInterval: 1,
           icon: 'shopping',
           color: v.color || COLORS['Zelená'],
           kind: 'nakup',
@@ -1320,8 +1251,7 @@ function restoreFromHistory(entryId) {
   const e = state.history && state.history.entries.find((x) => x.id === entryId);
   if (!e) return;
   openModal(
-    '<h2>Vrátiť nákup?</h2><div class="subtitle">„' + esc(e.name) + '“ sa vráti medzi nákupy s termínom ' +
-      esc(e.dueDate ? formatDate(e.dueDate) : '– bez termínu –') + ' a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
+    '<h2>Vrátiť nákup?</h2><div class="subtitle">„' + esc(e.name) + '“ sa vráti medzi nákupy a položky budú tak, ako boli pri dokončení. Z histórie zmizne.</div>' +
       '<div class="actions"><button class="btn text" id="cancel">Zrušiť</button>' +
       '<button class="btn" id="ok"><span class="ms">undo</span>Vrátiť</button></div>',
     (root) => {
@@ -1987,8 +1917,6 @@ function showTaskDetail(id, opts) {
   const shopping = true; // v Nákupoch je každá činnosť nákup
   const meta = [];
   if (c.store) meta.push('<span class="tag"><span class="ms">storefront</span>' + esc(c.store) + '</span>');
-  meta.push('<span class="tag"><span class="ms">calendar_month</span>' + esc(c.dueDate ? formatDateShort(c.dueDate) + (c.dueTime ? ' ' + c.dueTime : '') : 'Bez termínu') + '</span>');
-  if (c.periodicity !== 'none') meta.push('<span class="tag"><span class="ms">repeat</span>' + esc(periodicityLabel(c)) + '</span>');
   meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
   openModal(
@@ -2000,7 +1928,7 @@ function showTaskDetail(id, opts) {
         : '') +
       '<div class="field"><div class="check-head"><label id="checkLabel"></label>' +
       (shopping ? '<button type="button" class="chip small hidden" id="sortMode"></button>' : '') + '</div>' +
-      '<div class="item-add">' + stepperHtml('id="qtyInput"') +
+      '<div class="item-add stacked">' + stepperHtml('id="qtyInput"') +
       '<input id="itemInput" maxlength="100" placeholder="' +
       (shopping ? 'Pridať produkt…' : 'Pridať položku…') + '" autocomplete="off">' +
       '<button type="button" class="btn tonal small" id="itemAdd"><span class="ms">add</span></button></div>' +

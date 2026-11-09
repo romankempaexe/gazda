@@ -787,6 +787,21 @@ body.with-tabs .fab-bar {
   min-width: 0;
 }
 
+/* Nákupy: pole na názov položky na celý riadok, počet, mikrofón a „+“ pod ním. */
+.item-add.stacked {
+  flex-wrap: wrap;
+}
+
+.item-add.stacked > input,
+.fsec .item-add.stacked > input {
+  flex: 1 1 100%;
+  order: -1;
+}
+
+.item-add.stacked > .stepper {
+  margin-right: auto;
+}
+
 .stepper {
   display: flex;
   align-items: center;

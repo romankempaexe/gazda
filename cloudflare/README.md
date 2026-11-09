@@ -78,11 +78,14 @@ ostali domáce práce a činnosti). Nákup je na serveri stále činnosť s `kin
 - **Načítanie:** `nakupy/getData(rodina)` – len nákupy rodiny s položkami, členovia, obchody, produkty
   na našepkávanie a `rev`; Gazda volá `getHouseholdData(…, 'tasks')` / `getStartData('tasks')`
   a dostane len domáce práce. História: `getHistory(rodina, pred, 'nakup' | 'tasks')`.
-- **Obrazovka Nákupy:** zoznamy na teraz (kto nakupuje, potom bez termínu a dnešné / po termíne,
-  spoločné prvé), pod nimi **Naplánované** (s budúcim termínom). Na karte obchod, termín, kto,
-  priebeh, odhad sumy a položky na odškrtnutie (aj „Nemali“); keď je všetko vybavené, **Hotové**.
+- **Bez termínu:** nákup nemá dátum, čas ani opakovanie – zoznam sa len vytvorí a nakúpi sa, keď
+  sa bude dať (formulár nákupu ich nemá; staré nákupy s termínom sa pri úprave termínu zbavia).
+- **Obrazovka Nákupy:** všetky zoznamy rodiny (kto práve nakupuje, potom spoločné, moje a ostatné).
+  Na karte obchod, kto, priebeh, odhad sumy a položky na odškrtnutie (aj „Nemali“); keď je všetko
+  vybavené, **Hotové**.
+- **Pridanie položky:** pole na názov je na celý riadok, počet, mikrofón a „+“ sú pod ním.
 - **Vpravo dole:** **Nákupný zoznam** (spoločný – existujúci alebo nový), **+** nový nákup (obchod,
-  termín, opakovanie, komu) a **Letáky** obchodov.
+  komu) a **Letáky** obchodov.
 - **História** nákupov s tlačidlami **Znova** a **Vrátiť**; odhad sumy a čo nemali.
 - Posledné údaje sú v telefóne (`localStorage` `nakupy.snap.<rodina>`), takže zoznam sa otvorí aj
   v obchode bez signálu; pri odhlásení sa zmažú.

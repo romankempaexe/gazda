@@ -598,7 +598,7 @@ function lfShoppingTasks() {
   return state.detail.cinnosti
     .filter((c) => c.kind === 'nakup' && !c.pending)
     // s termínom podľa dátumu, bez termínu na koniec
-    .sort((a, b) => Number(same(b)) - Number(same(a)) || Number(b.assignedTo === '*') - Number(a.assignedTo === '*'));
+    .sort((a, b) => Number(same(b)) - Number(same(a)) || a.name.localeCompare(b.name, 'sk'));
 }
 
 /** Cena „2.49“ → „2,49“ (do poľa) */
@@ -829,7 +829,7 @@ function lfConfirm(thumb, mark, key, product, live) {
               priestorId: '',
               name: 'Nákup ' + storeName,
               description: '',
-              assignedTo: state.email,
+              assignedTo: '*', // nákup je spoločný pre celú rodinu
               dueDate: '',
               periodicity: 'none',
               repeatInterval: 1,

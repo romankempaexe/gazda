@@ -66,17 +66,17 @@ export async function getFamily(c) {
            (SELECT household_id FROM members WHERE email = ?1 ORDER BY rowid LIMIT 1))`
       )
       .bind(c.email),
-    // Nákupy: koľko vecí treba ešte kúpiť (nákupy moje, spoločné a nepriradené) a kto práve nakupuje.
+    // Nákupy: koľko vecí treba ešte kúpiť (nákupy sú spoločné pre celú rodinu) a kto práve nakupuje.
     c.db
       .prepare(
         `SELECT COUNT(DISTINCT c.id) AS lists,
                 (SELECT COUNT(*) FROM polozky p WHERE p.cinnost_id IN (
                    SELECT c2.id FROM cinnosti c2 JOIN members m2 ON m2.household_id = c2.household_id AND m2.email = ?1
-                   WHERE c2.kind = 'nakup' AND (c2.assigned_to IN (?1, '${ALL}', '')))
+                   WHERE c2.kind = 'nakup')
                    AND p.done = 0 AND p.missing = 0) AS open,
                 MAX(CASE WHEN c.shopping_by <> '' AND c.shopping_by <> ?1 THEN c.shopping_by ELSE '' END) AS shopping_by
          FROM cinnosti c JOIN members m ON m.household_id = c.household_id AND m.email = ?1
-         WHERE c.kind = 'nakup' AND (c.assigned_to IN (?1, '${ALL}', ''))`
+         WHERE c.kind = 'nakup'`
       )
       .bind(c.email),
   ]);

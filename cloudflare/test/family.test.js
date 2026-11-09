@@ -34,7 +34,7 @@ test('rozcestník: rodiny, posledná podaplikácia a prehľad Gazdy', async () =
   assert.equal(res.lastApp, 'skladko');
   assert.equal(res.households.length, 1);
   assert.deepEqual(res.overview.gazda, { today: 1, overdue: 1 });
-  assert.deepEqual(res.overview.nakupy, { lists: 1, open: 2 });
+  assert.deepEqual(res.overview.nakupy, { lists: 2, open: 3 }); // všetky nákupy rodiny
   await assert.rejects(jana.api.setLastApp('nieco'), /Neznáma aplikácia/);
 });
 

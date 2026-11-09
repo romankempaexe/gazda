@@ -17,7 +17,7 @@ const COLORS = { 'Zelená': '#4CAF50' };
 const WEEKDAYS_SHORT = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
 const WEEKDAYS = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
 
-/** assignedTo spoločného nákupu – patrí všetkým členom rodiny. */
+/** assignedTo nákupu – nákup sa nikomu nepriraďuje, patrí celej rodine. */
 const ALL = '*';
 
 const state = {
@@ -139,13 +139,6 @@ function formatDateLong(s) {
 }
 
 /** Nákup, ktorý mám riešiť ja: pridelený mne alebo spoločný. */
-function isMine(c) {
-  return c.assignedTo === state.email || c.assignedTo === ALL;
-}
-
-function assigneeIcon(email) {
-  return email === ALL ? 'group' : email ? 'person' : 'person_off';
-}
 
 /** Čas komentára: dnes len hodiny, inak deň. */
 function commentTime(iso) {
@@ -234,12 +227,10 @@ function switchFamily(id) {
     .catch(showError);
 }
 
-/** Poradie: kto práve nakupuje, potom spoločné, potom moje, potom podľa názvu. */
+/** Poradie: kto práve nakupuje, potom podľa názvu. */
 function listOrder(a, b) {
   return (
     Number(Boolean(b.shoppingBy)) - Number(Boolean(a.shoppingBy)) ||
-    Number(b.assignedTo === ALL) - Number(a.assignedTo === ALL) ||
-    Number(isMine(b)) - Number(isMine(a)) ||
     a.name.localeCompare(b.name, 'sk')
   );
 }
@@ -581,8 +572,6 @@ function taskCard(c) {
   }
   if (c.comments) info.push(tag('chat', String(c.comments)));
   info.push(totalTag(c));
-  // spoločný nákup je bežný – meno len pri nákupe pre niekoho
-  if (c.assignedTo !== ALL) info.push(tag(assigneeIcon(c.assignedTo), shortName(c.assignedTo)));
 
   // všetko vybavené (aj „nemali“) – nákup sa dá dať za hotový aj bez obrazovky nákupu
   const action =
@@ -749,7 +738,8 @@ function showEditCinnost(id) {
 /**
  * Formulár nového nákupu, alebo úpravy existujúceho (existing): názov, položky (a leták),
  * kto nakúpi, obchod a popis. Nákup nemá termín (ani opakovanie).
- * opts: { assignedTo, prefill: { name, items, store }, draft (po chybe pri ukladaní) }
+ * Nákup sa nikomu nepriraďuje – je spoločný pre celú rodinu.
+ * opts: { prefill: { name, items, store }, draft (po chybe pri ukladaní) }
  */
 function showCinnostForm(existing, opts) {
   const edit = Boolean(existing);
@@ -757,7 +747,6 @@ function showCinnostForm(existing, opts) {
   let v = existing || {
     name: 'Nákup',
     description: '',
-    assignedTo: opts && opts.assignedTo !== undefined ? opts.assignedTo : ALL,
     dueDate: '',
     dueTime: '',
     periodicity: 'none',
@@ -783,18 +772,6 @@ function showCinnostForm(existing, opts) {
   }
   // Pracovná kópia položiek (formulár mení len texty, počty a poradie, nie odškrtnutie).
   let items = (v.items || []).map((i) => ({ id: i.id, text: i.text, qty: i.qty || '', done: i.done, image: i.image, price: i.price }));
-  const members = state.detail.members.map((m) => m.email).sort();
-  // Ak je nákup pridelený niekomu, kto už nie je členom, ponecháme ho vo výbere.
-  if (v.assignedTo && v.assignedTo !== ALL && !members.includes(v.assignedTo)) members.push(v.assignedTo);
-  const chip = (attr, value, icon, label, on) =>
-    '<button type="button" class="chip' + (on ? ' active' : '') + '" ' + attr + '="' + esc(value) + '">' +
-    (icon ? '<span class="ms">' + icon + '</span>' : '') + esc(label) + '</button>';
-  const memberChips =
-    chip('data-assign', ALL, 'group', 'Všetci', v.assignedTo === ALL) +
-    [state.email].concat(members.filter((e) => e !== state.email))
-      .map((e) => chip('data-assign', e, 'person', e === state.email ? shortName(e) + ' (ja)' : shortName(e), e === v.assignedTo))
-      .join('') +
-    chip('data-assign', '', 'person_off', 'Nikto', !v.assignedTo);
 
   const section = (icon, title, body) =>
     '<section class="fsec"><div class="fsec-title"><span class="ms">' + icon + '</span>' + title + '</div>' + body + '</section>';
@@ -817,12 +794,6 @@ function showCinnostForm(existing, opts) {
           '<div class="suggest hidden" id="itemSuggest"></div>' +
           '<button type="button" class="btn tonal small" id="formLeaflets"><span class="ms">newspaper</span>Leták – vybrať tovar</button>' +
           '<div class="checklist" id="itemList"></div>'
-      ) +
-      section(
-        'group',
-        'Kto nakúpi',
-        '<div class="field"><input type="hidden" name="assignedTo" value="' + esc(v.assignedTo || '') + '">' +
-          '<div class="chips wrap">' + memberChips + '</div></div>'
       ) +
       section(
         'notes',
@@ -895,16 +866,6 @@ function showCinnostForm(existing, opts) {
       attachVoice(itemInput, addItemText);
       renderItems();
 
-      const pickChip = (attr, input, onPick) => {
-        root.querySelectorAll('[' + attr + ']').forEach((b) => {
-          b.onclick = () => {
-            root.querySelectorAll('[' + attr + ']').forEach((x) => x.classList.toggle('active', x === b));
-            input.value = b.getAttribute(attr);
-            if (onPick) onPick();
-          };
-        });
-      };
-      pickChip('data-assign', form.assignedTo);
       root.querySelector('#cancel').onclick = closeModal;
       if (edit) setTimeout(() => document.activeElement && document.activeElement.blur(), 0);
 
@@ -923,7 +884,7 @@ function showCinnostForm(existing, opts) {
           priestorId: '',
           name: form.name.value,
           description: form.description.value,
-          assignedTo: form.assignedTo.value,
+          assignedTo: ALL, // spoločný pre celú rodinu
           // nákup nemá termín – zoznam sa len vytvorí a nakúpi, keď sa bude dať
           dueDate: '',
           dueTime: '',
@@ -1917,11 +1878,10 @@ function showTaskDetail(id, opts) {
   const shopping = true; // v Nákupoch je každá činnosť nákup
   const meta = [];
   if (c.store) meta.push('<span class="tag"><span class="ms">storefront</span>' + esc(c.store) + '</span>');
-  meta.push('<span class="tag"><span class="ms">' + assigneeIcon(c.assignedTo) + '</span>' + esc(shortName(c.assignedTo)) + '</span>');
 
   openModal(
     '<h2>' + esc(c.name) + '</h2>' +
-      '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' +
+      (meta.length ? '<div class="meta" style="margin:6px 0 14px">' + meta.join('') + '</div>' : '') +
       (c.description ? '<div class="subtitle">' + esc(c.description) + '</div>' : '') +
       (c.shoppingBy && c.shoppingBy !== state.email
         ? '<div class="shop-note"><span class="ms">shopping_cart_checkout</span>' + esc(shortName(c.shoppingBy)) + ' práve nakupuje – čo pridáš, hneď uvidí.</div>'

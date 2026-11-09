@@ -144,20 +144,25 @@ test('skúšobná notifikácia a neplatný odber (410) sa zmaže', async () => {
 });
 
 test('ranný prehľad: o 8:00 raz denne, dnešné aj po termíne, len členom s upozorneniami', async () => {
-  await jana.api.addCinnost(hid, { name: 'Smeti', dueDate: '2026-10-05', kind: 'nakup', assignedTo: 'roman@exe.sk' });
-  await jana.api.addCinnost(hid, { name: 'Zajtra', dueDate: '2026-10-10', kind: 'nakup', assignedTo: 'roman@exe.sk' });
+  const kuchyna = await jana.api.addPriestor(hid, 'Kuchyňa');
+  await jana.api.addCinnost(hid, { name: 'Smeti', priestorId: kuchyna.id, dueDate: '2026-10-05', assignedTo: 'roman@exe.sk' });
+  await jana.api.addCinnost(hid, { name: 'Zajtra', priestorId: kuchyna.id, dueDate: '2026-10-10', assignedTo: 'roman@exe.sk' });
+  await jana.api.addCinnost(hid, { name: 'Umyť riad', priestorId: kuchyna.id, dueDate: '2026-10-09', assignedTo: 'roman@exe.sk' });
   sent.length = 0;
   // 7:59 v Bratislave (letný čas UTC+2) – ešte nič
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-09T05:59:00Z')), 0);
   assert.equal(sent.length, 0);
-  // 8:00 – Roman dostane dnešné aj po termíne, Jana svoju dnešnú „Moja“
+  // 8:00 – Roman dostane dnešné aj po termíne (Gazda) a dnešný nákup (Nákupy), Jana svoj nákup „Moja“
   const n = await scheduledTick(t.env.DB, new Date('2026-10-09T06:00:00Z'));
-  assert.equal(n, 3);
+  assert.equal(n, 4);
   const forRoman = await Promise.all(sent.filter((s) => s.url === romanPhone.subscription.endpoint).map((s) => decrypt(romanPhone, s.body)));
   const msgs = forRoman.map((m) => JSON.parse(m));
-  assert.deepEqual(msgs.map((m) => m.title), ['🏠 Dnes ťa čaká 1 úloha', '⚠️ Po termíne: 1 úloha']);
-  assert.equal(msgs[0].body, '• Nakúpiť (🛒 Lidl · 0/2 · Byt)'); // názov vrátila Janina úprava
-  assert.equal(msgs[1].body, '• Smeti – od po 5. 10. (Byt)');
+  assert.deepEqual(msgs.map((m) => m.title), ['🏠 Dnes ťa čaká 1 úloha', '⚠️ Po termíne: 1 úloha', '🛒 Dnes nakúpiť: Nakúpiť']);
+  assert.deepEqual(msgs.map((m) => m.app), ['gazda', 'gazda', 'nakupy']);
+  assert.equal(msgs[0].body, '• Umyť riad (Kuchyňa · Byt)');
+  assert.equal(msgs[1].body, '• Smeti – od po 5. 10. (Kuchyňa · Byt)');
+  assert.equal(msgs[2].body, '• Nakúpiť (🛒 Lidl · 0/2 · Byt)'); // názov vrátila Janina úprava
+  assert.equal(msgs[2].url, '/nakupy/');
   // druhý beh v ten istý deň nič nepošle, ďalší deň áno
   sent.length = 0;
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-09T06:15:00Z')), 0);
@@ -176,7 +181,7 @@ test('spoločná činnosť (Všetci): upozornenie ostatným členom, v rannom pr
   await scheduledTick(t.env.DB, new Date('2026-10-12T06:00:00Z'));
   for (const [device, url] of [[romanPhone, romanPhone.subscription.endpoint], [janaPhone, janaPhone.subscription.endpoint]]) {
     const today = (await Promise.all(sent.filter((s) => s.url === url).map((s) => decrypt(device, s.body))))
-      .map((m) => JSON.parse(m)).find((m) => m.tag === 'digest-today');
+      .map((m) => JSON.parse(m)).find((m) => m.tag === 'digest-shopping');
     assert.match(today.body, /Spoločný nákup \(1\/1 · Byt\)/);
   }
 });
@@ -191,6 +196,7 @@ test('pripomienka v zadaný čas: raz, v čase termínu; zmena času ju znova za
   const msg = JSON.parse(await decrypt(romanPhone, sent[0].body));
   assert.equal(msg.title, '⏰ Vyniesť smeti');
   assert.match(msg.body, /^18:00 · 🛒 Nákup · Byt/);
+  assert.deepEqual([msg.app, msg.url], ['nakupy', '/nakupy/?nakup=' + c.id]);
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:15:00Z')), 0); // len raz
   await roman.api.updateCinnost(c.id, { ...c, dueTime: '18:30' });
   assert.equal(await scheduledTick(t.env.DB, new Date('2026-10-13T16:30:00Z')), 1);
@@ -226,6 +232,7 @@ test('akcie na často kupované produkty: raz denne, každú akciu len raz', asy
   const msg = JSON.parse(await decrypt(romanPhone, sent.find((x) => x.url === romanPhone.subscription.endpoint).body));
   assert.equal(msg.title, '🏷 V akcii: Mlieko');
   assert.equal(msg.body, '• Mlieko – Billa 0,99 € (do 21. 10.)');
+  assert.equal(msg.app, 'nakupy');
   assert.equal(await sendDealAlerts(c, new Date('2026-10-20T07:15:00Z')), 0); // raz denne
   sent.length = 0;
   assert.equal(await sendDealAlerts(c, new Date('2026-10-21T07:00:00Z')), 0); // tá istá akcia sa neopakuje
@@ -269,7 +276,8 @@ test('nákupný zoznam jedným ťuknutím: upozornenie ostatným pri vytvorení 
   // autorovi nič, Jane „nový nákupný zoznam“ s odkazom rovno na zoznam
   assert.deepEqual(sent.map((s) => s.url), [janaPhone.subscription.endpoint]);
   let msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
-  assert.deepEqual([msg.title, msg.body, msg.tag, msg.url], ['🛒 Romi: nový nákupný zoznam', 'Chata\nPridaj, čo treba kúpiť.', 'shop-' + c.id, '/gazda/?nakup=' + c.id]);
+  assert.deepEqual([msg.title, msg.body, msg.tag, msg.url], ['🛒 Romi: nový nákupný zoznam', 'Chata\nPridaj, čo treba kúpiť.', 'shop-' + c.id, '/nakupy/?nakup=' + c.id]);
+  assert.equal(msg.app, 'nakupy');
   // druhé ťuknutie (aj od Jany) vráti ten istý zoznam a nikoho neupozorní
   sent.length = 0;
   assert.equal((await jana.api.createShoppingList(chata)).id, c.id);

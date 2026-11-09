@@ -14,6 +14,18 @@ const APPS = {
       `<rect x="140" y="226" width="232" height="186" rx="30" fill="${w}"/>`,
     stroke: 'M204 318 L240 354 L310 282',
   },
+  // Nákupy: nákupný vozík s fajkou
+  nakupy: {
+    bg: ['#f9a8d4', '#be185d'],
+    mark: ['#f472b6', '#be185d'],
+    shadow: '#500724',
+    shape: (w) =>
+      `<path d="M106 150 L160 150 L204 318" fill="none" stroke="${w}" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<path d="M168 188 L404 188 L372 318 L200 318 Z" fill="${w}" stroke="${w}" stroke-width="26" stroke-linejoin="round"/>` +
+      `<circle cx="222" cy="378" r="30" fill="${w}"/><circle cx="352" cy="378" r="30" fill="${w}"/>`,
+    stroke: 'M234 252 L268 284 L330 222',
+    strokeWidth: 30,
+  },
   // Family Grid: štyri dlaždice, v jednej srdce
   family: {
     bg: ['#8b8cf8', '#3730a3'],

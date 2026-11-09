@@ -1,5 +1,5 @@
-// Letáky obchodov v Gazde (Lidl, Tesco, Kaufland, Billa, …): prehliadanie strán, krúžkovanie tovaru prstom a pridanie
-// vystrihnutej miniatúry do nákupného zoznamu. Používa funkcie z app.js (api,
+// Letáky obchodov v Nákupoch (Lidl, Tesco, Kaufland, Billa, …): prehliadanie strán, krúžkovanie tovaru prstom a pridanie
+// vystrihnutej miniatúry do nákupného zoznamu. Používa funkcie z nakupy/app.js (api,
 // state, openModal, toast…). Obrázky idú cez náš server (/api/leaflets/image),
 // preto sa z nich na plátne (canvas) dá vystrihnúť kúsok.
 
@@ -598,7 +598,7 @@ function lfShoppingTasks() {
   return state.detail.cinnosti
     .filter((c) => c.kind === 'nakup' && !c.pending)
     // s termínom podľa dátumu, bez termínu na koniec
-    .sort((a, b) => Number(same(b)) - Number(same(a)) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+    .sort((a, b) => Number(same(b)) - Number(same(a)) || Number(b.assignedTo === '*') - Number(a.assignedTo === '*'));
 }
 
 /** Cena „2.49“ → „2,49“ (do poľa) */
@@ -612,7 +612,7 @@ function lfConfirm(thumb, mark, key, product, live) {
       .map(
         (c) =>
           '<option value="' + esc(c.id) + '"' + (c.id === target ? ' selected' : '') + '>' + esc(c.name) +
-          (c.store ? ' · ' + esc(c.store) : '') + ' (' + esc(formatDateShort(c.dueDate)) + ')</option>'
+          (c.store ? ' · ' + esc(c.store) : '') + '</option>'
       )
       .join('') +
     '<option value="' + NEW_SHOPPING + '"' + (target === NEW_SHOPPING ? ' selected' : '') + '>+ Nový nákup (' + esc(lfStoreName(lf.store)) + ')</option>';
@@ -825,12 +825,12 @@ function lfConfirm(thumb, mark, key, product, live) {
         let taskId = root.querySelector('#lfTarget').value;
         try {
           if (taskId === NEW_SHOPPING) {
-            const c = await api('addCinnost', state.detail.household.id, {
+            const c = await api('addCinnost', state.hh, {
               priestorId: '',
               name: 'Nákup ' + storeName,
               description: '',
               assignedTo: state.email,
-              dueDate: todayYmd(),
+              dueDate: '',
               periodicity: 'none',
               repeatInterval: 1,
               icon: 'shopping',

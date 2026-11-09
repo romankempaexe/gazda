@@ -9,6 +9,15 @@
     return n + ' ' + (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
   }
 
+  /** Člen niektorej rodiny podľa e-mailu (kvôli prezývke). */
+  function memberOf(email) {
+    for (const h of FG.state.households) {
+      const m = (h.members || []).find((x) => x.email === email);
+      if (m) return m;
+    }
+    return { email };
+  }
+
   function info(app, overview) {
     const o = (overview || {})[app];
     if (!o) return '';
@@ -16,6 +25,11 @@
       if (o.overdue) return { text: 'Po termíne: ' + plural(o.overdue, 'úloha', 'úlohy', 'úloh'), warn: true };
       if (o.today) return { text: 'Dnes ' + plural(o.today, 'úloha', 'úlohy', 'úloh') };
       return { text: 'Na dnes nič' };
+    }
+    if (app === 'nakupy') {
+      if (o.shoppingBy) return { text: 'Nakupuje ' + FG.memberName(memberOf(o.shoppingBy)) };
+      if (o.open) return { text: 'Kúpiť: ' + plural(o.open, 'vec', 'veci', 'vecí') };
+      return o.lists ? { text: 'Všetko kúpené' } : '';
     }
     if (app === 'zdravko') {
       if (!o.upcoming) return '';

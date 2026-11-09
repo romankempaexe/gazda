@@ -42,18 +42,21 @@ test('manifest na inštaláciu na plochu', async () => {
     assert.equal(m.icons.length, 3);
     assert.equal(m.id, '/'); // nainštalovaná Gazda sa zmení na Family Grid
     assert.equal(m.name, 'Family Grid');
-    assert.ok(m.shortcuts.some((x) => x.url === '/gazda/?akcia=nakup'));
+    assert.ok(m.shortcuts.some((x) => x.url === '/nakupy/?akcia=nakup'));
+    assert.ok(m.shortcuts.some((x) => x.url === '/gazda/?akcia=nova'));
   } finally {
     await t.dispose();
   }
 });
 
-test('staré skratky Gazdy sa presmerujú na /gazda/', async () => {
+test('staré skratky Gazdy sa presmerujú na /gazda/ a nákup na /nakupy/', async () => {
   const t = await setup();
   try {
     const res = await t.fetch('/?akcia=nakup', { redirect: 'manual' });
     assert.equal(res.status, 302);
-    assert.equal(res.headers.get('location'), 'https://gazda.test/gazda/?akcia=nakup');
+    assert.equal(res.headers.get('location'), 'https://gazda.test/nakupy/?akcia=nakup');
+    const nova = await t.fetch('/?akcia=nova', { redirect: 'manual' });
+    assert.equal(nova.headers.get('location'), 'https://gazda.test/gazda/?akcia=nova');
   } finally {
     await t.dispose();
   }

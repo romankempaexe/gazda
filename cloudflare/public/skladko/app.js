@@ -660,7 +660,7 @@
         (it.description ? '<div><span class="ms">notes</span>' + esc(it.description) + '</div>' : '') +
         '</div>' +
         '<div class="pick-list">' +
-        '<button type="button" class="btn tonal" id="shop"><span class="ms">add_shopping_cart</span>Do nákupu v Gazde</button>' +
+        '<button type="button" class="btn tonal" id="shop"><span class="ms">add_shopping_cart</span>Do nákupu</button>' +
         '<button type="button" class="btn tonal" id="move"><span class="ms">content_cut</span>Presunúť</button></div>' +
         '<div class="actions"><button type="button" class="btn text danger-text" id="del" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' +
         '<button type="button" class="btn text" id="cancel">Zavrieť</button><button type="button" class="btn" id="edit"><span class="ms">edit</span>Upraviť</button></div>',
@@ -686,7 +686,7 @@
       closeModal();
       try {
         const res = await api('skladko/addToShopping', it.id, cinnostId || '');
-        toast('Pridané do nákupu „' + res.name + '“ v Gazde');
+        toast('Pridané do nákupu „' + res.name + '“ v Nákupoch');
         load(true).catch(() => {});
       } catch (err) {
         showError(err);
@@ -694,7 +694,7 @@
     };
     if (lists.length < 2) return send(lists[0] && lists[0].id);
     openModal(
-      '<h2>Do ktorého nákupu?</h2><div class="subtitle">' + esc(it.name) + ' pribudne do zoznamu v Gazde.</div><div class="pick-list">' +
+      '<h2>Do ktorého nákupu?</h2><div class="subtitle">' + esc(it.name) + ' pribudne do zoznamu v Nákupoch.</div><div class="pick-list">' +
         lists.map((l) => '<button type="button" class="btn tonal" data-list="' + esc(l.id) + '"><span class="ms">shopping_cart</span>' + esc(l.name + (l.store ? ' – ' + l.store : '')) + '</button>').join('') +
         '</div><div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button></div>',
       (root) => {

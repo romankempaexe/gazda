@@ -1,14 +1,16 @@
 const { chromium } = require('playwright'); // npm i -D playwright (alebo NODE_PATH na globálny)
 const fs = require('fs');
 const { art, APPS } = require('./icon-art.cjs');
-// Použitie: node scripts/render-icons.cjs public/icons  (potrebuje Playwright s Chromium)
-// Vytvorí public/icons/<aplikácia>/… pre Family Grid a každú podaplikáciu.
+// Použitie: node scripts/render-icons.cjs public/icons [aplikácia…]  (potrebuje Playwright s Chromium)
+// Vytvorí public/icons/<aplikácia>/… pre Family Grid a každú podaplikáciu (alebo len pre zadané).
 const root = process.argv[2];
+const only = process.argv.slice(3);
 (async () => {
   const b = await chromium.launch();
   const page = await b.newPage();
   const rows = [];
-  for (const app of APPS) {
+  const apps = only.length ? APPS.filter((a) => only.includes(a)) : APPS;
+  for (const app of apps) {
     const out = root + '/' + app;
     fs.mkdirSync(out, { recursive: true });
     const shot = async (file, size, svg) => {
@@ -28,7 +30,7 @@ const root = process.argv[2];
       <div style="background:#111;padding:16px;display:flex;gap:16px;border-radius:12px">${img('icon-192.png', 72)}<div style="background:#333;padding:8px;border-radius:8px">${img('badge-96.png', 48)}</div>${img('badge-96.png', 24)}</div></div>`);
   }
   // náhľad všetkých ikon (mimo public/, nech sa nenasadí)
-  await page.setViewportSize({ width: 760, height: 160 * APPS.length });
+  await page.setViewportSize({ width: 760, height: 160 * apps.length });
   await page.setContent(`<body style="margin:0;font-family:sans-serif">${rows.join('')}</body>`);
   await page.screenshot({ path: process.env.PREVIEW || require('os').tmpdir() + '/icons-preview.png' });
   await b.close();

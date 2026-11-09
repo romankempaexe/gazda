@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="sk" data-app="nakupy">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#db2777" />
+    <script>
+      // vzhľad zvolený v účte – nastaviť hneď, nech stránka nezablikne
+      try {
+        var t = localStorage.getItem('gazda.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
+    <title>Nákupy · Family Grid</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/nakupy/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/nakupy/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/family/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Family Grid" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400..500,0..1,0&amp;icon_names=add,add_shopping_cart,alarm,apps,arrow_back,auto_awesome,brightness_auto,calendar_month,chat,check,check_box,check_box_outline_blank,check_circle,checklist,chevron_left,chevron_right,close,content_copy,dark_mode,delete,edit,event,event_busy,expand_more,gesture,group,group_add,history,light_mode,list,lock,logout,mic,more_horiz,newspaper,notes,notifications,notifications_active,notifications_off,open_in_new,pan_tool,pause,payments,person,person_add,person_off,remove,remove_shopping_cart,repeat,replay,schedule,sell,send,share,shopping_cart,shopping_cart_checkout,star,storefront,swap_horiz,task_alt,undo,warning,zoom_in,zoom_out&amp;display=block"
+    />
+    <link rel="stylesheet" href="/shared/app.css" />
+    <link rel="stylesheet" href="/shared/fg.css" />
+  </head>
+  <body>
+    <header class="appbar">
+      <a id="gridBtn" class="icon-btn" href="/?grid=1" title="Family Grid – všetky aplikácie"><span class="ms">apps</span></a>
+      <span id="brand" class="brand"><img src="/icons/nakupy/icon.svg" alt="Nákupy" /></span>
+      <h1 id="title">Nákupy</h1>
+      <button id="bellBtn" class="icon-btn hidden" title="Upozornenia"><span class="ms">notifications</span></button>
+      <button id="avatar" class="avatar hidden" title="Môj účet"></button>
+    </header>
+
+    <main id="view">
+      <div class="center muted">Načítavam…</div>
+    </main>
+
+    <nav id="tabs" class="bottom-nav hidden">
+      <button data-tab="zoznamy" class="tab active"><span class="ms">shopping_cart</span><span>Nákupy</span></button>
+      <button data-tab="historia" class="tab"><span class="ms">history</span><span>História</span></button>
+    </nav>
+
+    <div id="modal" class="modal hidden">
+      <div class="modal-card" id="modalContent"></div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div id="busy" class="busy hidden"><div class="spinner"></div></div>
+
+    <script src="/shared/fg.js"></script>
+    <script src="/nakupy/produkty.js"></script>
+    <script src="/nakupy/app.js"></script>
+    <script src="/nakupy/letaky.js"></script>
+  </body>
+</html>

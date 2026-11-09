@@ -104,16 +104,16 @@ test('fotka položky: uloženie, načítanie a zmazanie', async () => {
   await assert.rejects(api.saveItem({ id: item.id, name: 'X', image: 'data:text/html;base64,AAAA' }), /Neplatná fotka/);
 });
 
-test('do nákupu v Gazde', async () => {
+test('do nákupu (Nákupy)', async () => {
   const { u, householdId } = await family('nakup@example.com', '');
   const api = sk(u);
   const w = await api.saveWarehouse(householdId, { name: 'Špajza' });
   const item = await api.saveItem({ warehouseId: w.id, name: 'Ryža', quantity: 0 });
   const res = await api.addToShopping(item.id);
   assert.equal(res.name, 'Nákup'); // žiadny nákup nebol – vytvoril sa
-  const detail = await u.api.getHouseholdData(householdId);
+  const detail = await u.api['nakupy/getData'](householdId);
   const nakup = detail.cinnosti.find((x) => x.id === res.cinnostId);
-  assert.equal(nakup.kind, 'nakup');
+  assert.deepEqual([nakup.kind, nakup.assignedTo], ['nakup', '*']); // spoločný pre celú rodinu
   assert.deepEqual(nakup.items.map((i) => i.text), ['Ryža']);
   // druhý raz do toho istého nákupu
   assert.equal((await api.addToShopping(item.id, res.cinnostId)).cinnostId, res.cinnostId);

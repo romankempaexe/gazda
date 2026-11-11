@@ -1944,9 +1944,14 @@ function attachSuggest(input, box, getSources, getExclude, onPick) {
       .join('');
     box.classList.toggle('hidden', !list.length);
     box.querySelectorAll('.suggest-chip').forEach((b, i) => {
-      // pointerdown, aby sa návrh vybral skôr, než pole stratí fokus
-      b.onpointerdown = (e) => {
+      // mousedown/pointerdown bez default akcie: pole nestratí fokus (klávesnica ostane).
+      // Samotný výber až na click – pri výbere už na pointerdown sa box schoval, prvky
+      // pod ním sa posunuli a click prstu dopadol na tlačidlo pod ním (napr. „Vybrať z letáku“).
+      b.onpointerdown = (e) => e.preventDefault();
+      b.onmousedown = (e) => e.preventDefault();
+      b.onclick = (e) => {
         e.preventDefault();
+        e.stopPropagation();
         onPick(list[i]);
       };
     });

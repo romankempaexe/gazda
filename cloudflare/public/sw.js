@@ -5,12 +5,13 @@
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v12';
+const CACHE = 'family-grid-v13';
 const APPS = ['family', 'gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie'];
 const SHELL = [
   '/',
   '/shared/app.css',
   '/shared/fg.js',
+  '/shared/back.js',
   '/shared/fg.css',
   '/grid.js',
   '/gazda/',

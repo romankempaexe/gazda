@@ -28,6 +28,10 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
   (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
   Rozcestník sa ukáže tlačidlom dlaždíc vľavo hore (`/?grid=1`).
+- **Tlačidlo Späť:** Späť z hlavnej obrazovky podaplikácie aplikáciu nezavrie, ale otvorí rozcestník
+  (`public/shared/back.js` – podaplikácia si pod seba vloží záznam histórie `{ fgBase }`);
+  Späť na rozcestníku sa najprv opýta *Zavrieť Family Grid?* (strážny záznam `{ fg: 'guard' }`
+  v `public/grid.js`). Otvorené okno zavrie Späť ako prvé.
 - **Inštalácia:** manifest má stále `id: "/"`, takže doteraz nainštalovaná Gazda sa sama
   zmení na Family Grid (nová ikona a meno). Staré skratky `/?akcia=…` presmerujú na `/gazda/`.
 - **Prihlásenie a zdieľanie celého Family Grid:** prihlasuje sa raz Google účtom (platí pre

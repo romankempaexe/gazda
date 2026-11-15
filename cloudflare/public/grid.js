@@ -85,9 +85,12 @@
   }
 
   // ---- Tlačidlo Späť ---------------------------------------------------------------------------
-  // Rozcestník je v histórii naspodku: { fg: 'grid' } a nad ním strážny záznam { fg: 'guard' }.
-  // Späť zo strážneho záznamu aplikáciu nezavrie, ale opýta sa. Podaplikácia otvorená dlaždicou
-  // sa sem vráti po histórii (pozri shared/back.js).
+  // Rozcestník je v histórii naspodku (podaplikácie sa sem vracajú po histórii – shared/back.js).
+  // Späť na ňom aplikáciu hneď nezavrie, ale opýta sa. Počas otázky ďalšie Späť aplikáciu zavrie.
+  //
+  // Tlačidlo Späť zachytáva CloseWatcher (Chrome 120+) – ten Chrome v Androide rešpektuje aj bez
+  // ťuknutia do stránky, kým strážny záznam histórie by pri Späť preskočil. Starším prehliadačom
+  // ostáva strážny záznam { fg: 'guard' } nad rozcestníkom { fg: 'grid' }.
 
   function session(key, value) {
     try {
@@ -105,12 +108,6 @@
     session('fg.fromGrid', '1');
   }
 
-  function arm() {
-    if (history.state && history.state.fg === 'guard') return;
-    history.replaceState({ fg: 'grid' }, '', '/');
-    history.pushState({ fg: 'guard' }, '', '/');
-  }
-
   /** Má sa po návrate otvoriť kalendár (odkaz /?grid=1#kalendar z podaplikácie)? */
   function takeCalendar() {
     const hash = session('fg.gridHash');
@@ -118,10 +115,33 @@
     return hash === '#kalendar' || location.hash === '#kalendar';
   }
 
+  const hasWatcher = typeof window.CloseWatcher === 'function';
+  let watcher = null;
+  let escAt = 0;
   let asking = false;
-  window.addEventListener('popstate', (e) => {
-    if (e.state && e.state.fg === 'guard') return;
-    if (FG.modalOpen()) {
+
+  function arm() {
+    if (hasWatcher) {
+      if (watcher || asking) return;
+      try {
+        watcher = new CloseWatcher();
+        watcher.onclose = () => {
+          watcher = null;
+          if (Date.now() - escAt < 300) return arm(); // Escape patrí oknám, nie aplikácii
+          onBack();
+        };
+      } catch (e) {
+        watcher = null;
+      }
+      return;
+    }
+    if (history.state && history.state.fg === 'guard') return;
+    history.replaceState({ fg: 'grid' }, '', '/');
+    history.pushState({ fg: 'guard' }, '', '/');
+  }
+
+  function onBack() {
+    if (FG.modalOpen() && !asking) {
       // Späť najprv zavrie otvorené okno
       FG.closeModal();
       arm();
@@ -129,7 +149,7 @@
     }
     if (asking) return;
     asking = true;
-    // Ďalšie Späť počas otázky aplikáciu už zavrie (pod rozcestníkom nič nie je).
+    // Počas otázky strážca nie je – ďalšie Späť aplikáciu zavrie (pod rozcestníkom nič nie je).
     FG.confirmDialog('Zavrieť Family Grid?', '', 'Zavrieť').then((ok) => {
       asking = false;
       if (!ok) return arm();
@@ -137,6 +157,19 @@
       // nainštalovaná aplikácia sa nemusí dať zavrieť skriptom
       setTimeout(() => FG.toast('Zavrieš ju ešte jedným stlačením Späť'), 300);
     });
+  }
+
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'Escape') escAt = Date.now();
+    },
+    true
+  );
+
+  window.addEventListener('popstate', (e) => {
+    if (hasWatcher || (e.state && e.state.fg === 'guard')) return;
+    onBack();
   });
 
   // návrat na rozcestník z pamäte prehliadača (bfcache)
@@ -148,6 +181,8 @@
   });
 
   let openCalendar = takeCalendar();
+  // značka pre index.html: návrat sem po histórii ostane na rozcestníku (nepresmeruje)
+  if (hasWatcher) history.replaceState({ fg: 'grid' }, '', '/');
   arm();
 
   FG.start({

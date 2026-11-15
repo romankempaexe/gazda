@@ -60,6 +60,43 @@
     else if (typeof window.closeModal === 'function') window.closeModal();
   }
 
+  /**
+   * Tlačidlo Späť v telefóne cez CloseWatcher (Chrome 120+); onBack sa zavolá pri každom stlačení.
+   * Klávesa Escape (tiež „zatváracia požiadavka“) sa ignoruje – tá patrí oknám.
+   * Vráti false, keď prehliadač CloseWatcher nepozná.
+   */
+  function watchBack(onBack) {
+    if (typeof window.CloseWatcher !== 'function') return false;
+    var escAt = 0;
+    document.addEventListener(
+      'keydown',
+      function (e) {
+        if (e.key === 'Escape') escAt = Date.now();
+      },
+      true
+    );
+    var current = null;
+    var arm = function () {
+      if (current) return;
+      try {
+        current = new CloseWatcher();
+        current.onclose = function () {
+          current = null;
+          arm();
+          if (Date.now() - escAt > 300) onBack();
+        };
+      } catch (e) {
+        // bez CloseWatcher ostáva len história
+      }
+    };
+    arm();
+    // stránka vrátená z pamäte prehliadača (bfcache) – istota, že strážca je
+    window.addEventListener('pageshow', function (e) {
+      if (e.persisted) arm();
+    });
+    return true;
+  }
+
   var state = history.state;
   if (state && state.fgBase) {
     // stránka sa načítala rovno na spodnom zázname
@@ -93,6 +130,14 @@
       return;
     }
     toGrid(s);
+  });
+
+  // Chrome v Androide pri tlačidle Späť preskakuje záznamy histórie, ktoré stránka pridala
+  // bez ťuknutia (ochrana proti „pasci na Späť“) – spodný záznam by sa tak preskočil a aplikácia
+  // by sa zavrela. CloseWatcher dostane tlačidlo Späť ešte pred históriou (jeden aj bez ťuknutia),
+  // a skriptové history.back() záznamy nepreskakuje.
+  watchBack(function () {
+    backOr('/?grid=1');
   });
 
   // Tlačidlo dlaždíc (aj odkaz na kalendár na rozcestníku)

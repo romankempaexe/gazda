@@ -48,7 +48,7 @@ const toMember = (r) => ({
 export function toRecord(r) {
   const base = { id: r.id, memberId: r.member_id, type: r.type, recordedAt: r.recorded_at, createdBy: r.created_by };
   if (r.type === 'temperature') return { ...base, temperature: r.temperature };
-  if (r.type === 'medicine') return { ...base, medicineName: r.medicine_name, dosage: r.dosage, substanceId: r.substance_id };
+  if (r.type === 'medicine') return { ...base, medicineName: r.medicine_name, dosage: r.dosage, substanceId: r.substance_id, courseId: r.course_id || '' };
   if (r.type === 'rest') return { ...base, method: r.rest_method, durationHours: r.duration_hours };
   return {
     ...base,
@@ -61,18 +61,34 @@ export function toRecord(r) {
   };
 }
 
+export const toCourse = (r) => ({
+  id: r.id,
+  memberId: r.member_id,
+  medicineName: r.medicine_name,
+  substanceId: r.substance_id,
+  dosage: r.dosage,
+  times: JSON.parse(r.times || '[]'),
+  startDate: r.start_date,
+  endDate: r.end_date,
+  notes: r.notes,
+  nextAt: r.next_at,
+  stoppedAt: r.stopped_at,
+  createdBy: r.created_by,
+  createdAt: r.created_at,
+});
+
 const toMeasurement = (r) => ({ id: r.id, memberId: r.member_id, measuredAt: r.measured_at, weight: r.weight, height: r.height, head: r.head });
 
 // ---- Kontroly ---------------------------------------------------------------------------------
 
-async function findMember(c, id) {
+export async function findMember(c, id) {
   const row = await c.db.prepare('SELECT * FROM zdravko_members WHERE id = ?').bind(String(id ?? '')).first();
   if (!row) throw new AppError('Člen rodiny neexistuje (možno ho medzičasom niekto vymazal).', 404);
   await requireFamilyMember(c, row.household_id);
   return row;
 }
 
-async function findRow(c, table, id, what) {
+export async function findRow(c, table, id, what) {
   const row = await c.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(String(id ?? '')).first();
   if (!row) throw new AppError(what + ' neexistuje (možno ho medzičasom niekto vymazal).', 404);
   await requireFamilyMember(c, row.household_id);
@@ -119,11 +135,12 @@ function memberFields(data) {
 export async function getData(c, householdId) {
   await requireFamilyMember(c, householdId);
   const q = (sql) => c.db.prepare(sql).bind(householdId);
-  const [household, members, records, measurements] = await c.db.batch([
+  const [household, members, records, measurements, courses] = await c.db.batch([
     q('SELECT zdravko_rev FROM households WHERE id = ?'),
     q('SELECT * FROM zdravko_members WHERE household_id = ? ORDER BY birth_date, created_at'),
     q('SELECT * FROM zdravko_records WHERE household_id = ? ORDER BY recorded_at'),
     q('SELECT * FROM zdravko_measurements WHERE household_id = ? ORDER BY measured_at'),
+    q('SELECT * FROM zdravko_courses WHERE household_id = ? ORDER BY start_date, created_at'),
   ]);
   return {
     householdId,
@@ -131,6 +148,7 @@ export async function getData(c, householdId) {
     members: members.results.map(toMember),
     records: records.results.map(toRecord),
     measurements: measurements.results.map(toMeasurement),
+    courses: courses.results.map(toCourse),
   };
 }
 
@@ -172,6 +190,7 @@ export async function deleteMember(c, memberId) {
   const m = await findMember(c, memberId);
   await c.db.batch([
     c.db.prepare('DELETE FROM zdravko_reminders WHERE record_id IN (SELECT id FROM zdravko_records WHERE member_id = ?)').bind(m.id),
+    c.db.prepare('DELETE FROM zdravko_courses WHERE member_id = ?').bind(m.id),
     c.db.prepare('DELETE FROM zdravko_records WHERE member_id = ?').bind(m.id),
     c.db.prepare('DELETE FROM zdravko_measurements WHERE member_id = ?').bind(m.id),
     c.db.prepare('DELETE FROM zdravko_members WHERE id = ?').bind(m.id),
@@ -192,13 +211,13 @@ export function localDay(iso) {
   return days[get('weekday')] + ' ' + get('day') + '. ' + get('month') + '.';
 }
 
-async function displayName(c) {
+export async function displayName(c) {
   const row = await c.db.prepare('SELECT nickname FROM users WHERE email = ?').bind(c.email).first();
   return (row && row.nickname) || c.email.split('@')[0];
 }
 
 /** Pošle správu ostatným členom rodiny (na pozadí – nezdrží uloženie). */
-function notifyOthers(c, householdId, message) {
+export function notifyOthers(c, householdId, message) {
   const work = (async () => {
     const { results } = await c.db
       .prepare('SELECT email FROM members WHERE household_id = ? AND email <> ? AND email IN (SELECT email FROM push_subscriptions)')
@@ -212,7 +231,8 @@ function notifyOthers(c, householdId, message) {
 
 /**
  * Nové záznamy pre člena v jednom čase (dialóg „Pridať záznam“ – teplota, liek a fyzikálna metóda naraz).
- * data = { recordedAt, temperature?, medicine?: { name, dosage, substanceId }, rest?: { method, durationHours } }
+ * data = { recordedAt, temperature?, medicine?: { name, dosage, substanceId, courseId? }, rest?: { method, durationHours } }
+ * courseId = podaná dávka z dávkovania (pripomienky striedania liekov proti horúčke sa vtedy nepočítajú).
  */
 export async function addRecords(c, memberId, data) {
   const m = await findMember(c, memberId);
@@ -228,7 +248,21 @@ export async function addRecords(c, memberId, data) {
   if (data.medicine && typeof data.medicine === 'object') {
     const name = requireText(String(data.medicine.name ?? '').replace(/\s+/g, ' '), 'Zadaj názov lieku.').slice(0, 80);
     const substanceId = /^[a-z_]{1,40}$/.test(data.medicine.substanceId || '') ? data.medicine.substanceId : '';
-    medicine = { ...base, id: uuid(), type: 'medicine', medicine_name: name, dosage: String(data.medicine.dosage ?? '').trim().slice(0, 40), substance_id: substanceId };
+    let courseId = '';
+    if (data.medicine.courseId) {
+      const course = await c.db.prepare('SELECT id, member_id FROM zdravko_courses WHERE id = ?').bind(String(data.medicine.courseId)).first();
+      if (!course || course.member_id !== m.id) throw new AppError('Dávkovanie neexistuje (možno ho medzičasom niekto vymazal).', 404);
+      courseId = course.id;
+    }
+    medicine = {
+      ...base,
+      id: uuid(),
+      type: 'medicine',
+      medicine_name: name,
+      dosage: String(data.medicine.dosage ?? '').trim().slice(0, 40),
+      substance_id: substanceId,
+      course_id: courseId,
+    };
     rows.push(medicine);
   }
   if (data.rest && typeof data.rest === 'object') {
@@ -244,7 +278,7 @@ export async function addRecords(c, memberId, data) {
   });
   // Liek proti horúčke (drmoravcikova.sk/teplota-u-dietata): ten istý najskôr o 6 h; ak počas 6 h vystúpi
   // teplota nad 39 °C, o 4 h sa smie podať ten druhý (staré pripomienky nahradí).
-  if (medicine && ANTIPYRETICS[medicine.substance_id]) {
+  if (medicine && !medicine.course_id && ANTIPYRETICS[medicine.substance_id]) {
     const same = ANTIPYRETICS[medicine.substance_id];
     const other = medicine.substance_id === 'ibuprofen' ? 'Paracetamol' : 'Ibuprofen';
     const given = Date.parse(recordedAt);

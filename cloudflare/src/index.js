@@ -26,6 +26,7 @@ import * as skladko from './skladko/api.js';
 import { importFirebase as skladkoImport, importImage as skladkoImportImage, pendingImages as skladkoPendingImages, skipImportImage as skladkoSkipImage } from './skladko/import.js';
 import { sendSkladkoAlerts } from './skladko/notifications.js';
 import * as zdravko from './zdravko/api.js';
+import * as zdravkoCourses from './zdravko/courses.js';
 import { importFirebase as zdravkoImport } from './zdravko/import.js';
 import { sendZdravkoReminders } from './zdravko/notifications.js';
 import * as quickstash from './quickstash/api.js';
@@ -112,6 +113,9 @@ const METHODS = {
   'zdravko/saveMeasurement': zdravko.saveMeasurement,
   'zdravko/deleteMeasurement': zdravko.deleteMeasurement,
   'zdravko/setCurrentMeasurement': zdravko.setCurrentMeasurement,
+  'zdravko/saveCourse': zdravkoCourses.saveCourse,
+  'zdravko/stopCourse': zdravkoCourses.stopCourse,
+  'zdravko/deleteCourse': zdravkoCourses.deleteCourse,
   'zdravko/importFirebase': zdravkoImport,
   // QuickStash
   'quickstash/getData': quickstash.getData,

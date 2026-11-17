@@ -210,7 +210,15 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   pripomienka deň vopred **všetkým v rodine** (vo formulári sa nevyberá), poznámky. Do kalendára
   v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
   prihlasovania a bez duplikátov ako v mobilnom.
-- **Dávkovanie:** kalkulačka liekov na teplotu podľa tabuliek MUDr. Moravčíkovej
+- **Dávkovanie** (karta člena): rozpis liečby s pripomienkami – liek z databázy ŠÚKL (alebo základný / vlastný
+  názov), dávka, koľkokrát denne (1 – 6×, časy rovnomerne od 1. dávky, dajú sa upraviť), od kedy a koľko dní
+  (alebo do odvolania), poznámka. Na karte dnešné dávky (podané / teraz / vynechané / neskôr), ďalšia dávka
+  s odpočtom, priebeh dní a **Zapísať podanú dávku** (záznam lieku s `course_id`, ukáže sa aj v Chorobe).
+  Na zozname rodiny čip s najbližšou dávkou, v detaile lieku z databázy *Naplánovať dávkovanie*. Ukončiť,
+  upraviť, spustiť znova, vymazať (podané dávky ostanú). Cron pripomenie každú dávku všetkým v rodine
+  (časy v Bratislave aj cez zmenu času; nepríde, ak dávku niekto zapísal najviac hodinu vopred);
+  tabuľka `zdravko_courses` (migrácia 0019), `src/zdravko/courses.js`.
+- **Kalkulačka:** lieky na teplotu podľa tabuliek MUDr. Moravčíkovej
   ([drmoravcikova.sk/teplota-u-dietata](https://www.drmoravcikova.sk/teplota-u-dietata/), `public/zdravko/fever.js`):
   paracetamol – Panadol Baby sirup, Paralen čípky 100 mg a tablety 125/500 mg podľa váhy; ibuprofen –
   sirup 20 mg/ml presne podľa tabuľky stránky (6 – 20 kg: dávka po 8 h, max. denná dávka, ml á 6 / á 8 h),
@@ -243,7 +251,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   „ten istý sa už smie znova“ a o 4 h „nad 39 °C môžeš podať ten druhý“ (ďalšia dávka staré pripomienky nahradí). Posiela ich cron každých 5 minút
   (`zdravko_reminders`; zmeškané o viac ako 6 h sa už neposielajú).
 - Tabuľky `zdravko_members`, `zdravko_records`, `zdravko_measurements`, `zdravko_reminders`
-  (migrácia 0014), funkcie `POST /api/zdravko/<funkcia>` v `src/zdravko/api.js`.
+  (migrácia 0014) a `zdravko_courses` (0019), funkcie `POST /api/zdravko/<funkcia>` v `src/zdravko/api.js`.
 
 ### Prenos z mobilného Zdravka (Firebase)
 

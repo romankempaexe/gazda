@@ -365,14 +365,19 @@
         const lastMed = [...recs].reverse().find((r) => r.type === 'medicine');
         const recent = (r) => r && Date.now() - Date.parse(r.recordedAt) < 48 * 3600000;
         const next = events().filter((e) => e.memberId === m.id && Date.parse(e.eventAt) >= Date.now()).sort((a, b) => a.eventAt.localeCompare(b.eventAt))[0];
+        const dose = nextCourseDose(m);
         const facts = [m.weight ? fmt(m.weight) + ' kg' : '', m.height ? fmt(m.height, 0) + ' cm' : '', m.bloodGroup].filter(Boolean).join(' · ');
         return (
           '<div class="card zd-member" data-member="' + esc(m.id) + '">' +
           '<div class="zd-avatar' + (m.isChild ? ' child' : '') + '"><span class="ms">' + (m.isChild ? 'child_care' : 'person') + '</span></div>' +
           '<div class="card-body"><div class="card-title">' + esc(m.name) + '</div>' +
           '<div class="card-sub">' + esc(age(m.birthDate)) + (facts ? ' · ' + esc(facts) : '') + '</div>' +
-          (recent(lastTemp) || recent(lastMed) || next
+          (recent(lastTemp) || recent(lastMed) || next || dose
             ? '<div class="zd-chips">' +
+              (dose
+                ? '<span class="zd-chip course' + (dose.due ? ' bad' : '') + '"><span class="ms">' + (dose.due ? 'notifications_active' : 'medication') + '</span>' +
+                  (dose.due ? 'Teraz ' : '') + hmMs(dose.ms) + ' · ' + esc(dose.course.medicineName) + '</span>'
+                : '') +
               (recent(lastTemp) ? '<span class="zd-chip ' + tempClass(lastTemp.temperature) + '"><span class="ms">thermometer</span>' + fmt(lastTemp.temperature) + ' °C · ' + esc(ago(lastTemp.recordedAt)) + '</span>' : '') +
               (recent(lastMed) ? '<span class="zd-chip"><span class="ms">medication</span>' + esc(lastMed.medicineName) + ' · ' + esc(ago(lastMed.recordedAt)) + '</span>' : '') +
               (next ? '<span class="zd-chip event"><span class="ms">' + EVENT_TYPES[next.eventType].icon + '</span>' + esc(dm(next.eventAt)) + ' ' + hm(next.eventAt) + ' · ' + esc(next.subtype) + '</span>' : '') +
@@ -398,6 +403,17 @@
     fab('<button type="button" class="btn" id="addMember"><span class="ms">add</span>Člen rodiny</button>', (el) => {
       el.querySelector('#addMember').onclick = () => memberForm(null);
     });
+  }
+
+  /** Najbližšia (alebo práve čakajúca) dávka z dávkovaní člena – čip na karte v zozname rodiny. */
+  function nextCourseDose(m) {
+    let best = null;
+    for (const c of coursesOf(m.id).filter(courseActive)) {
+      const st = courseState(c);
+      const s = st.due ? { ms: st.due.ms, due: true } : st.next ? { ms: st.next.ms, due: false } : null;
+      if (s && (!best || (s.due && !best.due) || (s.due === best.due && s.ms < best.ms))) best = { ...s, course: c };
+    }
+    return best;
   }
 
   function memberForm(m) {
@@ -459,7 +475,7 @@
   function renderMember(m) {
     header(m.name, true);
     const tab = S.view.tab || 'sick';
-    const list = [['sick', 'thermometer', 'Choroba'], ['calendar', 'calendar_month', 'Kalendár'], ['dose', 'calculate', 'Dávkovanie']];
+    const list = [['sick', 'thermometer', 'Choroba'], ['meds', 'medication', 'Dávkovanie'], ['calendar', 'calendar_month', 'Kalendár'], ['dose', 'calculate', 'Kalkulačka']];
     if (m.isChild) list.push(['growth', 'straighten', 'Miery']);
     tabs(list, tab, (t) => go({ ...S.view, tab: t }, true));
     const head =
@@ -468,6 +484,7 @@
       [m.weight ? fmt(m.weight, 2) + ' kg' : '', m.height ? fmt(m.height) + ' cm' : '', m.bloodGroup].filter(Boolean).map((x) => ' · ' + esc(x)).join('') +
       '</div></div><button type="button" class="icon-btn" id="editMember" title="Upraviť"><span class="ms">edit</span></button></div>';
     if (tab === 'calendar') renderCalendar(m, head);
+    else if (tab === 'meds') renderCourses(m, head);
     else if (tab === 'dose') renderDosage(m, head);
     else if (tab === 'growth' && m.isChild) renderGrowth(m, head);
     else renderSickness(m, head);
@@ -563,6 +580,9 @@
         '<div class="hint"><span class="ms">info</span> Dávkovanie a upozornenia podľa príbalového letáku alebo lekára.</div>' +
         (members.length ? '<div class="field"><label>Zapísať podanie</label><div class="chips wrap">' +
           members.map((m) => '<button type="button" class="chip" data-give="' + esc(m.id) + '"><span class="ms">' + (m.isChild ? 'child_care' : 'person') + '</span>' + esc(m.name) + '</button>').join('') +
+          '</div></div>' +
+          '<div class="field"><label>Naplánovať dávkovanie s pripomienkami</label><div class="chips wrap">' +
+          members.map((m) => '<button type="button" class="chip" data-plan="' + esc(m.id) + '"><span class="ms">schedule</span>' + esc(m.name) + '</button>').join('') +
           '</div></div>' : '') +
         '<div class="actions"><button type="button" class="btn text" id="close">Zavrieť</button></div>',
       (root) => {
@@ -582,6 +602,12 @@
           b.onclick = () => {
             const m = member(b.dataset.give);
             if (m) recordForm(m, d.name);
+          };
+        });
+        root.querySelectorAll('[data-plan]').forEach((b) => {
+          b.onclick = () => {
+            const m = member(b.dataset.plan);
+            if (m) courseForm(m, null, d.name);
           };
         });
       },
@@ -1355,6 +1381,424 @@
     }));
     fab('');
   }
+
+  // ---- Dávkovanie liekov (liečba podľa rozpisu) ---------------------------------------------------------
+
+  // Dávka zapísaná najviac hodinu pred časom sa ráta k nej (ako na serveri – pripomienka potom nepríde).
+  const EARLY_MS = 3600000;
+  const DURATIONS = [3, 5, 7, 10, 14];
+
+  const coursesOf = (memberId) => (S.data.courses || []).filter((c) => c.memberId === memberId);
+  const courseActive = (c) => !c.stoppedAt && (!c.endDate || c.endDate >= today());
+  const hmMs = (ms) => hm(new Date(ms).toISOString());
+  const localMs = (day, time) => {
+    const [h, mi] = time.split(':').map(Number);
+    const d = parseYmd(day);
+    d.setHours(h, mi, 0, 0);
+    return d.getTime();
+  };
+  const daysDiff = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
+  const courseTotalDays = (c) => (c.endDate ? daysDiff(c.startDate, c.endDate) + 1 : null);
+  const shortTime = (t) => t.replace(/^0(\d)/, '$1');
+
+  /** Dávky dávkovania v dňoch from…to (vrátane) ako časy v ms. */
+  function courseSlots(c, from, to) {
+    const out = [];
+    for (let day = from < c.startDate ? c.startDate : from; day <= to; day = addDays(day, 1)) {
+      if (c.endDate && day > c.endDate) break;
+      for (const t of [...c.times].sort()) out.push(localMs(day, t));
+    }
+    return out;
+  }
+
+  /**
+   * Stav dávok dnes: každá podaná dávka (záznam s courseId) patrí k dávke, do ktorej okna spadá
+   * (od hodiny pred jej časom po hodinu pred ďalšou). Vráti { slots: [{ ms, given, state }], next, due }.
+   */
+  function courseState(c) {
+    const now = Date.now();
+    const day = today();
+    const all = courseSlots(c, addDays(day, -1), addDays(day, 1));
+    const gap = all.reduce((min, ms, i) => (i ? Math.min(min, ms - all[i - 1]) : min), 86400000);
+    const early = Math.min(EARLY_MS, gap / 2);
+    const given = S.data.records.filter((r) => r.courseId === c.id).map((r) => Date.parse(r.recordedAt));
+    const created = Date.parse(c.createdAt || '') || 0; // dávky pred spustením dávkovania sa neukazujú
+    const info = all.filter((ms) => ms >= created - early).map((ms, i, list) => {
+      const end = (list[i + 1] ?? ms + gap) - early;
+      const g = given.filter((t) => t >= ms - early && t < end).sort((a, b) => a - b)[0];
+      let state = 'later';
+      if (g) state = 'given';
+      else if (now >= end) state = 'missed';
+      else if (now >= ms) state = 'due';
+      return { ms, end, given: g || null, state };
+    });
+    const stopped = !courseActive(c) || c.stoppedAt;
+    const slots = info.filter((s) => ymd(new Date(s.ms)) === day);
+    const due = stopped ? null : info.find((s) => s.state === 'due') || null;
+    const next = stopped ? null : info.find((s) => s.state === 'later' && s.ms > now) || null;
+    return { slots, due, next };
+  }
+
+  function untilText(ms) {
+    const min = Math.max(0, Math.round((ms - Date.now()) / 60000));
+    if (min < 60) return 'o ' + min + ' min';
+    const h = Math.floor(min / 60);
+    return 'o ' + h + ' h' + (min % 60 ? ' ' + (min % 60) + ' min' : '');
+  }
+  const whenText = (ms) => dayLabel(ymd(new Date(ms))).toLowerCase() + ' o ' + hmMs(ms);
+
+  /** Karta „Dávkovanie“: prebiehajúce lieky s rozpisom dávok na dnes, ďalšou dávkou a zápisom podania. */
+  function renderCourses(m, head) {
+    const list = coursesOf(m.id);
+    const active = list.filter(courseActive);
+    const done = list.filter((c) => !courseActive(c)).sort((a, b) => (b.endDate || b.startDate).localeCompare(a.endDate || a.startDate));
+    $('view').innerHTML =
+      head +
+      (active.length
+        ? active.map((c) => courseCard(c)).join('')
+        : '<div class="empty compact"><span class="ms">medication</span><div>Žiadne prebiehajúce dávkovanie. Pridaj liek z databázy, nastav dávku a koľkokrát denne – ' +
+          'Zdravko pripomenie každú dávku celej rodine.</div></div>') +
+      (done.length
+        ? '<details class="zd-course-done"><summary>Ukončené (' + done.length + ')</summary>' + done.map((c) => courseCard(c)).join('') + '</details>'
+        : '') +
+      '<div class="grid-note">Pripomienka príde v čase každej dávky všetkým v rodine so zapnutými upozorneniami (ak už dávku niekto nezapísal). ' +
+      'Dávkovanie vždy podľa lekára alebo príbalového letáku.</div>';
+    $('view').querySelectorAll('[data-give-course]').forEach((b) => (b.onclick = () => giveDose(m, findCourse(b.dataset.giveCourse), b)));
+    $('view').querySelectorAll('[data-course]').forEach((b) => (b.onclick = () => courseMenu(m, findCourse(b.dataset.course))));
+    fab('<button type="button" class="btn" id="addCourse"><span class="ms">add</span>Pridať dávkovanie</button>', (el) => {
+      el.querySelector('#addCourse').onclick = () => courseForm(m, null);
+    });
+  }
+
+  const findCourse = (id) => (S.data.courses || []).find((c) => c.id === id);
+
+  function courseCard(c) {
+    const on = courseActive(c);
+    const st = courseState(c);
+    const total = courseTotalDays(c);
+    const dayN = Math.min(daysDiff(c.startDate, today()) + 1, total || Infinity);
+    const started = c.startDate <= today();
+    const sub = [
+      c.times.length + '× denne',
+      on ? (started ? 'deň ' + dayN + (total ? ' z ' + total : '') : 'od ' + dmy(c.startDate)) : total ? plural(total, 'deň', 'dni', 'dní') : '',
+      c.notes,
+    ].filter(Boolean);
+    let status = '';
+    if (!on) {
+      status = '<div class="zd-course-next muted"><span class="ms">check_circle</span>' +
+        (c.stoppedAt ? 'Ukončené ' + dmy(c.stoppedAt) : 'Skončilo ' + dmy(c.endDate)) + '</div>';
+    } else if (st.due) {
+      status = '<div class="zd-course-next due"><span class="ms">notifications_active</span>Teraz: dávka o ' + hmMs(st.due.ms) + '</div>';
+    } else if (st.next) {
+      status = '<div class="zd-course-next"><span class="ms">timer</span>Ďalšia dávka ' + esc(whenText(st.next.ms)) + ' <span class="muted">· ' + esc(untilText(st.next.ms)) + '</span></div>';
+    } else {
+      status = '<div class="zd-course-next ok"><span class="ms">check_circle</span>Dnes posledná dávka podaná – dávkovanie končí</div>';
+    }
+    const slots = on && started && st.slots.length
+      ? '<div class="zd-slots">' +
+        st.slots
+          .map((s) => {
+            const label = { given: 'podané ' + hmMs(s.given), due: 'teraz', missed: 'vynechané', later: '' }[s.state];
+            return '<span class="zd-slot ' + s.state + '"><span class="ms">' + { given: 'check_circle', due: 'notifications_active', missed: 'warning', later: 'schedule' }[s.state] + '</span>' +
+              '<b>' + hmMs(s.ms) + '</b>' + (label ? '<small>' + esc(label) + '</small>' : '') + '</span>';
+          })
+          .join('') +
+        '</div>'
+      : '';
+    const progress = on && total && started
+      ? '<div class="zd-progress"><i style="width:' + Math.round((dayN / total) * 100) + '%"></i></div>'
+      : '';
+    return (
+      '<div class="card zd-course' + (on ? '' : ' done') + (st.due && on ? ' is-due' : '') + '">' +
+      '<div class="zd-course-head"><div class="zd-drug-icon"><span class="ms">medication</span></div>' +
+      '<div class="card-body"><div class="card-title">' + esc(c.medicineName) + (c.dosage ? ' <span class="zd-course-dose">' + esc(c.dosage) + '</span>' : '') + '</div>' +
+      '<div class="card-sub">' + esc(sub.join(' · ')) + '</div>' +
+      '<div class="zd-course-times">' + c.times.map((t) => '<span>' + shortTime(t) + '</span>').join('') + '</div></div>' +
+      '<button type="button" class="icon-btn" data-course="' + esc(c.id) + '" title="Možnosti"><span class="ms">more_vert</span></button></div>' +
+      progress + status + slots +
+      (on && started
+        ? '<button type="button" class="btn ' + (st.due ? '' : 'tonal ') + 'small zd-give" data-give-course="' + esc(c.id) + '"><span class="ms">check</span>Zapísať podanú dávku</button>'
+        : '') +
+      '</div>'
+    );
+  }
+
+  async function giveDose(m, c, button) {
+    if (!c) return;
+    button.disabled = true;
+    try {
+      await api('zdravko/addRecords', m.id, {
+        recordedAt: new Date().toISOString(),
+        medicine: { name: c.medicineName, dosage: c.dosage, substanceId: c.substanceId, courseId: c.id },
+      });
+      await load(true);
+      render();
+      const st = courseState(c);
+      toast('Dávka zapísaná' + (st.next ? ' – ďalšia ' + whenText(st.next.ms) : ''));
+    } catch (err) {
+      button.disabled = false;
+      showError(err);
+    }
+  }
+
+  function courseMenu(m, c) {
+    if (!c) return;
+    const on = courseActive(c);
+    const doses = S.data.records.filter((r) => r.courseId === c.id).sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+    openModal(
+      '<h2>' + esc(c.medicineName) + '</h2><div class="subtitle">' + esc([c.dosage, c.times.length + '× denne (' + c.times.map(shortTime).join(', ') + ')'].filter(Boolean).join(' · ')) + '</div>' +
+        '<div class="members">' +
+        '<div><span class="ms">event</span>Od ' + dmy(c.startDate) + (c.endDate ? ' do ' + dmy(c.endDate) + ' (' + plural(courseTotalDays(c), 'deň', 'dni', 'dní') + ')' : ' – do odvolania') + '</div>' +
+        (c.notes ? '<div><span class="ms">notes</span>' + esc(c.notes) + '</div>' : '') +
+        '<div><span class="ms">history</span>Podaných dávok: ' + doses.length + (doses[0] ? ' (naposledy ' + esc(dayLabel(ymd(new Date(doses[0].recordedAt))).toLowerCase()) + ' o ' + hm(doses[0].recordedAt) + ')' : '') + '</div>' +
+        '</div>' +
+        '<div class="pick-list">' +
+        (on
+          ? '<button type="button" class="btn tonal" id="edit"><span class="ms">edit</span>Upraviť (dávka, časy, počet dní)</button>' +
+            '<button type="button" class="btn tonal" id="stop"><span class="ms">close</span>Ukončiť dávkovanie</button>'
+          : '<button type="button" class="btn tonal" id="again"><span class="ms">sync</span>Spustiť znova od dnes</button>') +
+        '</div>' +
+        '<div class="actions"><button type="button" class="btn text danger-text" id="del" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' +
+        '<button type="button" class="btn text" id="cancel">Zavrieť</button></div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        const edit = root.querySelector('#edit');
+        if (edit) edit.onclick = () => courseForm(m, c);
+        const again = root.querySelector('#again');
+        if (again) {
+          again.onclick = () =>
+            courseForm(m, { ...c, id: null, startDate: today(), endDate: c.endDate ? addDays(today(), courseTotalDays(c) - 1) : '' });
+        }
+        const stop = root.querySelector('#stop');
+        if (stop) {
+          stop.onclick = async () => {
+            if (!(await FG.confirmDialog('Ukončiť dávkovanie?', esc(c.medicineName) + ' – ďalšie pripomienky už neprídu.', 'Ukončiť', true))) return;
+            act(() => api('zdravko/stopCourse', c.id), 'Dávkovanie ukončené');
+          };
+        }
+        root.querySelector('#del').onclick = async () => {
+          if (!(await FG.confirmDialog('Vymazať dávkovanie?', esc(c.medicineName) + ' – podané dávky ostanú v záznamoch choroby.', 'Vymazať', true))) return;
+          act(() => api('zdravko/deleteCourse', c.id), 'Dávkovanie vymazané');
+        };
+      },
+      { focus: false }
+    );
+  }
+
+  /** Časy rovnomerne cez deň od prvej dávky (2× denne = každých 12 h, 3× = každých 8 h …). */
+  function spreadTimes(first, count) {
+    const [h, mi] = first.split(':').map(Number);
+    const start = h * 60 + mi;
+    const step = (24 * 60) / count;
+    return Array.from({ length: count }, (_, i) => {
+      const t = Math.round((start + i * step) / 5) * 5 % (24 * 60);
+      return pad(Math.floor(t / 60)) + ':' + pad(t % 60);
+    });
+  }
+
+  /**
+   * Nové / upravené dávkovanie: liek (rýchle čipy, databáza ŠÚKL alebo vlastný názov), dávka,
+   * koľkokrát denne a časy (rovnomerne od prvej dávky, dajú sa upraviť), od kedy a koľko dní.
+   */
+  function courseForm(m, c, presetName) {
+    const subs = DATA.substances;
+    const editing = Boolean(c && c.id);
+    const used = [...new Set([
+      ...coursesOf(m.id).map((x) => x.medicineName),
+      ...recordsOf(m.id).filter((r) => r.type === 'medicine').map((r) => r.medicineName),
+    ])].filter((n) => !subs.some((x) => x.name === n)).slice(-5);
+    const sel = {
+      name: c ? c.medicineName : presetName || '',
+      sid: c ? c.substanceId : '',
+    };
+    const nowH = new Date();
+    const firstDefault = pad((nowH.getHours() + 1) % 24) + ':00';
+    let times = c ? [...c.times] : [firstDefault];
+    let count = times.length;
+    const days = c ? courseTotalDays(c) : 7;
+    const dose = c && /^([\d.,]+)\s*(.*)$/.exec(c.dosage || '');
+    const durChips = [...DURATIONS.map((d) => [String(d), plural(d, 'deň', 'dni', 'dní')]), ['0', 'Do odvolania']];
+    openModal(
+      '<h2>' + (editing ? 'Upraviť dávkovanie' : 'Dávkovanie') + ' – ' + esc(m.name) + '</h2><form id="f">' +
+        '<div class="zd-part" id="partMed"><div class="zd-part-head"><span class="ms">medication</span>Liek</div>' +
+        '<div id="medSel"></div>' +
+        '<div class="chips wrap zd-meds-pick" id="medChips">' + [...subs.map((x) => x.name), ...used].map((n) => '<button type="button" class="chip" data-mname="' + esc(n) + '">' + esc(n) + '</button>').join('') + '</div>' +
+        '<div class="field zd-med-search"><span class="ms">search</span><input type="search" name="medSearch" placeholder="Hľadať v databáze liekov ŠÚKL…" autocomplete="off"></div>' +
+        '<div class="zd-med-found" id="medFound"></div></div>' +
+        '<div class="zd-part"><div class="zd-part-head"><span class="ms">medication</span>Dávka</div>' +
+        '<div class="field"><div class="row"><input name="amount" inputmode="decimal" placeholder="napr. 5" autocomplete="off" value="' + esc(dose ? dose[1].replace('.', ',') : '') + '">' +
+        '<select name="unit">' + UNITS.map(([u, label]) => '<option value="' + u + '"' + (dose && dose[2] === u ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></div></div></div>' +
+        '<div class="zd-part"><div class="zd-part-head"><span class="ms">schedule</span>Koľkokrát denne</div>' +
+        '<div class="chips zd-seg" id="countChips">' + [1, 2, 3, 4, 5, 6].map((n) => '<button type="button" class="chip" data-count="' + n + '">' + n + '×</button>').join('') + '</div>' +
+        '<div class="zd-times" id="times"></div>' +
+        '<div class="hint" id="timesHint"></div></div>' +
+        '<div class="zd-part"><div class="zd-part-head"><span class="ms">event</span>Ako dlho</div>' +
+        '<div class="row"><div class="field"><label>Od</label><input type="date" name="start" required value="' + esc(c ? c.startDate : today()) + '"></div>' +
+        '<div class="field"><label>Počet dní</label><input name="days" inputmode="numeric" placeholder="do odvolania" value="' + esc(days ? String(days) : '') + '"></div></div>' +
+        '<div class="chips wrap zd-seg" id="durChips">' + durChips.map(([v, l]) => '<button type="button" class="chip" data-days="' + v + '">' + l + '</button>').join('') + '</div></div>' +
+        '<div class="field"><label>Poznámka (nepovinné)</label><input name="notes" maxlength="200" placeholder="napr. po jedle, zapiť vodou" value="' + esc(c ? c.notes : '') + '"></div>' +
+        '<div class="zd-course-sum" id="sum"></div>' +
+        '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn" id="save"><span class="ms">notifications_active</span>' +
+        (editing ? 'Uložiť' : 'Spustiť dávkovanie') + '</button></div></form>',
+      (root) => {
+        const f = root.querySelector('#f');
+        root.querySelector('#cancel').onclick = closeModal;
+
+        // ---- liek
+        const showMed = () => {
+          const d = sel.name ? drugByName(sel.name) : null;
+          root.querySelector('#medSel').innerHTML = sel.name
+            ? '<div class="zd-med-picked"><span class="ms">check_circle</span><div><b>' + esc(sel.name) + '</b>' +
+              (d ? '<span>' + esc([d.subs, drugForms(d).slice(0, 3).join(' · ')].filter(Boolean).join(' – ')) + '</span>' : '') + '</div>' +
+              '<button type="button" class="icon-btn small" id="medClear" title="Iný liek"><span class="ms">close</span></button></div>'
+            : '';
+          root.querySelector('#medChips').classList.toggle('hidden', Boolean(sel.name));
+          root.querySelector('.zd-med-search').classList.toggle('hidden', Boolean(sel.name));
+          const clear = root.querySelector('#medClear');
+          if (clear) clear.onclick = () => {
+            sel.name = '';
+            sel.sid = '';
+            showMed();
+            f.medSearch.focus();
+          };
+          summary();
+        };
+        const pickMed = (name, d) => {
+          const base = subs.find((x) => x.name === name);
+          sel.name = name;
+          sel.sid = base ? base.id : drugSubstanceId(d || drugByName(name)) || (c && c.medicineName === name ? c.substanceId : '');
+          if (!f.amount.value) {
+            const prev = lastOf(m, (r) => r.type === 'medicine' && r.medicineName === name);
+            const pd = prev && /^([\d.,]+)\s*(.*)$/.exec(prev.dosage || '');
+            if (pd) {
+              f.amount.value = pd[1].replace('.', ',');
+              if (UNITS.some(([u]) => u === pd[2])) f.unit.value = pd[2];
+            }
+          }
+          f.medSearch.value = '';
+          found.innerHTML = '';
+          showMed();
+        };
+        root.querySelectorAll('[data-mname]').forEach((b) => (b.onclick = () => pickMed(b.dataset.mname)));
+        const found = root.querySelector('#medFound');
+        let hits = [];
+        loadDrugs().then(showMed, () => {});
+        f.medSearch.oninput = () => {
+          const q = f.medSearch.value.trim();
+          if (!DRUGS && q.length >= 2) {
+            found.innerHTML = '<div class="muted">Načítavam databázu liekov…</div>';
+            return loadDrugs().then(() => f.medSearch.oninput(), (err) => (found.innerHTML = '<div class="muted">' + esc(err.message) + '</div>'));
+          }
+          hits = q.length < 2 ? [] : searchDrugs(q).slice(0, 8);
+          found.innerHTML = q.length < 2 ? '' :
+            hits.map((d, i) => '<button type="button" data-hit="' + i + '"><b>' + esc(d.name) + '</b><span>' + esc(d.subs || drugForms(d)[0] || '') + '</span></button>').join('') +
+            '<button type="button" data-own="1"><b>„' + esc(q) + '“</b><span>Použiť vlastný názov lieku</span></button>';
+          found.querySelectorAll('[data-hit]').forEach((b) => (b.onclick = () => pickMed(hits[Number(b.dataset.hit)].name, hits[Number(b.dataset.hit)])));
+          const own = found.querySelector('[data-own]');
+          if (own) own.onclick = () => pickMed(q.replace(/\s+/g, ' ').slice(0, 80));
+        };
+        f.medSearch.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (hits[0]) pickMed(hits[0].name, hits[0]);
+          }
+        };
+
+        // ---- časy dávok
+        const showTimes = () => {
+          root.querySelectorAll('[data-count]').forEach((x) => x.classList.toggle('active', Number(x.dataset.count) === count));
+          root.querySelector('#times').innerHTML = times
+            .map((t, i) => '<label><span>' + (i + 1) + '. dávka</span><input type="time" data-time="' + i + '" value="' + t + '" required></label>')
+            .join('');
+          root.querySelector('#timesHint').textContent = count > 1 ? 'Rovnomerne cez deň od 1. dávky (každých ' + fmt(24 / count) + ' h) – časy môžeš upraviť.' : '';
+          root.querySelectorAll('[data-time]').forEach((inp) => {
+            inp.onchange = () => {
+              const i = Number(inp.dataset.time);
+              if (!inp.value) return;
+              // zmena prvej dávky posunie ostatné, ďalšie sa upravia samostatne
+              times = i === 0 && count > 1 ? spreadTimes(inp.value, count) : times.map((t, j) => (j === i ? inp.value : t));
+              showTimes();
+            };
+          });
+          summary();
+        };
+        root.querySelectorAll('[data-count]').forEach((b) => {
+          b.onclick = () => {
+            count = Number(b.dataset.count);
+            times = spreadTimes(times[0] || firstDefault, count);
+            showTimes();
+          };
+        });
+
+        // ---- trvanie
+        const showDays = () => {
+          const v = f.days.value.trim();
+          root.querySelectorAll('[data-days]').forEach((x) => x.classList.toggle('active', x.dataset.days === (v || '0')));
+          summary();
+        };
+        root.querySelectorAll('[data-days]').forEach((b) => {
+          b.onclick = () => {
+            f.days.value = b.dataset.days === '0' ? '' : b.dataset.days;
+            showDays();
+          };
+        });
+        f.days.oninput = showDays;
+        f.start.onchange = summary;
+
+        // ---- zhrnutie: prvá a posledná dávka
+        function summary() {
+          const box = root.querySelector('#sum');
+          if (!box) return;
+          const start = f.start.value;
+          const n = parseInt(f.days.value, 10);
+          if (!start || !times.length) return (box.innerHTML = '');
+          const fake = { startDate: start, endDate: n > 0 ? addDays(start, n - 1) : '', times };
+          const now = Date.now();
+          const upcoming = courseSlots(fake, start < today() ? today() : start, start < today() ? addDays(today(), 1) : addDays(start, 1)).find((ms) => ms > now);
+          const last = fake.endDate ? localMs(fake.endDate, [...times].sort().pop()) : null;
+          box.innerHTML =
+            '<span class="ms">notifications_active</span><div>' +
+            (upcoming ? 'Prvá pripomienka <b>' + esc(whenText(upcoming)) + '</b>' : 'Bez ďalšej dávky – skontroluj začiatok a počet dní') +
+            (last ? '<br>Posledná dávka ' + esc(whenText(last)) + (n > 0 ? ' · spolu ' + plural(n * times.length, 'dávka', 'dávky', 'dávok') : '') : '<br>Do odvolania – ukončíš ho sám') +
+            '</div>';
+        }
+
+        showMed();
+        showTimes();
+        showDays();
+
+        f.onsubmit = (e) => {
+          e.preventDefault();
+          if (!sel.name) return toast('Vyber liek.', true);
+          const amount = f.amount.value.trim().replace(',', '.');
+          const n = f.days.value.trim();
+          if (n && !(Number(n) >= 1)) return toast('Počet dní zadaj ako číslo (alebo nechaj prázdne = do odvolania).', true);
+          act(
+            () => api('zdravko/saveCourse', m.id, {
+              id: editing ? c.id : null,
+              medicineName: sel.name,
+              substanceId: sel.sid,
+              dosage: amount ? amount + ' ' + f.unit.value : '',
+              times,
+              startDate: f.start.value,
+              days: n ? Number(n) : null,
+              notes: f.notes.value,
+            }),
+            editing ? 'Dávkovanie uložené' : 'Dávkovanie spustené – pripomenieme každú dávku'
+          ).then((res) => {
+            if (!res || (S.view.name === 'member' && S.view.memberId === m.id && S.view.tab === 'meds')) return;
+            go({ name: 'member', memberId: m.id, tab: 'meds' }, S.view.name === 'member');
+          });
+        };
+      },
+      { focus: false }
+    );
+  }
+
+  // Stav dávok (teraz / vynechané / ďalšia o …) sa na karte Dávkovanie obnovuje sám.
+  setInterval(() => {
+    if (!document.hidden && S.data && S.view.name === 'member' && S.view.tab === 'meds' && !modalOpen()) render();
+  }, 60000);
 
   // ---- Miery dieťaťa -----------------------------------------------------------------------------------
 

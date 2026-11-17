@@ -1,11 +1,17 @@
-// Pripomienky Zdravka (cron): udalosti u lekára (týždeň / deň / hodinu pred) a striedanie
-// liekov proti horúčke. Dostanú ich všetci členovia rodiny so zapnutými upozorneniami.
+// Pripomienky Zdravka (cron): udalosti u lekára (týždeň / deň / hodinu pred), striedanie
+// liekov proti horúčke a dávky z dávkovania liekov (courses.js). Dostanú ich všetci členovia rodiny so zapnutými upozorneniami.
 
 import { sendToUser } from '../notifications.js';
+import { sendCourseReminders } from './courses.js';
 
 const LATE_MS = 6 * 3600000; // zmeškané o viac ako 6 h (výpadok) sa už neposielajú
 
 export async function sendZdravkoReminders(db, now = new Date()) {
+  const doses = await sendCourseReminders(db, now); // dávkovanie liekov
+  return doses + (await sendRecordReminders(db, now));
+}
+
+async function sendRecordReminders(db, now) {
   const nowIso = now.toISOString();
   // Najprv sa označia (aby neodišli dvakrát, aj keby cron bežal súčasne).
   const [due] = await db.batch([

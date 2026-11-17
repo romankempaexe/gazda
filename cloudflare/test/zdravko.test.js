@@ -4,6 +4,8 @@ import { setup } from './helpers.js';
 import { dartToUtc, dartToYmd, mapZdravko } from '../src/zdravko/import.js';
 import { sendZdravkoReminders } from '../src/zdravko/notifications.js';
 import { localTime, recordMessage } from '../src/zdravko/api.js';
+import { nextDoseMs, zonedMs } from '../src/zdravko/courses.js';
+import { todayYmd } from '../src/domain.js';
 
 let t;
 before(async () => {
@@ -224,4 +226,70 @@ test('upozornenie na nameranú teplotu a podaný liek', () => {
     tag: 'medicine-m1',
   });
   assert.equal(recordMessage('Jana', m, at, null, null), null); // len fyzikálna metóda
+});
+
+test('dávkovanie: časy v Bratislave aj cez zmenu času, ďalšia dávka', () => {
+  const iso = (ms) => new Date(ms).toISOString();
+  assert.equal(iso(zonedMs('2026-07-01', '08:00')), '2026-07-01T06:00:00.000Z');
+  assert.equal(iso(zonedMs('2026-12-01', '08:00')), '2026-12-01T07:00:00.000Z');
+  assert.equal(iso(zonedMs('2026-03-29', '08:00')), '2026-03-29T06:00:00.000Z'); // deň zmeny na letný čas
+  assert.equal(iso(zonedMs('2026-10-25', '20:00')), '2026-10-25T19:00:00.000Z'); // a späť
+  const course = { times: JSON.stringify(['20:00', '08:00']), start_date: '2026-12-01', end_date: '2026-12-02' };
+  assert.equal(iso(nextDoseMs(course, Date.parse('2026-11-20T10:00:00Z'))), '2026-12-01T07:00:00.000Z'); // ešte nezačalo
+  assert.equal(iso(nextDoseMs(course, Date.parse('2026-12-01T07:00:00Z'))), '2026-12-01T19:00:00.000Z');
+  assert.equal(iso(nextDoseMs(course, Date.parse('2026-12-01T20:00:00Z'))), '2026-12-02T07:00:00.000Z');
+  assert.equal(nextDoseMs(course, Date.parse('2026-12-02T19:00:00Z')), null); // posledná dávka prešla
+  assert.equal(iso(nextDoseMs({ ...course, end_date: '' }, Date.parse('2027-02-10T12:00:00Z'))), '2027-02-10T19:00:00.000Z');
+});
+
+test('dávkovanie lieku: uloženie, podaná dávka, pripomienky cronom, ukončenie', async () => {
+  const { householdId, api } = await family('z5@example.com');
+  const m = await api.saveMember(householdId, { name: 'Ninka', birthDate: '2020-02-02' });
+  const course = await api.saveCourse(m.id, {
+    medicineName: 'Amoksiklav 457 mg/5 ml',
+    dosage: '5 ml',
+    times: ['20:00', '08:00', '14:00'],
+    startDate: todayYmd(),
+    days: 7,
+    notes: 'po jedle',
+  });
+  assert.deepEqual(course.times, ['08:00', '14:00', '20:00']);
+  assert.ok(Date.parse(course.nextAt) > Date.now());
+  assert.equal(course.endDate > course.startDate, true);
+  assert.equal((await api.getData(householdId)).courses.length, 1);
+
+  await assert.rejects(api.saveCourse(m.id, { medicineName: '', times: ['08:00'], startDate: todayYmd() }), /Vyber liek/);
+  await assert.rejects(api.saveCourse(m.id, { medicineName: 'X', times: [], startDate: todayYmd() }), /koľkokrát denne/);
+  await assert.rejects(api.saveCourse(m.id, { medicineName: 'X', times: ['8:00'], startDate: todayYmd() }), /HH:MM/);
+  await assert.rejects(api.saveCourse(m.id, { medicineName: 'X', times: ['08:00', '08:00'], startDate: todayYmd() }), /rovnakom čase/);
+  await assert.rejects(api.saveCourse(m.id, { medicineName: 'X', times: ['08:00'], startDate: '2020-01-01', days: 3 }), /skončilo/);
+  await assert.rejects(api.saveCourse(m.id, { medicineName: 'X', times: ['08:00'], startDate: todayYmd(), days: 0 }), /od 1 do/);
+
+  // podaná dávka z dávkovania (ibuprofen) – bez pripomienok striedania liekov proti horúčke
+  const ibu = await api.saveCourse(m.id, { medicineName: 'Nurofen', substanceId: 'ibuprofen', dosage: '5 ml', times: ['08:00'], startDate: todayYmd(), days: null });
+  assert.equal(ibu.endDate, '');
+  const [rec] = await api.addRecords(m.id, { recordedAt: new Date().toISOString(), medicine: { name: 'Nurofen', dosage: '5 ml', substanceId: 'ibuprofen', courseId: ibu.id } });
+  assert.equal(rec.courseId, ibu.id);
+  assert.equal((await t.env.DB.prepare('SELECT COUNT(*) AS n FROM zdravko_reminders WHERE record_id = ?').bind(rec.id).first()).n, 0);
+  await assert.rejects(api.addRecords(m.id, { recordedAt: new Date().toISOString(), medicine: { name: 'X', courseId: 'nie' } }), /Dávkovanie neexistuje/);
+
+  // cron: dávka, ktorej čas nastal, sa pripomenie a dávkovanie sa posunie na ďalšiu
+  const due = new Date(Date.now() - 5 * 60000).toISOString();
+  await t.env.DB.prepare('UPDATE zdravko_courses SET next_at = ? WHERE id = ?').bind(due, course.id).run();
+  await sendZdravkoReminders(t.env.DB, new Date());
+  const moved = (await t.env.DB.prepare('SELECT next_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).next_at;
+  assert.ok(Date.parse(moved) > Date.now());
+
+  // úprava (napr. iné časy) prepočíta ďalšiu dávku; ukončenie ju zruší
+  const edited = await api.saveCourse(m.id, { ...course, times: ['09:00', '21:00'] });
+  assert.deepEqual(edited.times, ['09:00', '21:00']);
+  const stopped = await api.stopCourse(course.id);
+  assert.equal(stopped.nextAt, '');
+  assert.notEqual(stopped.stoppedAt, '');
+
+  // vymazanie dávkovania nechá podané dávky ako obyčajné lieky; vymazanie člena zmaže dávkovania
+  await api.deleteCourse(ibu.id);
+  assert.equal((await api.getData(householdId)).records.find((r) => r.id === rec.id).courseId, '');
+  await api.deleteMember(m.id);
+  assert.equal((await api.getData(householdId)).courses.length, 0);
 });

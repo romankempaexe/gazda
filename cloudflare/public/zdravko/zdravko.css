@@ -840,3 +840,179 @@ p.zd-rules {
   white-space: normal;
   text-align: left;
 }
+
+/* Dávkovanie liekov */
+.zd-course {
+  display: block;
+  border-left: 5px solid #7c3aed;
+}
+.zd-course.is-due {
+  border-left-color: #dc2626;
+}
+.zd-course.done {
+  border-left-color: var(--border);
+  box-shadow: none;
+  opacity: 0.85;
+}
+.zd-course-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.zd-course-head .card-sub {
+  display: block;
+}
+.zd-course-dose {
+  font-weight: 700;
+  color: #7c3aed;
+  white-space: nowrap;
+}
+.zd-course-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.zd-course-times span {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.zd-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin: 12px 0 0;
+}
+.zd-progress i {
+  display: block;
+  height: 100%;
+  background: #7c3aed;
+  border-radius: 3px;
+}
+.zd-course-next {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 14.5px;
+  margin-top: 12px;
+}
+.zd-course-next .ms {
+  font-size: 19px;
+  color: #7c3aed;
+}
+.zd-course-next.due,
+.zd-course-next.due .ms {
+  color: #dc2626;
+}
+.zd-course-next.ok .ms {
+  color: #16a34a;
+}
+.zd-course-next.muted .ms {
+  color: var(--muted);
+}
+.zd-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.zd-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  background: var(--surface);
+}
+.zd-slot .ms {
+  font-size: 17px;
+  color: var(--muted);
+}
+.zd-slot small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.zd-slot.given { background: rgba(22, 163, 74, 0.1); border-color: transparent; }
+.zd-slot.given .ms, .zd-slot.given small { color: #15803d; }
+.zd-slot.due { background: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.35); }
+.zd-slot.due .ms, .zd-slot.due small { color: #dc2626; }
+.zd-slot.missed .ms, .zd-slot.missed small { color: #b45309; }
+.zd-give {
+  margin-top: 12px;
+  width: 100%;
+  justify-content: center;
+}
+.zd-course-done > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 16px 4px 10px;
+}
+.zd-times {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.zd-times label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.zd-med-picked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f1e9fe;
+  margin-bottom: 10px;
+}
+.zd-med-picked > .ms {
+  color: #7c3aed;
+}
+.zd-med-picked > div {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.zd-med-picked span {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.zd-course-sum {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  margin: 4px 0 8px;
+}
+.zd-course-sum:empty {
+  display: none;
+}
+.zd-course-sum .ms {
+  font-size: 19px;
+  color: var(--primary-strong);
+}
+.zd-chip.course { background: #f1e9fe; color: #6d28d9; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .zd-med-picked,
+  :root:not([data-theme='light']) .zd-chip.course { background: #2e1f4d; color: #c4b5fd; }
+}
+:root[data-theme='dark'] .zd-med-picked,
+:root[data-theme='dark'] .zd-chip.course { background: #2e1f4d; color: #c4b5fd; }
+.zd-chip.course.bad { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }

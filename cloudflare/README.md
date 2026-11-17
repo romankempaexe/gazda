@@ -217,7 +217,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   Na zozname rodiny čip s najbližšou dávkou, v detaile lieku z databázy *Naplánovať dávkovanie*. Ukončiť,
   upraviť, spustiť znova, vymazať (podané dávky ostanú). Cron pripomenie každú dávku všetkým v rodine
   (časy v Bratislave aj cez zmenu času; nepríde, ak dávku niekto zapísal najviac hodinu vopred;
-  ak ju do pol hodiny nikto nezapíše ako podanú, príde ešte raz – ⏰, `followup_at`, migrácia 0020);
+  kým ju nikto nezapíše ako podanú, príde znova každú pol hodinu, najviac 6-krát a nie po čase ďalšej dávky – ⏰ (1/6), `followup_at`, `followup_count`, migrácie 0020 a 0021);
   tabuľka `zdravko_courses` (migrácia 0019), `src/zdravko/courses.js`.
 - **Kalkulačka:** lieky na teplotu podľa tabuliek MUDr. Moravčíkovej
   ([drmoravcikova.sk/teplota-u-dietata](https://www.drmoravcikova.sk/teplota-u-dietata/), `public/zdravko/fever.js`):

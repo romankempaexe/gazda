@@ -11,7 +11,8 @@ const MAX_TIMES = 12;
 const MAX_DAYS = 365;
 const LATE_MS = 6 * 3600000; // zmeškané o viac ako 6 h (výpadok) sa už nepripomínajú
 const GIVEN_MS = 3600000; // dávka zapísaná najviac hodinu pred časom – pripomienka netreba
-export const FOLLOWUP_MS = 30 * 60000; // nezapísaná dávka sa pripomenie znova o pol hodiny
+export const FOLLOWUP_MS = 30 * 60000; // nezapísaná dávka sa pripomína znova každú pol hodinu…
+export const FOLLOWUP_MAX = 6; // …najviac 6-krát (a nie po čase ďalšej dávky)
 
 // ---- Čas v Bratislave ---------------------------------------------------------------------------
 
@@ -89,9 +90,10 @@ const shortDate = (ymd) => Number(ymd.slice(8, 10)) + '. ' + Number(ymd.slice(5,
 
 /**
  * Upozornenie na dávku so všetkým, čo treba vedieť: komu, aký liek, koľko, v ktorom čase (koľká dávka dnes),
- * deň liečby, celý rozpis, ďalšia dávka a poznámka. followup = opakovaná pripomienka nezapísanej dávky.
+ * deň liečby, celý rozpis, ďalšia dávka a poznámka. followup = poradie opakovanej pripomienky nezapísanej
+ * dávky (1 – 6), 0 = pripomienka v čase dávky.
  */
-export function doseMessage(course, doseIso, followup = false) {
+export function doseMessage(course, doseIso, followup = 0) {
   const doseMs = Date.parse(doseIso);
   const times = [...JSON.parse(course.times || '[]')].sort();
   const at = localTime(doseIso);
@@ -110,7 +112,7 @@ export function doseMessage(course, doseIso, followup = false) {
     course.notes ? 'Poznámka: ' + course.notes : '',
   ].filter(Boolean);
   return {
-    title: (followup ? '⏰ Ešte nepodané – ' : '💊 ') + course.member_name + ': ' + course.medicine_name + (amount ? ' · ' + amount : ''),
+    title: (followup ? '⏰ Ešte nepodané (' + followup + '/' + FOLLOWUP_MAX + ') – ' : '💊 ') + course.member_name + ': ' + course.medicine_name + (amount ? ' · ' + amount : ''),
     body: lines.join('\n'),
     tag: 'course-' + course.id,
     app: 'zdravko',
@@ -159,7 +161,7 @@ export async function saveCourse(c, memberId, data) {
   if (!next) throw new AppError('Dávkovanie by už skončilo – skontroluj začiatok a počet dní.');
   const now = nowIso();
   const id = old ? old.id : crypto.randomUUID();
-  const row = { ...f, next_at: new Date(next).toISOString(), stopped_at: '', followup_at: '', followup_dose: '' };
+  const row = { ...f, next_at: new Date(next).toISOString(), stopped_at: '', followup_at: '', followup_dose: '', followup_count: 0 };
   if (old) {
     const cols = Object.keys(row);
     await c.db
@@ -223,7 +225,7 @@ const doseGiven = (db, courseId, doseMs) =>
 
 /**
  * Pripomenie dávky, ktorých čas nastal, a posunie dávkovanie na ďalšiu dávku. Ak dávku do pol hodiny
- * nikto nezapíše ako podanú, pripomenie ju ešte raz. Vráti počet odoslaných upozornení.
+ * nikto nezapíše ako podanú, pripomína ju každú pol hodinu, najviac 6-krát. Vráti počet odoslaných upozornení.
  */
 export async function sendCourseReminders(db, now = new Date()) {
   const nowMs = now.getTime();
@@ -245,7 +247,16 @@ export async function sendCourseReminders(db, now = new Date()) {
     if (!claimed.meta.changes || course.stopped_at || Date.parse(course.followup_at) < nowMs - LATE_MS) continue;
     const doseMs = Date.parse(course.followup_dose);
     if (await doseGiven(db, course.id, doseMs)) continue;
-    const message = doseMessage(course, course.followup_dose, true);
+    const count = course.followup_count + 1;
+    // ďalšia o pol hodiny – kým nie je 6 opakovaní a kým nepríde čas ďalšej dávky
+    const again = Date.parse(course.followup_at) + FOLLOWUP_MS;
+    if (count < FOLLOWUP_MAX && (!course.next_at || again < Date.parse(course.next_at))) {
+      await db
+        .prepare("UPDATE zdravko_courses SET followup_at = ?, followup_count = ? WHERE id = ? AND followup_at = '' AND followup_dose = ?")
+        .bind(new Date(again).toISOString(), count, course.id, course.followup_dose)
+        .run();
+    }
+    const message = doseMessage(course, course.followup_dose, count);
     for (const r of await recipientsOf(db, course.household_id)) sent += await sendToUser(db, r.email, message);
   }
 
@@ -267,11 +278,11 @@ export async function sendCourseReminders(db, now = new Date()) {
       .run();
     if (!moved.meta.changes || doseMs < nowMs - LATE_MS) continue;
     if (await doseGiven(db, course.id, doseMs)) continue;
-    // o pol hodiny znova, ak ju dovtedy nikto nezapíše (nie však až po ďalšej dávke)
+    // o pol hodiny znova (a potom každú pol hodinu), ak ju dovtedy nikto nezapíše – nie však po ďalšej dávke
     const followup = doseMs + FOLLOWUP_MS;
     if (!next || followup < next) {
       await db
-        .prepare('UPDATE zdravko_courses SET followup_at = ?, followup_dose = ? WHERE id = ?')
+        .prepare('UPDATE zdravko_courses SET followup_at = ?, followup_dose = ?, followup_count = 0 WHERE id = ?')
         .bind(new Date(Math.max(followup, nowMs + 60000)).toISOString(), course.next_at, course.id)
         .run();
     }

@@ -1462,7 +1462,7 @@
         ? '<details class="zd-course-done"><summary>Ukončené (' + done.length + ')</summary>' + done.map((c) => courseCard(c)).join('') + '</details>'
         : '') +
       '<div class="grid-note">Pripomienka príde v čase každej dávky všetkým v rodine so zapnutými upozorneniami (ak už dávku niekto nezapísal); ' +
-      'kým ju nikto nezapíše ako podanú, o pol hodiny príde ešte raz. Dávkovanie vždy podľa lekára alebo príbalového letáku.</div>';
+      'kým ju nikto nezapíše ako podanú, príde znova každú pol hodinu (najviac 6-krát, nie po ďalšej dávke). Dávkovanie vždy podľa lekára alebo príbalového letáku.</div>';
     $('view').querySelectorAll('[data-give-course]').forEach((b) => (b.onclick = () => giveDose(m, findCourse(b.dataset.giveCourse), b)));
     $('view').querySelectorAll('[data-course]').forEach((b) => (b.onclick = () => courseMenu(m, findCourse(b.dataset.course))));
     fab('<button type="button" class="btn" id="addCourse"><span class="ms">add</span>Pridať dávkovanie</button>', (el) => {

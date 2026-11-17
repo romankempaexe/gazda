@@ -279,13 +279,31 @@ test('dávkovanie lieku: uloženie, podaná dávka, pripomienky cronom, ukončen
   await sendZdravkoReminders(t.env.DB, new Date());
   const row = await t.env.DB.prepare('SELECT next_at, followup_at, followup_dose FROM zdravko_courses WHERE id = ?').bind(course.id).first();
   assert.ok(Date.parse(row.next_at) > Date.now());
-  // nikto dávku nezapísal → o pol hodiny od jej času pripomienka znova (raz)
+  // nikto dávku nezapísal → o pol hodiny od jej času pripomienka znova, potom každú pol hodinu, najviac 6-krát
   assert.equal(row.followup_dose, due);
   assert.equal(row.followup_at, new Date(Date.parse(due) + 30 * 60000).toISOString());
+  const followup = () => t.env.DB.prepare('SELECT followup_at, followup_count FROM zdravko_courses WHERE id = ?').bind(course.id).first();
+  const far = new Date(Date.now() + 12 * 3600000).toISOString(); // ďalšia dávka ďaleko (test nezávisí od hodiny)
+  await t.env.DB.prepare('UPDATE zdravko_courses SET next_at = ? WHERE id = ?').bind(far, course.id).run();
   await sendZdravkoReminders(t.env.DB, new Date(Date.now() + 10 * 60000)); // ešte nie
-  assert.notEqual((await t.env.DB.prepare('SELECT followup_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).followup_at, '');
-  await sendZdravkoReminders(t.env.DB, new Date(Date.now() + 30 * 60000));
-  assert.equal((await t.env.DB.prepare('SELECT followup_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).followup_at, '');
+  assert.deepEqual({ ...(await followup()) }, { followup_at: new Date(Date.parse(due) + 30 * 60000).toISOString(), followup_count: 0 });
+  const at = (i) => new Date(Date.parse(due) + i * 30 * 60000 + 60000); // tesne po i-tej polhodine
+  for (let i = 1; i <= 5; i++) {
+    await sendZdravkoReminders(t.env.DB, at(i));
+    assert.deepEqual({ ...(await followup()) }, { followup_at: new Date(Date.parse(due) + (i + 1) * 30 * 60000).toISOString(), followup_count: i });
+  }
+  await sendZdravkoReminders(t.env.DB, at(6)); // 6. opakovanie je posledné
+  assert.equal((await followup()).followup_at, '');
+  await sendZdravkoReminders(t.env.DB, at(7));
+  assert.equal((await followup()).followup_at, '');
+
+  // opakovanie sa skončí pred časom ďalšej dávky
+  await t.env.DB.prepare("UPDATE zdravko_courses SET followup_at = ?, followup_dose = ?, followup_count = 0, next_at = ? WHERE id = ?")
+    .bind(new Date(Date.parse(due) + 30 * 60000).toISOString(), due, new Date(Date.parse(due) + 80 * 60000).toISOString(), course.id).run();
+  await sendZdravkoReminders(t.env.DB, at(1));
+  assert.equal((await followup()).followup_count, 1); // o 60 min ešte áno (ďalšia dávka o 80 min)
+  await sendZdravkoReminders(t.env.DB, at(2));
+  assert.equal((await followup()).followup_at, ''); // o 90 min už nie
 
   // zapísaná dávka → opakovaná pripomienka nepríde
   const due2 = new Date(Date.now() - 5 * 60000).toISOString();
@@ -327,8 +345,9 @@ test('dávkovanie: upozornenie so všetkými údajmi o dávke', () => {
     'Ďalšia dávka: 20:00',
     'Poznámka: po jedle',
   ].join('\n'));
-  const late = doseMessage(course, '2026-11-21T19:00:00.000Z', true); // posledná dávka, nezapísaná
-  assert.match(late.title, /^⏰ Ešte nepodané – Elena/);
+  const late = doseMessage(course, '2026-11-21T19:00:00.000Z', 1); // posledná dávka, nezapísaná
+  assert.match(late.title, /^⏰ Ešte nepodané \(1\/6\) – Elena/);
+  assert.match(doseMessage(course, '2026-11-21T19:00:00.000Z', 2).title, /^⏰ Ešte nepodané \(2\/6\) – Elena/);
   assert.match(late.body, /^⏰ Dávka z 20:00 ešte nie je zapísaná/);
   assert.match(late.body, /Toto je posledná dávka liečby/);
   assert.match(doseMessage(course, '2026-11-17T19:00:00.000Z').body, /Ďalšia dávka: zajtra 8:00/);

@@ -11,6 +11,7 @@ const MAX_TIMES = 12;
 const MAX_DAYS = 365;
 const LATE_MS = 6 * 3600000; // zmeškané o viac ako 6 h (výpadok) sa už nepripomínajú
 const GIVEN_MS = 3600000; // dávka zapísaná najviac hodinu pred časom – pripomienka netreba
+export const FOLLOWUP_MS = 30 * 60000; // nezapísaná dávka sa pripomenie znova o pol hodiny
 
 // ---- Čas v Bratislave ---------------------------------------------------------------------------
 
@@ -112,7 +113,7 @@ export async function saveCourse(c, memberId, data) {
   if (!next) throw new AppError('Dávkovanie by už skončilo – skontroluj začiatok a počet dní.');
   const now = nowIso();
   const id = old ? old.id : crypto.randomUUID();
-  const row = { ...f, next_at: new Date(next).toISOString(), stopped_at: '' };
+  const row = { ...f, next_at: new Date(next).toISOString(), stopped_at: '', followup_at: '', followup_dose: '' };
   if (old) {
     const cols = Object.keys(row);
     await c.db
@@ -143,7 +144,7 @@ export async function saveCourse(c, memberId, data) {
 export async function stopCourse(c, courseId) {
   const row = await findRow(c, 'zdravko_courses', courseId, 'Dávkovanie');
   const now = nowIso();
-  await c.db.prepare("UPDATE zdravko_courses SET next_at = '', stopped_at = ?, updated_at = ? WHERE id = ?").bind(now, now, row.id).run();
+  await c.db.prepare("UPDATE zdravko_courses SET next_at = '', followup_at = '', stopped_at = ?, updated_at = ? WHERE id = ?").bind(now, now, row.id).run();
   return toCourse({ ...row, next_at: '', stopped_at: now });
 }
 
@@ -159,9 +160,58 @@ export async function deleteCourse(c, courseId) {
 
 // ---- Pripomienky (cron) ------------------------------------------------------------------------------
 
-/** Pripomenie dávky, ktorých čas nastal, a posunie dávkovanie na ďalšiu dávku. Vráti počet odoslaných. */
+const recipientsOf = async (db, householdId) =>
+  (
+    await db
+      .prepare('SELECT email FROM members WHERE household_id = ? AND email IN (SELECT email FROM push_subscriptions)')
+      .bind(householdId)
+      .all()
+  ).results;
+
+/** Zapísal už niekto dávku z času doseMs (najviac hodinu vopred alebo kedykoľvek neskôr)? */
+const doseGiven = (db, courseId, doseMs) =>
+  db
+    .prepare('SELECT 1 FROM zdravko_records WHERE course_id = ? AND recorded_at >= ? LIMIT 1')
+    .bind(courseId, new Date(doseMs - GIVEN_MS).toISOString())
+    .first();
+
+/**
+ * Pripomenie dávky, ktorých čas nastal, a posunie dávkovanie na ďalšiu dávku. Ak dávku do pol hodiny
+ * nikto nezapíše ako podanú, pripomenie ju ešte raz. Vráti počet odoslaných upozornení.
+ */
 export async function sendCourseReminders(db, now = new Date()) {
   const nowMs = now.getTime();
+  let sent = 0;
+
+  // 1) opakované pripomienky nezapísaných dávok
+  const { results: late } = await db
+    .prepare(
+      `SELECT c.*, m.name AS member_name FROM zdravko_courses c JOIN zdravko_members m ON m.id = c.member_id
+       WHERE c.followup_at <> '' AND c.followup_at <= ?`
+    )
+    .bind(now.toISOString())
+    .all();
+  for (const course of late) {
+    const claimed = await db
+      .prepare("UPDATE zdravko_courses SET followup_at = '' WHERE id = ? AND followup_at = ?")
+      .bind(course.id, course.followup_at)
+      .run();
+    if (!claimed.meta.changes || course.stopped_at || Date.parse(course.followup_at) < nowMs - LATE_MS) continue;
+    const doseMs = Date.parse(course.followup_dose);
+    if (await doseGiven(db, course.id, doseMs)) continue;
+    const message = {
+      title: '⏰ ' + course.member_name + ': ' + course.medicine_name + ' ešte nie je podaný',
+      body:
+        'Dávka ' + (course.dosage ? course.dosage + ' ' : '') + 'o ' + localTime(course.followup_dose) +
+        ' nie je zapísaná ako podaná – podaj ju a zapíš v Zdravkovi',
+      tag: 'course-' + course.id,
+      app: 'zdravko',
+      url: '/zdravko/',
+    };
+    for (const r of await recipientsOf(db, course.household_id)) sent += await sendToUser(db, r.email, message);
+  }
+
+  // 2) dávky, ktorých čas nastal
   const { results: due } = await db
     .prepare(
       `SELECT c.*, m.name AS member_name FROM zdravko_courses c JOIN zdravko_members m ON m.id = c.member_id
@@ -169,7 +219,6 @@ export async function sendCourseReminders(db, now = new Date()) {
     )
     .bind(now.toISOString())
     .all();
-  let sent = 0;
   for (const course of due) {
     const doseMs = Date.parse(course.next_at);
     const next = nextDoseMs(course, nowMs);
@@ -179,15 +228,15 @@ export async function sendCourseReminders(db, now = new Date()) {
       .bind(next ? new Date(next).toISOString() : '', course.id, course.next_at)
       .run();
     if (!moved.meta.changes || doseMs < nowMs - LATE_MS) continue;
-    const given = await db
-      .prepare('SELECT 1 FROM zdravko_records WHERE course_id = ? AND recorded_at >= ? LIMIT 1')
-      .bind(course.id, new Date(doseMs - GIVEN_MS).toISOString())
-      .first();
-    if (given) continue;
-    const { results: recipients } = await db
-      .prepare('SELECT email FROM members WHERE household_id = ? AND email IN (SELECT email FROM push_subscriptions)')
-      .bind(course.household_id)
-      .all();
+    if (await doseGiven(db, course.id, doseMs)) continue;
+    // o pol hodiny znova, ak ju dovtedy nikto nezapíše (nie však až po ďalšej dávke)
+    const followup = doseMs + FOLLOWUP_MS;
+    if (!next || followup < next) {
+      await db
+        .prepare('UPDATE zdravko_courses SET followup_at = ?, followup_dose = ? WHERE id = ?')
+        .bind(new Date(Math.max(followup, nowMs + 60000)).toISOString(), course.next_at, course.id)
+        .run();
+    }
     const message = {
       title: '💊 ' + course.member_name + ': ' + course.medicine_name + (course.dosage ? ' ' + course.dosage : ''),
       body:
@@ -197,7 +246,7 @@ export async function sendCourseReminders(db, now = new Date()) {
       app: 'zdravko',
       url: '/zdravko/',
     };
-    for (const r of recipients) sent += await sendToUser(db, r.email, message);
+    for (const r of await recipientsOf(db, course.household_id)) sent += await sendToUser(db, r.email, message);
   }
   return sent;
 }

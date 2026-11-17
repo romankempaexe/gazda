@@ -277,8 +277,21 @@ test('dávkovanie lieku: uloženie, podaná dávka, pripomienky cronom, ukončen
   const due = new Date(Date.now() - 5 * 60000).toISOString();
   await t.env.DB.prepare('UPDATE zdravko_courses SET next_at = ? WHERE id = ?').bind(due, course.id).run();
   await sendZdravkoReminders(t.env.DB, new Date());
-  const moved = (await t.env.DB.prepare('SELECT next_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).next_at;
-  assert.ok(Date.parse(moved) > Date.now());
+  const row = await t.env.DB.prepare('SELECT next_at, followup_at, followup_dose FROM zdravko_courses WHERE id = ?').bind(course.id).first();
+  assert.ok(Date.parse(row.next_at) > Date.now());
+  // nikto dávku nezapísal → o pol hodiny od jej času pripomienka znova (raz)
+  assert.equal(row.followup_dose, due);
+  assert.equal(row.followup_at, new Date(Date.parse(due) + 30 * 60000).toISOString());
+  await sendZdravkoReminders(t.env.DB, new Date(Date.now() + 10 * 60000)); // ešte nie
+  assert.notEqual((await t.env.DB.prepare('SELECT followup_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).followup_at, '');
+  await sendZdravkoReminders(t.env.DB, new Date(Date.now() + 30 * 60000));
+  assert.equal((await t.env.DB.prepare('SELECT followup_at FROM zdravko_courses WHERE id = ?').bind(course.id).first()).followup_at, '');
+
+  // zapísaná dávka → opakovaná pripomienka nepríde
+  const due2 = new Date(Date.now() - 5 * 60000).toISOString();
+  await t.env.DB.prepare('UPDATE zdravko_courses SET next_at = ? WHERE id = ?').bind(due2, ibu.id).run();
+  await sendZdravkoReminders(t.env.DB, new Date());
+  assert.equal((await t.env.DB.prepare('SELECT followup_at FROM zdravko_courses WHERE id = ?').bind(ibu.id).first()).followup_at, '');
 
   // úprava (napr. iné časy) prepočíta ďalšiu dávku; ukončenie ju zruší
   const edited = await api.saveCourse(m.id, { ...course, times: ['09:00', '21:00'] });

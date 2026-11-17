@@ -4,7 +4,7 @@ import { setup } from './helpers.js';
 import { dartToUtc, dartToYmd, mapZdravko } from '../src/zdravko/import.js';
 import { sendZdravkoReminders } from '../src/zdravko/notifications.js';
 import { localTime, recordMessage } from '../src/zdravko/api.js';
-import { nextDoseMs, zonedMs } from '../src/zdravko/courses.js';
+import { doseMessage, doseText, nextDoseMs, zonedMs } from '../src/zdravko/courses.js';
 import { todayYmd } from '../src/domain.js';
 
 let t;
@@ -305,4 +305,31 @@ test('dávkovanie lieku: uloženie, podaná dávka, pripomienky cronom, ukončen
   assert.equal((await api.getData(householdId)).records.find((r) => r.id === rec.id).courseId, '');
   await api.deleteMember(m.id);
   assert.equal((await api.getData(householdId)).courses.length, 0);
+});
+
+test('dávkovanie: upozornenie so všetkými údajmi o dávke', () => {
+  assert.equal(doseText('5 ml'), '5 ml');
+  assert.equal(doseText('1 tbl'), '1 tableta');
+  assert.equal(doseText('0.5 tbl'), '0,5 tablety');
+  assert.equal(doseText('10 kvp'), '10 kvapiek');
+  assert.equal(doseText('2 čípok'), '2 čípky');
+  const course = {
+    id: 'c1', member_name: 'Elena', medicine_name: 'Amoksiklav 457 mg/5 ml', dosage: '5 ml', notes: 'po jedle',
+    times: JSON.stringify(['08:00', '14:00', '20:00']), start_date: '2026-11-15', end_date: '2026-11-21',
+  };
+  const msg = doseMessage(course, '2026-11-17T13:00:00.000Z'); // 14:00 v Bratislave
+  assert.equal(msg.title, '💊 Elena: Amoksiklav 457 mg/5 ml · 5 ml');
+  assert.equal(msg.body, [
+    'Podaj: 5 ml – Amoksiklav 457 mg/5 ml',
+    'Čas: 14:00 · 2. dávka z 3 dnes',
+    'Liečba: deň 3/7 (do 21. 11.)',
+    'Rozpis: 3× denne – 8:00, 14:00, 20:00',
+    'Ďalšia dávka: 20:00',
+    'Poznámka: po jedle',
+  ].join('\n'));
+  const late = doseMessage(course, '2026-11-21T19:00:00.000Z', true); // posledná dávka, nezapísaná
+  assert.match(late.title, /^⏰ Ešte nepodané – Elena/);
+  assert.match(late.body, /^⏰ Dávka z 20:00 ešte nie je zapísaná/);
+  assert.match(late.body, /Toto je posledná dávka liečby/);
+  assert.match(doseMessage(course, '2026-11-17T19:00:00.000Z').body, /Ďalšia dávka: zajtra 8:00/);
 });

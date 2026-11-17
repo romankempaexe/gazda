@@ -63,14 +63,60 @@ export function nextDoseMs(course, afterMs) {
   return null;
 }
 
-/** „deň 3/7“ / „deň 3“ pre dávku v okamihu ms. */
-function dayText(course, ms) {
-  const day = todayYmd(new Date(ms));
-  const n = daysBetween(course.start_date, day) + 1;
-  return 'deň ' + n + (course.end_date ? '/' + (daysBetween(course.start_date, course.end_date) + 1) : '');
+const timesText = (times) => times.map((t) => t.replace(/^0(\d)/, '$1')).join(', ');
+
+// jednotky ako vo formulári (app.js UNITS): 1 / 2–4 / 5+ a desatinné
+const UNIT_WORDS = {
+  tbl: ['tableta', 'tablety', 'tabliet'],
+  kvp: ['kvapka', 'kvapky', 'kvapiek'],
+  kps: ['kapsula', 'kapsuly', 'kapsúl'],
+  'čípok': ['čípok', 'čípky', 'čípkov'],
+};
+
+/** „5 ml“, „1 tableta“, „10 kvapiek“, „0,5 tablety“ – dávka zrozumiteľne. */
+export function doseText(dosage) {
+  const m = /^([\d.,]+)\s*(.*)$/.exec(String(dosage || '').trim());
+  if (!m) return String(dosage || '').trim();
+  const n = Number(m[1].replace(',', '.'));
+  const words = UNIT_WORDS[m[2]];
+  const num = m[1].replace('.', ',');
+  if (!words || !Number.isFinite(n)) return num + (m[2] ? ' ' + m[2] : '');
+  const word = !Number.isInteger(n) ? words[1] : n === 1 ? words[0] : n >= 2 && n <= 4 ? words[1] : words[2];
+  return num + ' ' + word;
 }
 
-const timesText = (times) => times.map((t) => t.replace(/^0(\d)/, '$1')).join(', ');
+const shortDate = (ymd) => Number(ymd.slice(8, 10)) + '. ' + Number(ymd.slice(5, 7)) + '.';
+
+/**
+ * Upozornenie na dávku so všetkým, čo treba vedieť: komu, aký liek, koľko, v ktorom čase (koľká dávka dnes),
+ * deň liečby, celý rozpis, ďalšia dávka a poznámka. followup = opakovaná pripomienka nezapísanej dávky.
+ */
+export function doseMessage(course, doseIso, followup = false) {
+  const doseMs = Date.parse(doseIso);
+  const times = [...JSON.parse(course.times || '[]')].sort();
+  const at = localTime(doseIso);
+  const index = times.indexOf(at);
+  const next = nextDoseMs(course, doseMs);
+  const amount = course.dosage ? doseText(course.dosage) : '';
+  const total = course.end_date ? daysBetween(course.start_date, course.end_date) + 1 : null;
+  const day = daysBetween(course.start_date, todayYmd(new Date(doseMs))) + 1;
+  const lines = [
+    followup ? '⏰ Dávka z ' + at + ' ešte nie je zapísaná ako podaná!' : '',
+    'Podaj: ' + (amount || 'dávka nezadaná') + ' – ' + course.medicine_name,
+    'Čas: ' + at + (index >= 0 ? ' · ' + (index + 1) + '. dávka z ' + times.length + ' dnes' : ''),
+    'Liečba: ' + (total ? 'deň ' + day + '/' + total + ' (do ' + shortDate(course.end_date) + ')' : 'deň ' + day + ', do odvolania'),
+    'Rozpis: ' + times.length + '× denne – ' + timesText(times),
+    next ? 'Ďalšia dávka: ' + (todayYmd(new Date(next)) === todayYmd(new Date(doseMs)) ? '' : 'zajtra ') + timesText([localTime(new Date(next).toISOString())]) : 'Toto je posledná dávka liečby',
+    course.notes ? 'Poznámka: ' + course.notes : '',
+  ].filter(Boolean);
+  return {
+    title: (followup ? '⏰ Ešte nepodané – ' : '💊 ') + course.member_name + ': ' + course.medicine_name + (amount ? ' · ' + amount : ''),
+    body: lines.join('\n'),
+    tag: 'course-' + course.id,
+    app: 'zdravko',
+    url: '/zdravko/',
+  };
+}
 
 // ---- Uloženie ------------------------------------------------------------------------------------
 
@@ -199,15 +245,7 @@ export async function sendCourseReminders(db, now = new Date()) {
     if (!claimed.meta.changes || course.stopped_at || Date.parse(course.followup_at) < nowMs - LATE_MS) continue;
     const doseMs = Date.parse(course.followup_dose);
     if (await doseGiven(db, course.id, doseMs)) continue;
-    const message = {
-      title: '⏰ ' + course.member_name + ': ' + course.medicine_name + ' ešte nie je podaný',
-      body:
-        'Dávka ' + (course.dosage ? course.dosage + ' ' : '') + 'o ' + localTime(course.followup_dose) +
-        ' nie je zapísaná ako podaná – podaj ju a zapíš v Zdravkovi',
-      tag: 'course-' + course.id,
-      app: 'zdravko',
-      url: '/zdravko/',
-    };
+    const message = doseMessage(course, course.followup_dose, true);
     for (const r of await recipientsOf(db, course.household_id)) sent += await sendToUser(db, r.email, message);
   }
 
@@ -237,15 +275,7 @@ export async function sendCourseReminders(db, now = new Date()) {
         .bind(new Date(Math.max(followup, nowMs + 60000)).toISOString(), course.next_at, course.id)
         .run();
     }
-    const message = {
-      title: '💊 ' + course.member_name + ': ' + course.medicine_name + (course.dosage ? ' ' + course.dosage : ''),
-      body:
-        'Čas na dávku o ' + localTime(course.next_at) + ' · ' + dayText(course, doseMs) +
-        (next ? '' : ' · posledná dávka') + (course.notes ? ' · ' + course.notes : ''),
-      tag: 'course-' + course.id,
-      app: 'zdravko',
-      url: '/zdravko/',
-    };
+    const message = doseMessage(course, course.next_at);
     for (const r of await recipientsOf(db, course.household_id)) sent += await sendToUser(db, r.email, message);
   }
   return sent;

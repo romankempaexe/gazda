@@ -210,7 +210,7 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   pripomienka deň vopred **všetkým v rodine** (vo formulári sa nevyberá), poznámky. Do kalendára
   v telefóne cez *Pridať do Google Kalendára* (odkaz) alebo súbor `.ics` – bez ďalšieho
   prihlasovania a bez duplikátov ako v mobilnom.
-- **Dávkovanie** (karta člena): rozpis liečby s pripomienkami – liek z databázy ŠÚKL (alebo základný / vlastný
+- **Dávky** (karta člena): rozpis liečby s pripomienkami – liek z databázy ŠÚKL (alebo základný / vlastný
   názov), dávka, koľkokrát denne (1 – 6×, časy rovnomerne od 1. dávky, dajú sa upraviť), od kedy a koľko dní
   (alebo do odvolania), poznámka. Na karte dnešné dávky (podané / teraz / vynechané / neskôr), ďalšia dávka
   s odpočtom, priebeh dní a **Zapísať podanú dávku** (záznam lieku s `course_id`, ukáže sa aj v Chorobe).

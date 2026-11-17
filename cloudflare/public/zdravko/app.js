@@ -475,7 +475,7 @@
   function renderMember(m) {
     header(m.name, true);
     const tab = S.view.tab || 'sick';
-    const list = [['sick', 'thermometer', 'Choroba'], ['meds', 'medication', 'Dávkovanie'], ['calendar', 'calendar_month', 'Kalendár'], ['dose', 'calculate', 'Kalkulačka']];
+    const list = [['sick', 'thermometer', 'Choroba'], ['meds', 'medication', 'Dávky'], ['calendar', 'calendar_month', 'Kalendár'], ['dose', 'calculate', 'Kalkulačka']];
     if (m.isChild) list.push(['growth', 'straighten', 'Miery']);
     tabs(list, tab, (t) => go({ ...S.view, tab: t }, true));
     const head =

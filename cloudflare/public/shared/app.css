@@ -2144,6 +2144,30 @@ body.lf-open {
   font-size: 22px;
 }
 
+/* Karty sa delia rovnako a nikdy nevytečú z lišty (dlhší text sa skráti). */
+.bottom-nav .tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.bottom-nav .tab > span:not(.ms):not(.badge) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Päť kariet (napr. člen v Zdravkovi): širšia lišta, menší text */
+.bottom-nav:has(.tab:nth-child(5)) {
+  width: min(460px, calc(100% - 24px));
+  gap: 2px;
+}
+
+.bottom-nav:has(.tab:nth-child(5)) .tab {
+  font-size: 11px;
+  letter-spacing: -0.02em;
+}
+
 .bottom-nav .tab .badge {
   position: absolute;
   top: 3px;

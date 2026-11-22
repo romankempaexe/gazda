@@ -339,13 +339,32 @@ async function lfIdentifyAt(at) {
   } catch (e) {
     return;
   }
-  // Výrez: asi 45 % šírky a štvorec v pixeloch (produkt v letáku býva skoro štvorcový)
+  await lfIdentifyRegion(img, key, lfTapRegion(img, at), at, { pts: [], ok: false });
+}
+
+/** Výrez okolo bodu at: asi 45 % šírky a štvorec v pixeloch (produkt v letáku býva skoro štvorcový). */
+function lfTapRegion(img, at) {
   const rw = 0.45;
   const rh = Math.min(0.6, (rw * img.naturalWidth) / img.naturalHeight);
   const x = Math.min(1 - rw, Math.max(0, at[0] - rw / 2));
   const y = Math.min(1 - rh, Math.max(0, at[1] - rh / 2));
-  const region = { x, y, x2: x + rw, y2: y + rh };
-  await lfIdentifyRegion(img, key, region, at, { pts: [], ok: false });
+  return { x, y, x2: x + rw, y2: y + rh };
+}
+
+/** Rám box (zlomky výrezu from) prepočítaný do výrezu to; null, ak z neho skoro nič neostane. */
+function lfMoveBox(box, from, to) {
+  const fw = from.x2 - from.x;
+  const fh = from.y2 - from.y;
+  const tw = to.x2 - to.x;
+  const th = to.y2 - to.y;
+  const c = (v) => Math.min(1, Math.max(0, v));
+  const out = [
+    c((from.x + box[0] * fw - to.x) / tw),
+    c((from.y + box[1] * fh - to.y) / th),
+    c((from.x + box[2] * fw - to.x) / tw),
+    c((from.y + box[3] * fh - to.y) / th),
+  ];
+  return out[2] - out[0] < 0.04 || out[3] - out[1] < 0.04 ? null : out;
 }
 
 /**
@@ -353,7 +372,7 @@ async function lfIdentifyAt(at) {
  * otvorí hneď s výrezom; názov, cena a rám sa doplnia, keď AI odpovie. Spoločné pre ťuknutie
  * aj zakrúžkovanie (fallbackBox = rám, keď AI produkt nenájde).
  */
-async function lfIdentifyRegion(img, key, region, at, mark, fallbackBox) {
+async function lfIdentifyRegion(img, key, region, at, mark, fallbackBox, retryRegion) {
   let crop;
   try {
     // menší obrázok = rýchlejšia odpoveď AI; zároveň náhľad v okne
@@ -368,11 +387,20 @@ async function lfIdentifyRegion(img, key, region, at, mark, fallbackBox) {
   lfIdentifying = true;
   lf.pulse = { at };
   lfDrawMarks();
-  const pending = api('identifyLeafletProduct', crop).finally(() => {
-    lfIdentifying = false;
-    lf.pulse = null;
-    lfDrawMarks();
-  });
+  // Keď AI v (tesnom) výreze nič nenájde, skúsi ešte raz so širším okolím – ako keď človek pohne rámom.
+  const retry = async () => {
+    const wide = await lfCrop(img, retryRegion, 512, 0.8, MAX_THUMB_BYTES);
+    const found = await api('identifyLeafletProduct', wide);
+    if (!found) return null;
+    return { ...found, box: found.box ? lfMoveBox(found.box, retryRegion, region) : null };
+  };
+  const pending = api('identifyLeafletProduct', crop)
+    .then((found) => (found && found.name) || !retryRegion ? found : retry().catch(() => found))
+    .finally(() => {
+      lfIdentifying = false;
+      lf.pulse = null;
+      lfDrawMarks();
+    });
   const list = (lf.marks[key] = lf.marks[key] || []);
   if (!list.includes(mark)) list.push(mark);
   lfConfirm(crop, mark, key, { name: '', price: '' }, { pending, region, at, img, fallbackBox });
@@ -567,7 +595,18 @@ async function lfFinishMark(pts) {
     lfDrawMarks();
     return;
   }
-  await lfIdentifyRegion(img, key, b, [(b.x + b.x2) / 2, (b.y + b.y2) / 2], mark, [0, 0, 1, 1]);
+  // AI dostane krúžok aj s kúskom okolia (cenovka býva na okraji); rám najprv okolo krúžku.
+  const padX = Math.max(0.03, (b.x2 - b.x) * 0.2);
+  const padY = Math.max(0.03, (b.y2 - b.y) * 0.2);
+  const region = { x: Math.max(0, b.x - padX), y: Math.max(0, b.y - padY), x2: Math.min(1, b.x2 + padX), y2: Math.min(1, b.y2 + padY) };
+  const center = [(b.x + b.x2) / 2, (b.y + b.y2) / 2];
+  const tap = lfTapRegion(img, center);
+  // druhý pokus len keď je okolie ťuknutia väčšie ako výrez krúžku
+  const wider = tap.x2 - tap.x > region.x2 - region.x || tap.y2 - tap.y > region.y2 - region.y;
+  const retryRegion = wider
+    ? { x: Math.min(tap.x, region.x), y: Math.min(tap.y, region.y), x2: Math.max(tap.x2, region.x2), y2: Math.max(tap.y2, region.y2) }
+    : null;
+  await lfIdentifyRegion(img, key, region, center, mark, lfMoveBox([0, 0, 1, 1], b, region) || [0, 0, 1, 1], retryRegion);
 }
 
 function lfWhenLoaded(img) {
@@ -589,7 +628,8 @@ async function lfCrop(img, b, maxSide, firstQuality, maxBytes) {
     ? [[maxSide, firstQuality], [maxSide, 0.7], [Math.round(maxSide * 0.75), 0.65]]
     : [[THUMB_MAX, 0.82], [THUMB_MAX, 0.65], [240, 0.6], [160, 0.55]];
   for (const [max, quality] of steps) {
-    const scale = Math.min(1, max / Math.max(sw, sh));
+    // výrez pre AI (maxSide) sa malý zväčší až 2×, aby AI prečítala názov a cenu; miniatúra nie
+    const scale = Math.min(maxSide ? 2 : 1, max / Math.max(sw, sh));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(sw * scale));
     canvas.height = Math.max(1, Math.round(sh * scale));

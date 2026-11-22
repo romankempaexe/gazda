@@ -336,7 +336,7 @@ Vygenerovať nový súkromný kľúč).
 | `src/webpush.js` | Web Push bez knižníc: šifrovanie RFC 8291 (aes128gcm) a VAPID (RFC 8292) |
 | `public/gazda/` | Gazda – domáce práce (prevzatá z `apps_script/`, volá `/api/*` cez `fetch`) |
 | `public/nakupy/app.js`, `produkty.js` | Nákupy: zoznamy, nákup v obchode, akcie, oddelenia (`PRODUKTY_ODDELENIA`), hlas |
-| `public/nakupy/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie → miniatúra do nákupu |
+| `public/nakupy/letaky.js` | Prehliadač letákov: listovanie, priblíženie, krúžkovanie/ťuknutie → AI názov a cena, miniatúra do nákupu |
 | `public/sw.js` | Service worker: otvorenie bez internetu, zobrazenie push notifikácií |
 | `public/icons/` | Ikony aplikácie na plochu |
 | `migrations/` | Štruktúra databázy D1 (SQL), aplikuje sa pri každom nasadení |
@@ -424,7 +424,9 @@ pribudne položka s miniatúrou. Miniatúra sa ťuknutím zväčší.
 povie, aký produkt je v strede výrezu, s cenou a presným ohraničením; otvorí sa okno
 s predvyplneným názvom, počtom a cenou. Stojí ≈ 40 „neurónov“ z bezplatných 10 000 denne
 (súčet v `config` pod `ai_neurons`, nad limit Workers Free nič neúčtuje, len odmietne).
-Uzavretým ťahom sa dá tovar aj zakrúžkovať. Rozpoznanie celých strán vopred
+Uzavretým ťahom sa dá tovar aj zakrúžkovať – AI potom rovnako rozpozná názov a cenu,
+len vo výreze presne zakrúžkovaného miesta (`lfIdentifyRegion`); keď produkt nenájde,
+rám ostane okolo celého krúžku. Rozpoznanie celých strán vopred
 (`analyzeLeafletPage`, `preanalyzeLeaflets`) ostalo na serveri, ale aplikácia ani cron
 ho už nepoužívajú – polohy z celej strany boli príliš nepresné.
 

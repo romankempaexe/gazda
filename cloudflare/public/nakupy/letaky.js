@@ -345,11 +345,23 @@ async function lfIdentifyAt(at) {
   const x = Math.min(1 - rw, Math.max(0, at[0] - rw / 2));
   const y = Math.min(1 - rh, Math.max(0, at[1] - rh / 2));
   const region = { x, y, x2: x + rw, y2: y + rh };
+  await lfIdentifyRegion(img, key, region, at, { pts: [], ok: false });
+}
+
+/**
+ * AI rozpozná produkt vo výreze region (zlomky strany): názov, cenu a ohraničenie. Okno sa
+ * otvorí hneď s výrezom; názov, cena a rám sa doplnia, keď AI odpovie. Spoločné pre ťuknutie
+ * aj zakrúžkovanie (fallbackBox = rám, keď AI produkt nenájde).
+ */
+async function lfIdentifyRegion(img, key, region, at, mark, fallbackBox) {
   let crop;
   try {
     // menší obrázok = rýchlejšia odpoveď AI; zároveň náhľad v okne
     crop = await lfCrop(img, region, 512, 0.8, MAX_THUMB_BYTES);
   } catch (e) {
+    const list = lf.marks[key];
+    if (list && list.includes(mark)) list.splice(list.indexOf(mark), 1);
+    lfDrawMarks();
     toast('Obrázok sa nepodarilo vystrihnúť. Skús to znova.', true);
     return;
   }
@@ -361,10 +373,9 @@ async function lfIdentifyAt(at) {
     lf.pulse = null;
     lfDrawMarks();
   });
-  // Okno sa otvorí hneď s výrezom okolo prsta; názov, cena a ohraničenie sa doplnia, keď AI odpovie.
-  const mark = { pts: [], ok: false };
-  (lf.marks[key] = lf.marks[key] || []).push(mark);
-  lfConfirm(crop, mark, key, { name: '', price: '' }, { pending, region, at, img });
+  const list = (lf.marks[key] = lf.marks[key] || []);
+  if (!list.includes(mark)) list.push(mark);
+  lfConfirm(crop, mark, key, { name: '', price: '' }, { pending, region, at, img, fallbackBox });
 }
 
 
@@ -539,20 +550,24 @@ async function lfFinishMark(pts) {
     if ((b.x2 - b.x) * wrap.clientWidth < 16 && (b.y2 - b.y) * wrap.clientHeight < 16) lfIdentifyAt(pts[0]);
     return;
   }
+  // Krúžok: AI rozpozná názov a cenu v zakrúžkovanom mieste (ako pri ťuknutí na produkt).
+  if (lfIdentifying) {
+    lfDrawMarks();
+    return;
+  }
   const mark = { pts, ok: false };
   const key = lfMarkKey();
   (lf.marks[key] = lf.marks[key] || []).push(mark);
   lfDrawMarks();
-  let thumb;
+  const img = $('lfImg');
   try {
-    thumb = await lfCrop($('lfImg'), b);
-  } catch (err) {
+    await lfWhenLoaded(img);
+  } catch (e) {
     lf.marks[key].splice(lf.marks[key].indexOf(mark), 1);
     lfDrawMarks();
-    toast('Obrázok sa nepodarilo vystrihnúť. Skús to znova.', true);
     return;
   }
-  lfConfirm(thumb, mark, key);
+  await lfIdentifyRegion(img, key, b, [(b.x + b.x2) / 2, (b.y + b.y2) / 2], mark, [0, 0, 1, 1]);
 }
 
 function lfWhenLoaded(img) {
@@ -698,7 +713,7 @@ function lfConfirm(thumb, mark, key, product, live) {
           name.placeholder = found ? 'Napr. mascarpone (nepovinné)' : 'Produkt sa nenašiel – posuň rám alebo dopíš názov';
           fill(found);
           // bez ohraničenia od AI: rám okolo miesta ťuknutia
-          box = found && found.box ? found.box.slice() : [0.2, 0.2, 0.8, 0.8];
+          box = found && found.box ? found.box.slice() : (live.fallbackBox || [0.2, 0.2, 0.8, 0.8]).slice();
           drawBox();
           applyBox();
         };
@@ -771,7 +786,9 @@ function lfConfirm(thumb, mark, key, product, live) {
 
         // Oddialiť / priblížiť náhľad: rám ostane na tom istom mieste letáka
         const ZOOMS = [0.3, 0.45, 0.65, 0.9, 1];
-        let zoomLevel = 1;
+        // stupeň podľa šírky výrezu (ťuknutie 0,45; krúžok hocijaký)
+        let zoomLevel = ZOOMS.findIndex((z) => z >= RW - 0.001);
+        if (zoomLevel === -1) zoomLevel = ZOOMS.length - 1;
         const zoomOut = root.querySelector('#lfZoomOutPv');
         const zoomIn = root.querySelector('#lfZoomInPv');
         const updateZoomButtons = () => {

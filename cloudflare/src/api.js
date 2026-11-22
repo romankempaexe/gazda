@@ -9,6 +9,7 @@ import {
   notifyAssigned,
   notifyComment,
   notifyShopping,
+  notifyShoppingEnded,
   notifyShoppingStarted,
   rememberOrigin,
   saveSubscription,
@@ -594,6 +595,7 @@ export async function startShopping(c, cinnostId, on) {
     .run();
   const saved = await loadCinnost(c, cinnost.id);
   if (on && !already) await notifyShoppingStarted(c, saved);
+  if (!on) await notifyShoppingEnded(c, cinnost);
   return saved;
 }
 
@@ -684,6 +686,7 @@ export async function deleteCinnost(c, cinnostId) {
     c.db.prepare(IMAGES_CLEANUP_SQL),
     shopKeysCleanup(c, cinnost.id),
   ]);
+  await notifyShoppingEnded(c, cinnost);
   return { deleted: true };
 }
 
@@ -704,6 +707,7 @@ export async function completeCinnost(c, cinnostId) {
       c.db.prepare(IMAGES_CLEANUP_SQL),
       shopKeysCleanup(c, cinnost.id),
     ]);
+    await notifyShoppingEnded(c, cinnost);
     return { deleted: true };
   }
   const next = nextDueDateAfter(cinnost.due_date, cinnost.periodicity, cinnost.repeat_interval || 1, c.today);
@@ -717,6 +721,7 @@ export async function completeCinnost(c, cinnostId) {
     // nákup sa skončil – ďalší termín začína bez nakupujúceho
     c.db.prepare("UPDATE cinnosti SET due_date = ?, shopping_by = '', shopping_since = '' WHERE id = ?").bind(next, cinnost.id),
   ]);
+  await notifyShoppingEnded(c, cinnost);
   return { deleted: false, cinnost: await loadCinnost(c, cinnost.id) };
 }
 

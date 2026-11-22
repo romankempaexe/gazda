@@ -435,7 +435,7 @@
 
   function bindSyncBar() {
     if (!$('syncNow')) return;
-    FG.prepareGoogleAccess(); // okno Google sa musí otvoriť hneď po ťuknutí
+    if (!S.data.sync.url) FG.prepareGoogleAccess(); // okno Google sa musí otvoriť hneď po ťuknutí
     $('syncNow').onclick = () => syncNow();
     $('syncFile').onclick = () => driveDialog();
   }
@@ -466,64 +466,7 @@
     return asText ? res.text() : res.json();
   }
 
-  /** Riadky CSV (Google Tabuľka) alebo textu oddeleného tabulátorom → polia buniek. */
-  function parseRows(text) {
-    const first = text.split('\n', 1)[0];
-    const sep = first.includes('\t') ? '\t' : first.includes(';') && !first.includes(',') ? ';' : ',';
-    const rows = [];
-    let row = [];
-    let cell = '';
-    let quoted = false;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (quoted) {
-        if (ch === '"' && text[i + 1] === '"') {
-          cell += '"';
-          i++;
-        } else if (ch === '"') quoted = false;
-        else cell += ch;
-      } else if (ch === '"' && !cell) quoted = true;
-      else if (ch === sep) {
-        row.push(cell);
-        cell = '';
-      } else if (ch === '\n' || ch === '\r') {
-        if (ch === '\r' && text[i + 1] === '\n') i++;
-        row.push(cell);
-        rows.push(row);
-        row = [];
-        cell = '';
-      } else cell += ch;
-    }
-    row.push(cell);
-    rows.push(row);
-    return rows;
-  }
-
-  /** Obsah súboru → { "<názov>": { value, type } } (JSON QuickStashu alebo tabuľka Názov | Hodnota | Typ). */
-  function parseFileText(text) {
-    const t = String(text || '').replace(/^﻿/, '').trim();
-    if (t.startsWith('{')) {
-      try {
-        return JSON.parse(t);
-      } catch (e) {
-        throw new Error('Súbor vyzerá ako JSON, ale je poškodený (' + e.message + ').');
-      }
-    }
-    const out = {};
-    parseRows(t).forEach((r, i) => {
-      const name = (r[0] || '').trim();
-      const value = (r[1] || '').trim();
-      if (!name || !value) return;
-      if (i === 0 && /^(nazov|name|kluc|key|polozka)$/.test(fold(name))) return; // hlavička
-      out[name] = { value, type: /^(heslo|password|pass|h)$/.test(fold(r[2] || '').trim()) ? 'password' : 'text' };
-    });
-    if (!Object.keys(out).length) {
-      throw new Error('V súbore nie sú položky. Čakám JSON z QuickStashu alebo tabuľku so stĺpcami Názov, Hodnota, Typ (heslo / text).');
-    }
-    return out;
-  }
-
-  /** Stiahne a prečíta súbor (meta = { id, name, mimeType }). */
+  /** Stiahne súbor (meta = { id, name, mimeType }) – text prečíta server (JSON alebo tabuľka). */
   async function readDriveFile(token, meta) {
     const id = encodeURIComponent(meta.id);
     let text;
@@ -532,7 +475,7 @@
     else if (/^application\/vnd\.google-apps\./.test(meta.mimeType || '')) {
       throw new Error('Tento typ súboru sa nedá synchronizovať – použi JSON, Google Tabuľku alebo Google Dokument.');
     } else text = await drive(token, 'files/' + id + '?alt=media&supportsAllDrives=true', true);
-    return parseFileText(text);
+    return text;
   }
 
   const fileMeta = (token, id) => drive(token, 'files/' + encodeURIComponent(id) + '?fields=id,name,mimeType,modifiedTime&supportsAllDrives=true');
@@ -548,8 +491,8 @@
   /** Stiahne súbor a pošle ho na server (zosúladenie položiek). */
   async function syncWith(token, fileId, isPrivate) {
     const meta = await fileMeta(token, fileId);
-    const entries = await readDriveFile(token, meta);
-    const res = await api('quickstash/syncFile', S.hh, { id: meta.id, name: meta.name }, entries, isPrivate);
+    const text = await readDriveFile(token, meta);
+    const res = await api('quickstash/syncFile', S.hh, { id: meta.id, name: meta.name }, text, isPrivate);
     S.data = res.data;
     saveSnapshot();
     return res;
@@ -559,8 +502,13 @@
     const link = S.data && S.data.sync;
     if (!link) return driveDialog();
     try {
-      const token = await FG.googleAccessToken(DRIVE_SCOPE);
-      const res = await syncWith(token, link.fileId, link.private);
+      let res;
+      if (link.url) {
+        // podľa odkazu – server súbor stiahne sám
+        res = await api('quickstash/syncLink', S.hh);
+        S.data = res.data;
+        saveSnapshot();
+      } else res = await syncWith(await FG.googleAccessToken(DRIVE_SCOPE), link.fileId, link.private);
       render();
       toast(syncSummary(res));
     } catch (err) {
@@ -579,8 +527,73 @@
 
   const FILE_ICONS = { 'application/vnd.google-apps.spreadsheet': 'table', 'application/vnd.google-apps.document': 'description' };
 
-  /** Výber (alebo zmena) súboru na Google Drive a prvá synchronizácia. */
-  async function driveDialog() {
+  /**
+   * Synchronizácia podľa odkazu: súbor zdieľaný „Ktokoľvek s odkazom“ – server ho pri každom
+   * Synchronizovať stiahne nanovo, netreba nič nastavovať v Google Cloud.
+   */
+  function driveDialog() {
+    const link = S.data && S.data.sync;
+    openModal(
+      '<h2>Synchronizácia so súborom</h2>' +
+        '<div class="subtitle">Vlož odkaz na súbor z Google Drive – JSON z desktopového QuickStashu (<code>data.json</code>), ' +
+        'Google Tabuľku so stĺpcami <b>Názov | Hodnota | Typ</b> (heslo / text) alebo Google Dokument s JSON. ' +
+        'Keď súbor upravíš, ťukni na <b>Synchronizovať</b> a stiahne sa nanovo: zmenené položky sa prepíšu, nové pribudnú, ' +
+        'zmazané zmiznú. Položky pridané tu v aplikácii ostanú.</div>' +
+        '<form id="f"><div class="field"><label>Odkaz na súbor</label>' +
+        '<input name="url" type="url" required placeholder="https://drive.google.com/file/d/…" autocomplete="off" value="' + esc((link && link.url) || '') + '">' +
+        '<div class="hint">Na Google Drive: <b>Zdieľať → Všeobecný prístup → Ktokoľvek s odkazom</b> → Kopírovať odkaz.</div></div>' +
+        '<div class="hint qs-note qs-warn"><span class="ms">warning</span><span>Súbor zdieľaný odkazom si môže otvoriť každý, kto odkaz pozná – aj s heslami. ' +
+        'Súkromný súbor vyberieš cez <b>Môj Drive</b> (raz treba zapnúť Google Drive API – návod v README).</span></div>' +
+        '<label class="qs-check"><input type="checkbox" name="priv"' + (!link || link.private ? ' checked' : '') + '><span>Len pre mňa' +
+        '<small>Nové položky zo súboru budú súkromné. Bez zaškrtnutia ich uvidí celá rodina.</small></span></label>' +
+        '<div class="actions qs-actions-wrap">' +
+        (link ? '<button type="button" class="btn text danger-text" id="unlink"><span class="ms">link_off</span>Odpojiť</button>' : '') +
+        '<button type="button" class="btn text" id="mine" style="margin-right:auto"><span class="ms">cloud_sync</span>Môj Drive</button>' +
+        '<button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn"><span class="ms">sync</span>Synchronizovať</button></div></form>',
+      (root) => {
+        const f = root.querySelector('#f');
+        root.querySelector('#cancel').onclick = closeModal;
+        root.querySelector('#mine').onclick = () => {
+          FG.prepareGoogleAccess();
+          drivePickerDialog();
+        };
+        const unlink = root.querySelector('#unlink');
+        if (unlink) unlink.onclick = () => unlinkFile(driveDialog);
+        f.onsubmit = async (ev) => {
+          ev.preventDefault();
+          try {
+            const res = await api('quickstash/syncLink', S.hh, f.url.value.trim(), f.priv.checked);
+            S.data = res.data;
+            saveSnapshot();
+            closeModal(true);
+            render();
+            toast(syncSummary(res));
+          } catch (err) {
+            if (isLocked(err)) {
+              closeModal(true);
+              showLock();
+            } else showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  async function unlinkFile(back) {
+    if (!(await confirmDialog('Odpojiť súbor?', 'Položky ostanú, len sa už nebudú synchronizovať.', 'Odpojiť'))) return back();
+    try {
+      S.data = await api('quickstash/unlinkSync', S.hh);
+      saveSnapshot();
+      render();
+      toast('Súbor odpojený');
+    } catch (err) {
+      if (isLocked(err)) showLock();
+      else showError(err);
+    }
+  }
+
+  /** Výber súboru z môjho Google Drive (Google prístup na čítanie – vyžaduje zapnuté Drive API). */
+  async function drivePickerDialog() {
     const link = S.data && S.data.sync;
     let token;
     try {
@@ -643,20 +656,7 @@
         show();
         root.querySelector('#cancel').onclick = closeModal;
         const unlink = root.querySelector('#unlink');
-        if (unlink) {
-          unlink.onclick = async () => {
-            if (!(await confirmDialog('Odpojiť súbor?', 'Položky ostanú, len sa už nebudú synchronizovať.', 'Odpojiť'))) return driveDialog();
-            try {
-              S.data = await api('quickstash/unlinkSync', S.hh);
-              saveSnapshot();
-              render();
-              toast('Súbor odpojený');
-            } catch (err) {
-              if (isLocked(err)) showLock();
-              else showError(err);
-            }
-          };
-        }
+        if (unlink) unlink.onclick = () => unlinkFile(drivePickerDialog);
         f.onsubmit = async (ev) => {
           ev.preventDefault();
           const id = f.url.value.trim() ? fileIdFrom(f.url.value) : chosen;

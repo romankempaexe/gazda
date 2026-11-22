@@ -163,7 +163,12 @@ desktopového QuickStashu (repozitár `quickstash`, PySide6 a Apps Script) ako p
   aj starší formát `"password": true`) alebo zo zálohy webu; rovnaký názov sa prepíše, súbory a
   priečinky sa prenesú ako text (cesta). *Stiahnuť zálohu* uloží JSON v tom istom formáte.
 - **Naživo:** zmeny od ostatných sa ukážu samé (`quickstash/getRev`, `households.quickstash_rev`).
-- **Synchronizácia s Google Drive:** *Môj účet → Google Drive* – vyber súbor (JSON z desktopového
+- **Synchronizácia podľa odkazu (bez nastavovania):** *Môj účet → Google Drive* – vlož odkaz na súbor
+  zdieľaný *Ktokoľvek s odkazom* (súbor na Drive, Google Tabuľka – stiahne sa ako CSV, aj zvolený hárok –
+  alebo Google Dokument). Tlačidlo **Synchronizovať** ho serverom stiahne nanovo (`quickstash/syncLink`,
+  `src/quickstash/file.js`, `quickstash_sync.url`, migrácia 0023). Pozor: súbor s heslami zdieľaný
+  odkazom otvorí každý, kto odkaz pozná – súkromný súbor vyber cez *Môj Drive* (nižšie).
+- **Synchronizácia s Google Drive (Môj Drive):** v okne synchronizácie *Môj Drive* – vyber súbor (JSON z desktopového
   QuickStashu `data.json`, Google Tabuľku so stĺpcami *Názov | Hodnota | Typ* (heslo / text) alebo
   Google Dokument s JSON). Keď súbor upravíš, ťukni nad zoznamom na **Synchronizovať**: položky zo
   súboru sa prepíšu, nové pribudnú, tie zo súboru, ktoré v ňom už nie sú, zmiznú; položky pridané v

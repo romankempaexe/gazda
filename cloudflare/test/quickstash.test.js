@@ -124,7 +124,7 @@ test('synchronizácia so súborom na Google Drive: súbor je hlavný, ručné po
   await api.saveEntry(householdId, { name: 'Ručná', value: 'z aplikácie' });
   let res = await api.syncFile(householdId, file, { 'Wi-Fi': { value: 'heslo1', type: 'password' }, IBAN: { value: 'SK11' } }, true);
   assert.deepEqual([res.added, res.updated, res.removed], [2, 0, 0]);
-  assert.deepEqual(res.data.sync, { fileId: file.id, fileName: 'data.json', private: true, syncedAt: res.data.sync.syncedAt });
+  assert.deepEqual(res.data.sync, { fileId: file.id, fileName: 'data.json', url: '', private: true, syncedAt: res.data.sync.syncedAt });
   assert.ok(res.data.entries.find((e) => e.name === 'Wi-Fi').private);
   assert.ok(res.data.entries.find((e) => e.name === 'Wi-Fi').synced);
 
@@ -255,4 +255,48 @@ test('zámok biometriou: bez odomknutia server položky nevydá', async () => {
   assert.equal(off.enabled, false);
   await api.lockNow();
   assert.equal((await api.getData(householdId)).entries.length, 1);
+});
+
+test('synchronizácia podľa odkazu Google (bez nastavenia Google Cloud)', async () => {
+  const { u, householdId } = await family('odkaz@example.com');
+  const api = qs(u);
+  const requests = [];
+  let reply = () => new Response(JSON.stringify({ PIN: { value: '1111', password: true } }), {
+    headers: { 'content-type': 'application/json', 'content-disposition': "attachment; filename*=UTF-8''data%20heslá.json" },
+  });
+  t.env.TEST_FETCH = async (url) => {
+    requests.push(url);
+    return reply(url);
+  };
+  try {
+    const url = 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view?usp=sharing';
+    let res = await api.syncLink(householdId, url, true);
+    assert.equal(requests[0], 'https://drive.usercontent.google.com/download?id=1AbCdEfGhIjKlMnOp&export=download&confirm=t');
+    assert.deepEqual([res.added, res.updated, res.removed], [1, 0, 0]);
+    assert.equal(res.data.sync.url, url);
+    assert.equal(res.data.sync.fileName, 'data heslá.json');
+    assert.equal(res.data.entries[0].type, 'password');
+
+    // tlačidlo Synchronizovať – bez odkazu použije uložený; Google Tabuľka ako CSV (aj hárok)
+    reply = () => new Response('Názov,Hodnota,Typ\nPIN,2222,heslo\n"Adresa, byt","Hlavná 1, Bratislava",text\n', { headers: { 'content-type': 'text/csv' } });
+    await api.syncLink(householdId, 'https://docs.google.com/spreadsheets/d/1SheetIdAbcdefgh/edit#gid=42', false);
+    assert.equal(requests[1], 'https://docs.google.com/spreadsheets/d/1SheetIdAbcdefgh/export?format=csv&gid=42');
+    res = await api.syncLink(householdId);
+    assert.equal(requests[2], requests[1]);
+    assert.deepEqual(res.data.entries.map((e) => [e.name, e.value, e.type]), [['Adresa, byt', 'Hlavná 1, Bratislava', 'text'], ['PIN', '2222', 'password']]);
+    assert.equal(res.data.sync.private, false);
+
+    // nezdieľaný súbor → Google vráti prihlasovaciu stránku
+    reply = () => new Response('<!DOCTYPE html><html>Sign in</html>', { headers: { 'content-type': 'text/html' } });
+    await assert.rejects(api.syncLink(householdId), /Ktokoľvek s odkazom/);
+    await assert.rejects(api.syncLink(householdId, 'https://example.com/file/d/1AbCdEfGhIjKlMnOp'), /nie je odkaz/);
+    await assert.rejects(api.syncLink(householdId, 'nie odkaz'), /celý odkaz/);
+
+    // Drive API v prehliadači posiela text súboru – server ho prečíta sám
+    res = await api.syncFile(householdId, { id: 'drive-file-id-123', name: 'x.json' }, '{"A": {"value": "b"}}', true);
+    assert.equal(res.data.sync.url, '');
+    assert.ok(res.data.entries.some((e) => e.name === 'A'));
+  } finally {
+    delete t.env.TEST_FETCH;
+  }
 });

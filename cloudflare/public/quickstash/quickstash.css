@@ -268,3 +268,16 @@
   font-weight: 600;
   font-size: 14px;
 }
+.qs-warn {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(234, 88, 12, 0.1);
+  color: inherit;
+  margin: 0 0 14px;
+}
+.qs-warn .ms {
+  color: #ea580c;
+}
+.qs-actions-wrap {
+  flex-wrap: wrap;
+}

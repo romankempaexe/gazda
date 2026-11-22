@@ -125,6 +125,7 @@ const METHODS = {
   'quickstash/deleteEntry': quickstash.deleteEntry,
   'quickstash/importEntries': quickstash.importEntries,
   'quickstash/syncFile': quickstash.syncFile,
+  'quickstash/syncLink': quickstash.syncLink,
   'quickstash/unlinkSync': quickstash.unlinkSync,
   'quickstash/getLock': quickstashLock.getLock,
   'quickstash/lockNow': quickstashLock.lockNow,

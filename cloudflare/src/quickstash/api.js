@@ -8,6 +8,7 @@
 import { requireFamilyMember } from '../family.js';
 import { AppError, nowIso, requireText } from '../domain.js';
 import { requireUnlocked } from './lock.js';
+import { downloadLink, parseFileText } from './file.js';
 
 const uuid = () => crypto.randomUUID();
 const MAX_NAME = 80;
@@ -82,7 +83,8 @@ export async function getData(c, householdId) {
     entries: entries.results.map(toEntry),
     lock, // zámok biometriou zapnutý – aplikácia si údaje neukladá do pamäte telefónu
     // prepojený súbor na Google Drive (synchronizácia), alebo null
-    sync: link ? { fileId: link.file_id, fileName: link.file_name, private: Boolean(link.private), syncedAt: link.synced_at } : null,
+    // url = synchronizácia podľa odkazu (server súbor stiahne sám), inak cez Google Drive API v prehliadači
+    sync: link ? { fileId: link.file_id, fileName: link.file_name, url: link.url, private: Boolean(link.private), syncedAt: link.synced_at } : null,
   };
 }
 
@@ -206,16 +208,39 @@ const FILE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
  * pribudne a tá, ktorá prišla z tohto súboru a v ňom už nie je, sa zmaže. Položky pridané
  * v aplikácii (nie zo súboru) ostanú. Prepojenie sa zapamätá (ďalšia synchronizácia jedným ťuknutím).
  *
- * file = { id, name }, isPrivate = nové položky len pre mňa (inak spoločné v rodine).
+ * file = { id, name }, content = obsah súboru (text: JSON alebo tabuľka) alebo už položky,
+ * isPrivate = nové položky len pre mňa (inak spoločné v rodine).
  */
-export async function syncFile(c, householdId, file, entries, isPrivate) {
+export async function syncFile(c, householdId, file, content, isPrivate) {
+  return syncEntries(c, householdId, file, content, isPrivate, '');
+}
+
+/**
+ * Synchronizácia podľa odkazu Google (súbor zdieľaný „Ktokoľvek s odkazom“) – server súbor
+ * stiahne sám, netreba žiadne nastavenie Google. Bez url použije uložený odkaz.
+ */
+export async function syncLink(c, householdId, url, isPrivate) {
+  await requireFamilyMember(c, householdId);
+  await requireUnlocked(c);
+  if (!url) {
+    const link = await c.db.prepare('SELECT url, private FROM quickstash_sync WHERE email = ? AND household_id = ?').bind(c.email, householdId).first();
+    if (!link || !link.url) throw new AppError('Najprv vlož odkaz na súbor.');
+    url = link.url;
+    isPrivate = Boolean(link.private);
+  }
+  url = String(url).trim().slice(0, 1000);
+  const file = await downloadLink(c, url);
+  return syncEntries(c, householdId, { id: file.id, name: file.name }, file.text, isPrivate, url);
+}
+
+async function syncEntries(c, householdId, file, content, isPrivate, url) {
   await requireFamilyMember(c, householdId);
   await requireUnlocked(c);
   file = file && typeof file === 'object' ? file : {};
   const fileId = String(file.id ?? '');
   if (!FILE_ID_RE.test(fileId)) throw new AppError('Neplatný súbor na Google Drive.');
   const fileName = String(file.name ?? '').trim().slice(0, 200);
-  const incoming = parseEntries(entries);
+  const incoming = parseEntries(typeof content === 'string' ? parseFileText(content) : content);
   const owner = isPrivate ? c.email : '';
   const now = nowIso();
 
@@ -225,11 +250,11 @@ export async function syncFile(c, householdId, file, entries, isPrivate) {
   const statements = [
     c.db
       .prepare(
-        `INSERT INTO quickstash_sync (email, household_id, file_id, file_name, private, synced_at) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO quickstash_sync (email, household_id, file_id, file_name, private, synced_at, url) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (email, household_id) DO UPDATE SET file_id = excluded.file_id, file_name = excluded.file_name,
-           private = excluded.private, synced_at = excluded.synced_at`
+           private = excluded.private, synced_at = excluded.synced_at, url = excluded.url`
       )
-      .bind(c.email, householdId, fileId, fileName, isPrivate ? 1 : 0, now),
+      .bind(c.email, householdId, fileId, fileName, isPrivate ? 1 : 0, now, url),
   ];
   let added = 0;
   let updated = 0;

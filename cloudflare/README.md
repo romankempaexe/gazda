@@ -279,7 +279,10 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   Gynekológ / Špecialisti / Pohotovosť / Lekárne; posledné hľadanie si zariadenie pamätá. V detaile
   **Ukázať na mape** (Google Mapy), **Nájsť telefón a ordinačné hodiny** (vyhľadávanie Google – zoznam ÚDZS
   telefón ani hodiny nemá), ďalšie ambulancie na tej istej adrese a **Naplánovať návštevu** členovi
-  (udalosť s podtypom podľa odbornosti, v poznámke názov a adresa). Súbor (≈ 1,3 MB, gzip ≈ 270 kB) sa
+  (udalosť s podtypom podľa odbornosti, v poznámke názov a adresa). Lekára sa dá vyhľadať aj priamo vo
+  formulári udalosti (pole **Lekár / ambulancia**): vyplní podtyp, ak je prázdny, a uloží sa na začiatok
+  poznámky ako dva riadky „názov / ulica, PSČ obec“ (bez zmeny servera); detail takej udalosti má
+  **Ukázať na mape**. Súbor (≈ 1,3 MB, gzip ≈ 270 kB) sa
   načíta až pri otvorení karty Lekári. Vynechané sú lôžkové oddelenia, mobilné odberové miesta, dopravná
   a záchranná služba.
   **Aktualizácia** (ÚDZS zoznam mení zhruba mesačne – aktuálny odkaz na XLSX je na stránke

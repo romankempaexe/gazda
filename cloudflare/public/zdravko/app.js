@@ -305,6 +305,17 @@
   const doctorSubtype = (d) => (d.er && !SPEC_SUBTYPE[d.code] ? 'Urgentný príjem' : SPEC_SUBTYPE[d.code] || d.spec.charAt(0).toUpperCase() + d.spec.slice(1));
   const doctorAddress = (d) => d.street + ', ' + d.psc + ' ' + d.town;
 
+  // Lekár vybraný z databázy sa ukladá na začiatok poznámky udalosti: „názov\nulica, PSČ obec“ (bez zmeny servera).
+  const ADDRESS_LINE = /^.+, \d{3} \d{2} .+$/;
+  /** Poznámka → { doctor: [názov, adresa] | null, rest } – blok lekára len na začiatku poznámky. */
+  function splitDoctorNotes(notes) {
+    const lines = String(notes || '').split('\n');
+    if (lines.length >= 2 && lines[0].trim() && ADDRESS_LINE.test(lines[1])) return { doctor: [lines[0], lines[1]], rest: lines.slice(2).join('\n').replace(/^\n+/, '') };
+    return { doctor: null, rest: String(notes || '') };
+  }
+  const joinDoctorNotes = (doctor, rest) => (doctor ? doctor.join('\n') + (rest ? '\n' + rest : '') : rest);
+  const mapsUrl = (q) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+
   // ---- Navigácia ------------------------------------------------------------------------------
 
   function go(view, replace) {
@@ -769,7 +780,7 @@
     if (!d) return;
     const members = (S.data && S.data.members) || [];
     const addr = doctorAddress(d);
-    const maps = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(d.name + ', ' + addr);
+    const maps = mapsUrl(d.name + ', ' + addr);
     const web = 'https://www.google.com/search?q=' + encodeURIComponent(d.name + ' ' + d.street + ' ' + d.town + ' ordinačné hodiny telefón');
     const here = doctorList().filter((x) => x !== d && x.name === d.name && x.street === d.street && x.town === d.town);
     const pharmacy = d.cats.includes('pharm');
@@ -798,7 +809,7 @@
         root.querySelectorAll('[data-visit]').forEach((b) => {
           b.onclick = () => {
             const m = member(b.dataset.visit);
-            if (m) eventForm(m, null, { subtype: doctorSubtype(d), notes: d.name + '\n' + addr });
+            if (m) eventForm(m, null, { doctor: d });
           };
         });
       },
@@ -1418,6 +1429,7 @@
     const end = new Date(Date.parse(e.eventAt) + 3600000).toISOString();
     const title = (who ? who.name + ' – ' : '') + t.name + ': ' + e.subtype;
     const details = [e.notes, e.cost ? 'Cena: ' + fmt(e.cost, 2) + ' €' : ''].filter(Boolean).join('\n');
+    const doc = splitDoctorNotes(e.notes).doctor;
     const gcal = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(title) +
       '&dates=' + icsDate(e.eventAt) + '/' + icsDate(end) + '&details=' + encodeURIComponent(details) +
       (who && who.email ? '&add=' + encodeURIComponent(who.email) : '');
@@ -1427,7 +1439,9 @@
         (e.reminders.length ? '<div><span class="ms">notifications_active</span>Pripomenúť: ' + e.reminders.map((r) => REMINDERS[r]).join(', ') + '</div>' : '') +
         (e.cost ? '<div><span class="ms">payments</span>' + fmt(e.cost, 2) + ' €</div>' : '') +
         (e.notes ? '<div><span class="ms">notes</span>' + esc(e.notes) + '</div>' : '') + '</div>' +
-        '<div class="pick-list"><a class="btn tonal" href="' + esc(gcal) + '" target="_blank" rel="noopener"><span class="ms">open_in_new</span>Pridať do Google Kalendára</a>' +
+        '<div class="pick-list">' +
+        (doc ? '<a class="btn tonal" href="' + esc(mapsUrl(doc.join(', '))) + '" target="_blank" rel="noopener"><span class="ms">location_on</span>Ukázať na mape</a>' : '') +
+        '<a class="btn tonal" href="' + esc(gcal) + '" target="_blank" rel="noopener"><span class="ms">open_in_new</span>Pridať do Google Kalendára</a>' +
         '<button type="button" class="btn tonal" id="ics"><span class="ms">download</span>Stiahnuť do kalendára (.ics)</button></div>' +
         '<div class="actions"><button type="button" class="btn text danger-text" id="del" style="margin-right:auto"><span class="ms">delete</span>Vymazať</button>' +
         '<button type="button" class="btn text" id="cancel">Zavrieť</button><button type="button" class="btn" id="edit"><span class="ms">edit</span>Upraviť</button></div>',
@@ -1453,17 +1467,24 @@
     );
   }
 
-  /** pre = predvyplnenie novej návštevy (z databázy lekárov): { subtype, notes }. */
+  /** pre = predvyplnenie novej návštevy z karty Lekári: { doctor } (pracovisko z databázy lekárov). */
   function eventForm(m, e, pre) {
     let type = e ? e.eventType : 'doctor_visit';
     const day = S.calDay && S.calDay >= today() ? S.calDay : addDays(today(), 1);
     const at = e ? localInput(e.eventAt) : day + 'T09:00';
+    // lekár / ambulancia: v poznámke ako blok navrchu, vo formulári ako vybraná položka a poznámka bez neho
+    const split = splitDoctorNotes(e ? e.notes : '');
+    let doctor = pre && pre.doctor ? [pre.doctor.name, doctorAddress(pre.doctor)] : split.doctor;
+    const subtype0 = e ? e.subtype : pre && pre.doctor ? doctorSubtype(pre.doctor) : '';
     openModal(
       '<h2>' + (e ? 'Upraviť udalosť' : 'Nová udalosť') + ' – ' + esc(m.name) + '</h2><form id="f">' +
         '<div class="chips zd-types">' + Object.entries(EVENT_TYPES).map(([k, v]) => '<button type="button" class="chip' + (k === type ? ' active' : '') + '" data-type="' + k + '"><span class="ms">' + v.icon + '</span>' + v.name + '</button>').join('') + '</div>' +
-        '<div class="field"><label>Podtyp (lekár, vyšetrenie, očkovanie)</label><input name="subtype" list="subtypes" required maxlength="120" autocomplete="off" placeholder="Začni písať, napr. pediater" value="' + esc(e ? e.subtype : pre ? pre.subtype : '') + '"><datalist id="subtypes"></datalist></div>' +
+        '<div class="field"><label>Podtyp (lekár, vyšetrenie, očkovanie)</label><input name="subtype" list="subtypes" required maxlength="120" autocomplete="off" placeholder="Začni písať, napr. pediater" value="' + esc(subtype0) + '"><datalist id="subtypes"></datalist></div>' +
+        '<div class="field"><label>Lekár / ambulancia</label><div id="docPicked"></div>' +
+        '<div class="zd-med-search" id="docSearch"><span class="ms">search</span><input type="search" name="docSearch" placeholder="Hľadať, napr. Trnava pediater, zubár Petržalka…" autocomplete="off"></div>' +
+        '<div class="zd-med-found" id="docFound"></div></div>' +
         '<div class="field"><label>Dátum a čas</label><input type="datetime-local" name="at" required value="' + at + '"></div>' +
-        '<div class="field"><label>Poznámky</label><textarea name="notes" rows="2" maxlength="1000" placeholder="napr. vziať kartičku poistenca">' + esc(e ? e.notes : pre ? pre.notes : '') + '</textarea></div>' +
+        '<div class="field"><label>Poznámky</label><textarea name="notes" rows="2" maxlength="1000" placeholder="napr. vziať kartičku poistenca">' + esc(split.rest) + '</textarea></div>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Uložiť</button></div></form>',
       (root) => {
         const f = root.querySelector('#f');
@@ -1472,6 +1493,47 @@
         };
         fill();
         root.querySelector('#cancel').onclick = closeModal;
+        const picked = root.querySelector('#docPicked');
+        const found = root.querySelector('#docFound');
+        let hits = [];
+        const showPicked = () => {
+          picked.innerHTML = doctor
+            ? '<div class="zd-doc-picked"><span class="ms">location_on</span><div><b>' + esc(doctor[0]) + '</b><span>' + esc(doctor[1]) + '</span></div>' +
+              '<button type="button" class="icon-btn" id="docClear" title="Odobrať lekára"><span class="ms">close</span></button></div>'
+            : '';
+          root.querySelector('#docSearch').classList.toggle('hidden', Boolean(doctor));
+          const clear = root.querySelector('#docClear');
+          if (clear) clear.onclick = () => ((doctor = null), showPicked(), f.docSearch.focus());
+        };
+        showPicked();
+        const choose = (d) => {
+          if (!d) return;
+          doctor = [d.name, doctorAddress(d)];
+          // podtyp podľa odbornosti, len pri návšteve lekára a keď ešte nie je vyplnený
+          if (type === 'doctor_visit' && !f.subtype.value.trim()) f.subtype.value = doctorSubtype(d);
+          f.docSearch.value = '';
+          found.innerHTML = '';
+          hits = [];
+          showPicked();
+        };
+        f.docSearch.oninput = () => {
+          const q = f.docSearch.value.trim();
+          if (!DOCTORS && q.length >= 2) {
+            found.innerHTML = '<div class="muted">Načítavam databázu lekárov…</div>';
+            return loadDoctors().then(() => f.docSearch.oninput(), (err) => (found.innerHTML = '<div class="muted">' + esc(err.message) + '</div>'));
+          }
+          hits = q.length < 2 ? [] : searchDoctors(q, '').filter((d) => !d.cats.includes('pharm')).slice(0, 8);
+          found.innerHTML = q.length < 2 ? '' : hits.length
+            ? hits.map((d, i) => '<button type="button" data-dhit="' + i + '"><b>' + esc(d.name) + '</b><span>' + esc(d.spec + ' · ' + doctorAddress(d)) + '</span></button>').join('')
+            : '<div class="muted">Nenašlo sa – skús obec a odbornosť (napr. „Nitra kardiológ“), alebo lekára napíš do poznámky.</div>';
+          found.querySelectorAll('[data-dhit]').forEach((b) => (b.onclick = () => choose(hits[Number(b.dataset.dhit)])));
+        };
+        f.docSearch.onkeydown = (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            choose(hits[0]);
+          }
+        };
         root.querySelectorAll('[data-type]').forEach((b) => {
           b.onclick = () => {
             if (type !== b.dataset.type) f.subtype.value = '';
@@ -1491,7 +1553,7 @@
               // bez výberu vo formulári: nová udalosť pripomenie deň vopred, úprava ponechá pôvodné
               reminders: e ? e.reminders : ['day_before'],
               cost: e && e.cost ? String(e.cost) : '',
-              notes: f.notes.value,
+              notes: doctor ? joinDoctorNotes(doctor, f.notes.value.trim()) : f.notes.value,
             }),
             e ? 'Udalosť uložená' : 'Udalosť pridaná'
           );

@@ -425,8 +425,9 @@ povie, aký produkt je v strede výrezu, s cenou a presným ohraničením; otvor
 s predvyplneným názvom, počtom a cenou. Stojí ≈ 40 „neurónov“ z bezplatných 10 000 denne
 (súčet v `config` pod `ai_neurons`, nad limit Workers Free nič neúčtuje, len odmietne).
 Uzavretým ťahom sa dá tovar aj zakrúžkovať – AI potom rovnako rozpozná názov a cenu,
-len vo výreze presne zakrúžkovaného miesta (`lfIdentifyRegion`); keď produkt nenájde,
-rám ostane okolo celého krúžku. Rozpoznanie celých strán vopred
+vo výreze zakrúžkovaného miesta s kúskom okolia (`lfIdentifyRegion`, malý výrez sa pre AI
+zväčší až 2×). Keď tam AI nič nenájde, sama to skúsi ešte raz so širším okolím (ako po
+ťuknutí); až potom ostane rám okolo celého krúžku. Rozpoznanie celých strán vopred
 (`analyzeLeafletPage`, `preanalyzeLeaflets`) ostalo na serveri, ale aplikácia ani cron
 ho už nepoužívajú – polohy z celej strany boli príliš nepresné.
 

@@ -1016,3 +1016,16 @@ p.zd-rules {
 :root[data-theme='dark'] .zd-med-picked,
 :root[data-theme='dark'] .zd-chip.course { background: #2e1f4d; color: #c4b5fd; }
 .zd-chip.course.bad { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
+
+/* Databáza lekárov (karta Lekári) – rovnaké karty ako lieky, modrá ikona */
+.zd-doc-icon {
+  background: #e3effa;
+  color: #1d72b8;
+}
+.zd-drug-detail b .ms.zd-doc-ms {
+  color: #1d72b8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .zd-doc-icon { background: #12314d; color: #93c5fd; }
+}
+:root[data-theme='dark'] .zd-doc-icon { background: #12314d; color: #93c5fd; }

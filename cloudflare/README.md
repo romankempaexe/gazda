@@ -271,6 +271,25 @@ Google účet) a zmeny od druhého sa ukážu samé (`zdravko/getRev`).
   # popisy z letákov: stiahne len potrebné letáky (≈ 1,6 GB) z archívu SPC/PIL; treba pdftotext a LibreOffice
   python3 scripts/sukl_letaky.py --cache /tmp/sukl-pil
   ```
+- **Databáza lekárov** (karta **Lekári** na úvode, `public/zdravko/doctors.js`): ambulancie a verejné lekárne
+  na Slovensku (≈ 21 000 pracovísk v ≈ 860 obciach) z verejného zoznamu kódov poskytovateľov zdravotnej
+  starostlivosti **ÚDZS** – poskytovateľ (meno lekára alebo názov firmy / nemocnice), odbornosť podľa
+  číselníka NCZI *Odborné zameranie v zariadení* a adresa pracoviska. Hľadá sa v mene, odbornosti, ulici,
+  obci aj PSČ (aj bez diakritiky, napr. „trnava pediater“), filter Všeobecný lekár / Pre deti / Zubár /
+  Gynekológ / Špecialisti / Pohotovosť / Lekárne; posledné hľadanie si zariadenie pamätá. V detaile
+  **Ukázať na mape** (Google Mapy), **Nájsť telefón a ordinačné hodiny** (vyhľadávanie Google – zoznam ÚDZS
+  telefón ani hodiny nemá), ďalšie ambulancie na tej istej adrese a **Naplánovať návštevu** členovi
+  (udalosť s podtypom podľa odbornosti, v poznámke názov a adresa). Súbor (≈ 1,3 MB, gzip ≈ 270 kB) sa
+  načíta až pri otvorení karty Lekári. Vynechané sú lôžkové oddelenia, mobilné odberové miesta, dopravná
+  a záchranná služba.
+  **Aktualizácia** (ÚDZS zoznam mení zhruba mesačne – aktuálny odkaz na XLSX je na stránke
+  [Kódy poskytovateľov](https://www.udzs-sk.sk/urad/kody-poskytovatelov-zdravotnej-starostlivosti-a-zdravotnickych-pracovnikov/)):
+  ```bash
+  pip install openpyxl
+  curl -O https://www.udzs-sk.sk/wp-content/uploads/2026/11/VyberKpWeb_2.11.2026.xlsx
+  curl -o 39.xml https://www.nczisk.sk/Documents/standardy/standardy_zdravotnickej_informatiky/Ciselniky/39.xml
+  python3 scripts/udzs_lekari.py VyberKpWeb_2.11.2026.xlsx 39.xml > public/zdravko/doctors.js
+  ```
 - **Miery dieťaťa:** váha (g), výška, obvod hlavičky, vek v čase merania, grafy váhy a výšky,
   *Nastaviť ako aktuálne*.
 - **Upozornenia (ikona Zdravka):** nová udalosť, podaný liek a nameraná teplota (🌡️ / 🟠 nad 37,2 / 🔴 nad 38 °C; s liekom v jednej správe) hneď ostatným v rodine;

@@ -228,6 +228,83 @@
 
   const drugForms = (d) => d.forms.map(([f, sily]) => f + (sily ? ' – ' + sily : ''));
 
+  // ---- Databáza lekárov (doctors.js) ------------------------------------------------------------
+
+  // Ambulancie a lekárne z kódov poskytovateľov ÚDZS (≈ 1,3 MB) – načítajú sa až pri otvorení karty Lekári.
+  let DOCTORS = null;
+  let DOC_CATS = {};
+  let doctorsLoading = null;
+  function loadDoctors() {
+    if (DOCTORS) return Promise.resolve(DOCTORS);
+    if (!doctorsLoading) {
+      doctorsLoading = new Promise((resolve, reject) => {
+        const done = () => {
+          if (!window.ZDRAVKO_DOCTORS) return reject(new Error('Databázu lekárov sa nepodarilo načítať.'));
+          DOCTORS = window.ZDRAVKO_DOCTORS;
+          DOC_CATS = Object.fromEntries(DOCTORS.categories.map(([id, name, icon]) => [id, { name, icon }]));
+          resolve(DOCTORS);
+        };
+        if (window.ZDRAVKO_DOCTORS) return done();
+        const el = document.createElement('script');
+        el.src = '/zdravko/doctors.js';
+        el.onload = done;
+        el.onerror = () => {
+          doctorsLoading = null;
+          el.remove();
+          reject(new Error('Databázu lekárov sa nepodarilo načítať. Skontroluj pripojenie na internet.'));
+        };
+        document.head.appendChild(el);
+      });
+    }
+    return doctorsLoading;
+  }
+
+  // Odbornosť (kód ÚDZS) → podtyp návštevy v kalendári (data.js); ostatné dostanú názov odbornosti.
+  const SPEC_SUBTYPE = {
+    '001': 'Internista', '002': 'Infektológ', '003': 'Pneumológ', '004': 'Neurológ', '005': 'Psychiater', '006': 'Pracovné lekárstvo',
+    '007': 'Pediatrička / pediater', '008': 'Všeobecný lekár pre deti a dorast', '009': 'Gynekológ', '010': 'Chirurg', '011': 'Ortopéd',
+    '012': 'Urológ', '013': 'Traumatológ', '014': 'ORL lekár', '015': 'Oftalmológ', '016': 'Zubný lekár / Stomatológ', '017': 'Detský gynekológ',
+    '018': 'Dermatológ', '019': 'Onkológ', '020': 'Praktický lekár', '023': 'Rádiológ', '025': 'Anesteziológ', '027': 'Rehabilitačný lekár / Fyziater',
+    '031': 'Hematológ', '037': 'Neurochirurg', '038': 'Plastický chirurg', '040': 'Alergológ / Imunológ', '043': 'Radiačný onkológ',
+    '045': 'Reumatológ', '046': 'Algeziológ (ambulancia bolesti)', '048': 'Gastroenterológ', '049': 'Kardiológ', '050': 'Diabetológ',
+    '051': 'Neonatológ', '053': 'Ortodontista', '056': 'Angiológ', '060': 'Geriater', '062': 'Genetik (klinická genetika)', '063': 'Nefrológ',
+    '064': 'Endokrinológ', '068': 'Cievny chirurg', '104': 'Detský neurológ', '105': 'Detský psychiater', '107': 'Detský chirurg',
+    '108': 'Detský ortopéd', '109': 'Detský urológ', '114': 'Detský ORL lekár', '115': 'Detský zubný lekár', '116': 'Detský dermatológ',
+    '140': 'Detský alergológ / imunológ', '141': 'Logopéd', '144': 'Klinický psychológ', '153': 'Detský endokrinológ',
+    '154': 'Detský gastroenterológ', '155': 'Detský kardiológ', '156': 'Detský pneumológ', '163': 'Detský nefrológ',
+    '174': 'Pohotovosť (ambulantná pohotovostná služba)', '176': 'Pohotovosť (ambulantná pohotovostná služba)',
+    '178': 'Pohotovosť (ambulantná pohotovostná služba)', '216': 'Hepatológ', '271': 'Mamológ', '334': 'Paliatívna medicína',
+    '336': 'Detský oftalmológ', '340': 'Sexuológ', '802': 'Zubný lekár / Stomatológ', '931': 'Dentálna hygiena',
+  };
+
+  let doctorIndex = null;
+  /** Pracoviská: { name, code, spec, cats, street, town, psc, er, fall }. */
+  function doctorList() {
+    if (!DOCTORS) return [];
+    if (!doctorIndex) {
+      doctorIndex = DOCTORS.rows.map(([n, code, street, t, psc, er], i) => {
+        const [spec, ...cats] = DOCTORS.spec[code] || ['', 'spec'];
+        const name = DOCTORS.names[n];
+        const town = DOCTORS.towns[t];
+        if (er && !cats.includes('er')) cats.push('er');
+        return { i, name, code, spec, cats, street, town, psc, er: Boolean(er), ftown: fold(town), fall: fold(name + ' ' + spec + ' ' + (SPEC_SUBTYPE[code] || '') + ' ' + street + ' ' + town + ' ' + psc + ' ' + psc.replace(' ', '')) };
+      });
+    }
+    return doctorIndex;
+  }
+
+  /** Hľadanie v mene/názve, odbornosti, adrese a PSČ; najprv pracoviská v obci, ktorej názov začína niektorým slovom. */
+  function searchDoctors(q, cat) {
+    const words = fold(q).trim().split(/\s+/).filter(Boolean);
+    const hits = doctorList().filter((d) => (!cat || d.cats.includes(cat)) && words.every((w) => d.fall.includes(w)));
+    if (!words.length) return hits;
+    const rank = (d) => (words.some((w) => d.ftown.startsWith(w)) ? 0 : 1);
+    return hits.map((d) => [rank(d), d]).sort((a, b) => a[0] - b[0] || a[1].i - b[1].i).map((x) => x[1]);
+  }
+
+  const doctorSubtype = (d) => (d.er && !SPEC_SUBTYPE[d.code] ? 'Urgentný príjem' : SPEC_SUBTYPE[d.code] || d.spec.charAt(0).toUpperCase() + d.spec.slice(1));
+  const doctorAddress = (d) => d.street + ', ' + d.psc + ' ' + d.town;
+
   // ---- Navigácia ------------------------------------------------------------------------------
 
   function go(view, replace) {
@@ -354,9 +431,10 @@
   function renderHome() {
     header('Zdravko', false);
     const tab = S.view.tab || 'members';
-    tabs([['members', 'group', 'Členovia'], ['calendar', 'calendar_month', 'Kalendár'], ['drugs', 'medication', 'Lieky']], tab, (t) => go({ name: 'home', tab: t }, true));
+    tabs([['members', 'group', 'Členovia'], ['calendar', 'calendar_month', 'Kalendár'], ['drugs', 'medication', 'Lieky'], ['doctors', 'stethoscope', 'Lekári']], tab, (t) => go({ name: 'home', tab: t }, true));
     if (tab === 'calendar') return renderCalendar(null);
     if (tab === 'drugs') return renderDrugs();
+    if (tab === 'doctors') return renderDoctors();
     const d = S.data;
     const cards = d.members
       .map((m) => {
@@ -608,6 +686,119 @@
           b.onclick = () => {
             const m = member(b.dataset.plan);
             if (m) courseForm(m, null, d.name);
+          };
+        });
+      },
+      { focus: false }
+    );
+  }
+
+  const DOC_PAGE = 50;
+
+  /** Karta „Lekári“: hľadanie ambulancie podľa mena, odbornosti a obce, filter podľa druhu, detail s mapou. */
+  function renderDoctors() {
+    fab('');
+    if (!DOCTORS) {
+      $('view').innerHTML = '<div class="center muted">Načítavam databázu lekárov…</div>';
+      loadDoctors()
+        .then(() => S.view.name === 'home' && S.view.tab === 'doctors' && renderDoctors())
+        .catch((err) => ($('view').innerHTML = '<div class="empty"><span class="ms">warning</span><div>' + esc(err.message) + '</div></div>'));
+      return;
+    }
+    // hľadanie (napr. „Trnava pediater“) si zariadenie pamätá – rodina hľadá zvyčajne v tej istej obci
+    const st = S.doctors || (S.doctors = { q: FG.readStore('zdravko.doctorQ') || '', cat: FG.readStore('zdravko.doctorCat') || '', shown: DOC_PAGE });
+    $('view').innerHTML =
+      '<div class="page-head"><h2>Lekári a ambulancie</h2><p>' + plural(doctorList().length, 'pracovisko', 'pracoviská', 'pracovísk') + ' na Slovensku – hľadaj podľa obce, odbornosti alebo mena lekára</p></div>' +
+      '<div class="field zd-drug-search"><span class="ms">search</span><input type="search" id="docQ" placeholder="napr. Trnava pediater, zubár Petržalka…" autocomplete="off" value="' + esc(st.q) + '"></div>' +
+      '<div class="chips zd-drug-cats">' +
+      [['', 'Všetko', 'apps'], ...DOCTORS.categories]
+        .map(([id, name, icon]) => '<button type="button" class="chip' + (id === st.cat ? ' active' : '') + '" data-dcat="' + esc(id) + '"><span class="ms">' + icon + '</span>' + esc(name) + '</button>')
+        .join('') +
+      '</div><div id="docRes"></div>' +
+      '<div class="grid-note">Zdroj: ' + esc(DOCTORS.source) + ' a číselník odborností NCZI. Obsahuje adresu pracoviska, nie telefón ani ordinačné hodiny – tie nájdeš cez tlačidlo v detaile. Či lekár prijíma nových pacientov, over priamo v ambulancii.</div>';
+    const results = () => {
+      const box = $('docRes');
+      if (!st.q.trim() && !st.cat) {
+        box.innerHTML = '<div class="empty compact"><span class="ms">stethoscope</span><div>Napíš obec, časť mesta alebo PSČ a odbornosť – napr. <b>Žilina gynekológ</b> alebo <b>Ružinov zubár</b>.</div></div>';
+        return;
+      }
+      const hits = searchDoctors(st.q, st.cat);
+      if (!hits.length) {
+        box.innerHTML = '<div class="empty compact"><span class="ms">search</span><div>Nič sa nenašlo. Skús iný názov obce alebo odbornosti (aj bez diakritiky), prípadne zruš filter.</div></div>';
+        return;
+      }
+      box.innerHTML =
+        '<div class="zd-drug-count muted">' + plural(hits.length, 'výsledok', 'výsledky', 'výsledkov') + '</div>' +
+        hits.slice(0, st.shown).map((d) => doctorCard(d)).join('') +
+        (hits.length > st.shown ? '<button type="button" class="btn text" id="docMore"><span class="ms">expand_more</span>Zobraziť ďalšie (' + (hits.length - st.shown) + ')</button>' : '');
+      box.querySelectorAll('[data-doc]').forEach((el) => (el.onclick = () => doctorDetail(doctorList()[Number(el.dataset.doc)])));
+      const more = $('docMore');
+      if (more) more.onclick = () => ((st.shown += DOC_PAGE * 2), results());
+    };
+    $('docQ').oninput = (e) => {
+      st.q = e.target.value;
+      st.shown = DOC_PAGE;
+      FG.writeStore('zdravko.doctorQ', st.q);
+      results();
+    };
+    $('view').querySelectorAll('[data-dcat]').forEach((b) => {
+      b.onclick = () => {
+        st.cat = b.dataset.dcat;
+        st.shown = DOC_PAGE;
+        FG.writeStore('zdravko.doctorCat', st.cat);
+        $('view').querySelectorAll('[data-dcat]').forEach((x) => x.classList.toggle('active', x === b));
+        results();
+      };
+    });
+    results();
+  }
+
+  const doctorIcon = (d) => (DOC_CATS[d.er ? 'er' : d.cats[0]] || { icon: 'stethoscope' }).icon;
+
+  function doctorCard(d) {
+    return (
+      '<div class="card zd-drug" data-doc="' + d.i + '"><div class="zd-drug-icon zd-doc-icon"><span class="ms">' + doctorIcon(d) + '</span></div>' +
+      '<div class="card-body"><div class="card-title">' + esc(d.name) + '</div>' +
+      '<div class="card-sub">' + esc(d.spec) + (d.er ? ' · <b>pohotovosť / príjem</b>' : '') + '</div>' +
+      '<div class="zd-drug-forms">' + esc(doctorAddress(d)) + '</div></div><span class="ms zd-go">chevron_right</span></div>'
+    );
+  }
+
+  /** Detail pracoviska: odbornosť, adresa, mapa, vyhľadanie telefónu a hodín, naplánovanie návštevy členovi. */
+  function doctorDetail(d) {
+    if (!d) return;
+    const members = (S.data && S.data.members) || [];
+    const addr = doctorAddress(d);
+    const maps = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(d.name + ', ' + addr);
+    const web = 'https://www.google.com/search?q=' + encodeURIComponent(d.name + ' ' + d.street + ' ' + d.town + ' ordinačné hodiny telefón');
+    const here = doctorList().filter((x) => x !== d && x.name === d.name && x.street === d.street && x.town === d.town);
+    const pharmacy = d.cats.includes('pharm');
+    openModal(
+      '<h2>' + esc(d.name) + '</h2>' +
+        '<div class="zd-drug-detail">' +
+        '<div><span class="muted">' + (pharmacy ? 'Pracovisko' : 'Odbornosť') + '</span><b><span class="ms zd-doc-ms">' + doctorIcon(d) + '</span>' + esc(d.spec.charAt(0).toUpperCase() + d.spec.slice(1)) + '</b>' +
+        (d.er ? '<div class="zd-drug-group">Ambulancia centrálneho príjmu alebo ústavnej pohotovostnej služby</div>' : '') + '</div>' +
+        '<div><span class="muted">Adresa</span><b>' + esc(d.street) + '</b><div>' + esc(d.psc + ' ' + d.town) + '</div></div>' +
+        (here.length
+          ? '<div><span class="muted">Na tej istej adrese (' + here.length + ')</span><div class="chips wrap">' +
+            here.slice(0, 24).map((x) => '<button type="button" class="chip" data-here="' + x.i + '">' + esc(x.spec) + '</button>').join('') + '</div></div>'
+          : '') +
+        '</div>' +
+        '<div class="pick-list"><a class="btn tonal" href="' + esc(maps) + '" target="_blank" rel="noopener"><span class="ms">location_on</span>Ukázať na mape</a>' +
+        '<a class="btn tonal" href="' + esc(web) + '" target="_blank" rel="noopener"><span class="ms">search</span>Nájsť telefón a ordinačné hodiny</a></div>' +
+        (members.length && !pharmacy
+          ? '<div class="field"><label>Naplánovať návštevu</label><div class="chips wrap">' +
+            members.map((m) => '<button type="button" class="chip" data-visit="' + esc(m.id) + '"><span class="ms">' + (m.isChild ? 'child_care' : 'person') + '</span>' + esc(m.name) + '</button>').join('') +
+            '</div></div>'
+          : '') +
+        '<div class="actions"><button type="button" class="btn text" id="close">Zavrieť</button></div>',
+      (root) => {
+        root.querySelector('#close').onclick = closeModal;
+        root.querySelectorAll('[data-here]').forEach((b) => (b.onclick = () => doctorDetail(doctorList()[Number(b.dataset.here)])));
+        root.querySelectorAll('[data-visit]').forEach((b) => {
+          b.onclick = () => {
+            const m = member(b.dataset.visit);
+            if (m) eventForm(m, null, { subtype: doctorSubtype(d), notes: d.name + '\n' + addr });
           };
         });
       },
@@ -1262,16 +1453,17 @@
     );
   }
 
-  function eventForm(m, e) {
+  /** pre = predvyplnenie novej návštevy (z databázy lekárov): { subtype, notes }. */
+  function eventForm(m, e, pre) {
     let type = e ? e.eventType : 'doctor_visit';
     const day = S.calDay && S.calDay >= today() ? S.calDay : addDays(today(), 1);
     const at = e ? localInput(e.eventAt) : day + 'T09:00';
     openModal(
       '<h2>' + (e ? 'Upraviť udalosť' : 'Nová udalosť') + ' – ' + esc(m.name) + '</h2><form id="f">' +
         '<div class="chips zd-types">' + Object.entries(EVENT_TYPES).map(([k, v]) => '<button type="button" class="chip' + (k === type ? ' active' : '') + '" data-type="' + k + '"><span class="ms">' + v.icon + '</span>' + v.name + '</button>').join('') + '</div>' +
-        '<div class="field"><label>Podtyp (lekár, vyšetrenie, očkovanie)</label><input name="subtype" list="subtypes" required maxlength="120" autocomplete="off" placeholder="Začni písať, napr. pediater" value="' + esc(e ? e.subtype : '') + '"><datalist id="subtypes"></datalist></div>' +
+        '<div class="field"><label>Podtyp (lekár, vyšetrenie, očkovanie)</label><input name="subtype" list="subtypes" required maxlength="120" autocomplete="off" placeholder="Začni písať, napr. pediater" value="' + esc(e ? e.subtype : pre ? pre.subtype : '') + '"><datalist id="subtypes"></datalist></div>' +
         '<div class="field"><label>Dátum a čas</label><input type="datetime-local" name="at" required value="' + at + '"></div>' +
-        '<div class="field"><label>Poznámky</label><textarea name="notes" rows="2" maxlength="1000" placeholder="napr. vziať kartičku poistenca">' + esc(e ? e.notes : '') + '</textarea></div>' +
+        '<div class="field"><label>Poznámky</label><textarea name="notes" rows="2" maxlength="1000" placeholder="napr. vziať kartičku poistenca">' + esc(e ? e.notes : pre ? pre.notes : '') + '</textarea></div>' +
         '<div class="actions"><button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn">Uložiť</button></div></form>',
       (root) => {
         const f = root.querySelector('#f');
@@ -1305,7 +1497,7 @@
           );
         };
       },
-      { focus: e ? false : '[name=subtype]' }
+      { focus: e || pre ? false : '[name=subtype]' }
     );
   }
 

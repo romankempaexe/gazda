@@ -160,15 +160,17 @@ export default {
   async scheduled(event, env, ctx) {
     const now = new Date(event.scheduledTime);
     ctx.waitUntil(
-      scheduledTick(env.DB, now)
+      // Zdravko prvé – dávky liekov sú časovo najdôležitejšie a nesmú čakať na ostatné (ani o ne prísť
+      // pri limite dotazov D1 na jedno spustenie).
+      sendZdravkoReminders(env.DB, now)
+        .catch((err) => console.error('Zdravko: ' + err))
+        .then(() => scheduledTick(env.DB, now))
         .catch((err) => console.error('Ranný prehľad: ' + err))
         // akcie na často kupované produkty – raz denne po 9:00 (vlastný beh, mimo prehľadu)
         .then(() => sendDealAlerts({ db: env.DB, fetch: env.TEST_FETCH }, now))
         .catch((err) => console.error('Akcie: ' + err))
         .then(() => sendSkladkoAlerts(env.DB, now))
         .catch((err) => console.error('Skládko: ' + err))
-        .then(() => sendZdravkoReminders(env.DB, now))
-        .catch((err) => console.error('Zdravko: ' + err))
     );
   },
 };

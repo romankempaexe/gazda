@@ -40,6 +40,8 @@ async function sendRecordReminders(db, now) {
         tag: r.kind + '-' + r.record_id,
         app: 'zdravko',
         url: '/zdravko/',
+        urgency: 'high', // pripomienky v presný čas (lekár, striedanie liekov)
+        ttl: LATE_MS / 1000,
       });
     }
   }

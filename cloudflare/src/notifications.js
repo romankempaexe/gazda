@@ -65,18 +65,23 @@ async function pushContext(db, emails) {
 
 /**
  * Pošle správu na všetky zariadenia používateľa. Neplatné odbery (404/410) zmaže.
- * message = { title, body, tag, url }
+ * message = { title, body, tag, url, urgency?, ttl? } – urgency 'high' pre časovo dôležité správy
+ * (Android ich inak v úspornom režime odloží, kým sa telefón nezobudí), ttl v sekundách.
  */
 export async function sendToUser(db, email, message, context) {
   const ctx = context || (await pushContext(db, [email]));
   const subs = ctx.byEmail.get(email) || [];
   if (!subs.length) return 0;
   const { vapid, subject } = ctx;
-  const payload = JSON.stringify({ ...message, body: truncate(message.body || '', MAX_BODY) });
+  const { urgency, ttl, ...content } = message;
+  const payload = JSON.stringify({ ...content, body: truncate(content.body || '', MAX_BODY) });
+  const options = {};
+  if (urgency) options.urgency = urgency;
+  if (ttl) options.ttl = ttl;
   let sent = 0;
   for (const s of subs) {
     try {
-      const status = await sendWebPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, vapid, subject);
+      const status = await sendWebPush({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, vapid, subject, options);
       if (status === 404 || status === 410) {
         await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(s.endpoint).run();
       } else if (status >= 200 && status < 300) {

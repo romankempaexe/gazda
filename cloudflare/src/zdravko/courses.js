@@ -117,6 +117,9 @@ export function doseMessage(course, doseIso, followup = 0) {
     tag: 'course-' + course.id,
     app: 'zdravko',
     url: '/zdravko/',
+    // dávka musí prísť hneď – s 'normal' ju Android v úspornom režime (Doze) zdrží, kým sa telefón nezobudí
+    urgency: 'high',
+    ttl: LATE_MS / 1000,
   };
 }
 

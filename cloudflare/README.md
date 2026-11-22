@@ -163,9 +163,30 @@ desktopového QuickStashu (repozitár `quickstash`, PySide6 a Apps Script) ako p
   aj starší formát `"password": true`) alebo zo zálohy webu; rovnaký názov sa prepíše, súbory a
   priečinky sa prenesú ako text (cesta). *Stiahnuť zálohu* uloží JSON v tom istom formáte.
 - **Naživo:** zmeny od ostatných sa ukážu samé (`quickstash/getRev`, `households.quickstash_rev`).
+- **Synchronizácia s Google Drive:** *Môj účet → Google Drive* – vyber súbor (JSON z desktopového
+  QuickStashu `data.json`, Google Tabuľku so stĺpcami *Názov | Hodnota | Typ* (heslo / text) alebo
+  Google Dokument s JSON). Keď súbor upravíš, ťukni nad zoznamom na **Synchronizovať**: položky zo
+  súboru sa prepíšu, nové pribudnú, tie zo súboru, ktoré v ňom už nie sú, zmiznú; položky pridané v
+  aplikácii ostanú (`quickstash_entries.sync_file`). Súbor číta prehliadač s Google oprávnením
+  `drive.readonly` (token len v pamäti stránky), server dostane len obsah (`quickstash/syncFile`,
+  prepojenie v `quickstash_sync`, migrácia 0022).
+  **Nastavenie (raz):** v [Google Cloud Console](https://console.cloud.google.com/) v projekte s Client ID
+  prihlásenia zapni **Google Drive API** (*APIs & Services → Library*) a na *OAuth consent screen →
+  Data access* pridaj rozsah `…/auth/drive.readonly`. Kým aplikácia nie je overená Googlom, ukáže
+  Google pri prvom povolení upozornenie *Google toto aplikáciu neoveril* (*Rozšírené → Pokračovať*);
+  v režime *Testing* musia byť členovia rodiny pridaní ako *Test users*.
+- **Zámok odtlačkom prsta:** *Môj účet → Zámok odtlačkom* (WebAuthn – odtlačok prsta, Face ID,
+  Windows Hello). Kto ho zapne, tomu server položky vydá len na odomknutom zariadení (relácii):
+  overí podpis výzvy kľúčom zariadenia (`src/quickstash/lock.js`, tabuľky `webauthn_credentials`,
+  `webauthn_challenges`, `sessions.qs_unlocked_until`). Odomknutie platí 15 min od posledného
+  použitia, aplikácia sa sama zamkne po minúte na pozadí. Platí na všetkých zariadeniach človeka –
+  počítač bez snímača sa odomkne prístupovým kľúčom z telefónu (QR kód) a potom si môže pridať
+  vlastný. So zámkom sa položky neukladajú do pamäte telefónu (bez internetu sa neotvorí).
+  Núdzové vypnutie (stratené všetky zariadenia): `npx wrangler d1 execute gazda --remote
+  --command "DELETE FROM webauthn_credentials WHERE email = 'meno@gmail.com'"`.
 - **Bezpečnosť:** heslá sú v D1 (šifrovaná na disku Cloudflare) a v pamäti telefónu (posledné
   údaje na otvorenie bez internetu) – pri odhlásení sa zmažú.
-- Tabuľka `quickstash_entries` (migrácia 0016), funkcie `POST /api/quickstash/<funkcia>` v `src/quickstash/api.js`.
+- Tabuľka `quickstash_entries` (migrácia 0016, synchronizácia a zámok 0022), funkcie `POST /api/quickstash/<funkcia>` v `src/quickstash/api.js`.
 
 ## Financie (`/financie/`)
 

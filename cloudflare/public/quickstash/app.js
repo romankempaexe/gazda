@@ -4,6 +4,10 @@
 // Všetky položky, ktoré používateľ vidí (spoločné rodiny a jeho súkromné), sa načítajú naraz
 // (quickstash/getData) a hľadá sa v nich v prehliadači. Zmeny idú na server po jednej a každých
 // pár sekúnd sa overí verzia (getRev) – zmeny od ostatných členov rodiny sa ukážu samé.
+//
+// Synchronizácia so súborom na Google Drive: prehliadač si vyžiada Google prístup na čítanie
+// Drive, stiahne súbor (JSON QuickStashu, Google Tabuľka alebo Dokument) a server položky zosúladí.
+// Zámok biometriou (WebAuthn): server vydá položky až po overení odtlačkom prsta / tvárou.
 
 (function () {
   const { $, esc, api, apiQuiet, toast, showError, openModal, closeModal, modalOpen, confirmDialog } = FG;
@@ -14,11 +18,33 @@
     q: '', // hľadaný text
     filter: 'all', // all | shared | private
     revealed: null, // id hesla, ktoré je práve odkryté
+    locked: false, // zámok biometriou – čaká sa na odomknutie
   };
 
+  const LOCK_KEY = 'quickstash.lock'; // '1' = zámok zapnutý (údaje sa neukladajú do pamäte telefónu)
+  const CRED_KEY = 'quickstash.credId'; // kľúč (odtlačok) tohto zariadenia
+  const RELOCK_MS = 60000; // po minúte na pozadí sa QuickStash zamkne
+  const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+
   const snapKey = () => 'quickstash.snap.' + S.hh;
+  const lockOn = () => FG.readStore(LOCK_KEY) === '1';
+  const isLocked = (err) => Boolean(err && err.code === 'QS_LOCKED');
+
+  function setLockFlag(on) {
+    FG.writeStore(LOCK_KEY, on ? '1' : null);
+    if (!on) return;
+    // so zámkom sa heslá nesmú dať prečítať z pamäte telefónu
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('quickstash.snap.'))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (e) {
+      // bez úložiska nie je čo mazať
+    }
+  }
 
   function saveSnapshot() {
+    if (lockOn()) return;
     try {
       localStorage.setItem(snapKey(), JSON.stringify(S.data));
     } catch (e) {
@@ -94,6 +120,8 @@
     const fresh = await (quiet ? apiQuiet : api)('quickstash/getData', S.hh);
     if (fresh.householdId !== S.hh) return;
     S.data = fresh;
+    S.locked = false;
+    if (Boolean(fresh.lock) !== lockOn()) setLockFlag(fresh.lock);
     saveSnapshot();
   }
 
@@ -102,7 +130,8 @@
       await load(true);
       if (!modalOpen()) renderList();
     } catch (err) {
-      showError(err);
+      if (isLocked(err)) showLock();
+      else showError(err);
     }
   }
 
@@ -120,9 +149,15 @@
     }
   }
   setInterval(checkRev, 8000);
+  let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) hideSecret();
-    else checkRev();
+    if (document.hidden) {
+      hideSecret();
+      hiddenAt = Date.now();
+    } else if (lockOn() && S.data && hiddenAt && Date.now() - hiddenAt > RELOCK_MS) {
+      apiQuiet('quickstash/lockNow').catch(() => {});
+      showLock();
+    } else checkRev();
   });
 
   /** Uloží zmenu a obnoví zoznam. */
@@ -134,7 +169,8 @@
       if (ok) toast(typeof ok === 'function' ? ok(res) : ok);
       return res;
     } catch (err) {
-      showError(err);
+      if (isLocked(err)) showLock();
+      else showError(err);
       return null;
     }
   }
@@ -144,6 +180,7 @@
   function render() {
     $('title').textContent = 'QuickStash';
     if (!S.hh) return renderNoFamily();
+    if (S.locked) return showLock();
     if (!S.data) {
       $('view').innerHTML = '<div class="center muted">Načítavam…</div>';
       return;
@@ -154,6 +191,7 @@
       '<div class="field qs-search"><span class="ms">search</span>' +
       '<input type="search" id="q" placeholder="Hľadať… (Enter = prvá položka)" value="' + esc(S.q) + '" autocomplete="off" enterkeyhint="go"></div>' +
       '<div class="chips">' + chip('all', 'Všetko') + chip('shared', 'Spoločné v rodine') + chip('private', 'Len moje') + '</div>' +
+      syncBarHtml() +
       '<div id="list" class="qs-list"></div>';
     FG.bindHouseholdPicker((id) => {
       S.hh = id;
@@ -182,6 +220,7 @@
     fab.innerHTML = '<button type="button" class="btn" id="add"><span class="ms">add</span>Pridať</button>';
     fab.classList.remove('hidden');
     $('add').onclick = () => entryForm(null);
+    bindSyncBar();
     renderList();
   }
 
@@ -201,7 +240,8 @@
       '<div class="qs-entry">' +
       '<span class="qs-kind ' + k.cls + '"><span class="ms">' + k.icon + '</span></span>' +
       '<button type="button" class="qs-body" data-primary="' + esc(e.id) + '" title="' + (k.cls === 'link' ? 'Otvoriť odkaz' : 'Skopírovať') + '">' +
-      '<div class="qs-name">' + esc(e.name) + (e.private ? '<span class="ms" title="Len pre teba">lock</span>' : '') + '</div>' +
+      '<div class="qs-name">' + esc(e.name) + (e.private ? '<span class="ms" title="Len pre teba">lock</span>' : '') +
+      (e.synced ? '<span class="ms" title="Zo súboru na Google Drive">cloud_sync</span>' : '') + '</div>' +
       '<div class="qs-value' + (e.type === 'password' ? (shown ? ' revealed' : ' secret') : '') + '">' + esc(value) + '</div></button>' +
       '<div class="qs-actions">' +
       (e.type === 'password' ? btn('show', shown ? 'visibility_off' : 'visibility', 'Ukázať / skryť', shown ? ' on' : '') : '') +
@@ -220,7 +260,7 @@
       box.innerHTML =
         '<div class="empty compact"><span class="ms">content_paste</span><h2>Zatiaľ prázdne</h2>' +
         '<div>Pridaj text, odkaz alebo heslo, ktoré často kopíruješ – Wi-Fi heslo, číslo účtu, adresu…</div>' +
-        '<div style="margin-top:8px">Máš zálohu z desktopového QuickStashu? <b>Môj účet</b> → <b>Import zálohy</b>.</div></div>';
+        '<div style="margin-top:8px">Máš súbor z desktopového QuickStashu? <b>Môj účet</b> → <b>Google Drive</b> (synchronizácia) alebo <b>Import zálohy</b>.</div></div>';
       return;
     }
     if (!list.length) {
@@ -264,6 +304,7 @@
         '<input name="val" required maxlength="4000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Text, odkaz alebo heslo">' +
         '<div class="qs-inline"><button type="button" class="icon-btn small" id="eye" title="Ukázať / skryť"><span class="ms">visibility</span></button>' +
         '<button type="button" class="icon-btn small" id="paste" title="Vložiť zo schránky"><span class="ms">content_paste</span></button></div></div></div>' +
+        (e && e.synced ? '<div class="hint qs-note"><span class="ms">cloud_sync</span>Položka je zo súboru na Google Drive – pri ďalšej synchronizácii ju súbor prepíše. Zmeny rob radšej v súbore.</div>' : '') +
         '<label class="qs-check"><input type="checkbox" name="priv"' + (e && e.private ? ' checked' : '') + '><span>Len pre mňa' +
         '<small>Súkromnú položku neuvidí nikto iný z rodiny. Inak ju vidia a môžu meniť všetci v rodine.</small></span></label>' +
         '<div class="actions">' +
@@ -370,9 +411,490 @@
             render();
             toast('Import: pribudlo ' + res.added + (res.updated ? ', prepísané ' + res.updated : ''));
           } catch (err) {
-            showError(err);
+            if (isLocked(err)) showLock();
+            else showError(err);
           }
         };
+      }
+    );
+  }
+
+  // ---- Synchronizácia so súborom na Google Drive ------------------------------------------------
+
+  function syncBarHtml() {
+    const link = S.data && S.data.sync;
+    if (!link) return '';
+    const when = link.syncedAt ? new Date(link.syncedAt).toLocaleString('sk-SK', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    return (
+      '<div class="qs-sync"><button type="button" class="qs-sync-file" id="syncFile" title="Zmeniť súbor alebo odpojiť">' +
+      '<span class="ms">cloud_sync</span><span><b>' + esc(link.fileName || 'Súbor na Google Drive') + '</b>' +
+      (when ? '<small>synchronizované ' + esc(when) + '</small>' : '') + '</span></button>' +
+      '<button type="button" class="btn tonal small" id="syncNow"><span class="ms">sync</span>Synchronizovať</button></div>'
+    );
+  }
+
+  function bindSyncBar() {
+    if (!$('syncNow')) return;
+    FG.prepareGoogleAccess(); // okno Google sa musí otvoriť hneď po ťuknutí
+    $('syncNow').onclick = () => syncNow();
+    $('syncFile').onclick = () => driveDialog();
+  }
+
+  /** Volanie Google Drive API (v3) s prístupovým tokenom. */
+  async function drive(token, path, asText) {
+    let res;
+    try {
+      res = await fetch('https://www.googleapis.com/drive/v3/' + path, { headers: { authorization: 'Bearer ' + token } });
+    } catch (e) {
+      throw new Error('Google Drive je nedostupný. Skontroluj pripojenie na internet.');
+    }
+    if (!res.ok) {
+      let msg = '';
+      try {
+        const body = await res.json();
+        msg = (body.error && body.error.message) || '';
+      } catch (e) {
+        // bez popisu
+      }
+      if (res.status === 401) FG.forgetGoogleAccess(DRIVE_SCOPE);
+      if (res.status === 404) throw new Error('Súbor sa na Google Drive nenašiel (je zmazaný alebo k nemu nemáš prístup).');
+      if (res.status === 403 && /has not been used|is disabled|not been enabled/i.test(msg)) {
+        throw new Error('V Google Cloud projekte nie je zapnuté Google Drive API – pozri návod v README (QuickStash → Google Drive).');
+      }
+      throw new Error('Google Drive: ' + (msg || 'chyba ' + res.status));
+    }
+    return asText ? res.text() : res.json();
+  }
+
+  /** Riadky CSV (Google Tabuľka) alebo textu oddeleného tabulátorom → polia buniek. */
+  function parseRows(text) {
+    const first = text.split('\n', 1)[0];
+    const sep = first.includes('\t') ? '\t' : first.includes(';') && !first.includes(',') ? ';' : ',';
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else if (ch === '"') quoted = false;
+        else cell += ch;
+      } else if (ch === '"' && !cell) quoted = true;
+      else if (ch === sep) {
+        row.push(cell);
+        cell = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+      } else cell += ch;
+    }
+    row.push(cell);
+    rows.push(row);
+    return rows;
+  }
+
+  /** Obsah súboru → { "<názov>": { value, type } } (JSON QuickStashu alebo tabuľka Názov | Hodnota | Typ). */
+  function parseFileText(text) {
+    const t = String(text || '').replace(/^﻿/, '').trim();
+    if (t.startsWith('{')) {
+      try {
+        return JSON.parse(t);
+      } catch (e) {
+        throw new Error('Súbor vyzerá ako JSON, ale je poškodený (' + e.message + ').');
+      }
+    }
+    const out = {};
+    parseRows(t).forEach((r, i) => {
+      const name = (r[0] || '').trim();
+      const value = (r[1] || '').trim();
+      if (!name || !value) return;
+      if (i === 0 && /^(nazov|name|kluc|key|polozka)$/.test(fold(name))) return; // hlavička
+      out[name] = { value, type: /^(heslo|password|pass|h)$/.test(fold(r[2] || '').trim()) ? 'password' : 'text' };
+    });
+    if (!Object.keys(out).length) {
+      throw new Error('V súbore nie sú položky. Čakám JSON z QuickStashu alebo tabuľku so stĺpcami Názov, Hodnota, Typ (heslo / text).');
+    }
+    return out;
+  }
+
+  /** Stiahne a prečíta súbor (meta = { id, name, mimeType }). */
+  async function readDriveFile(token, meta) {
+    const id = encodeURIComponent(meta.id);
+    let text;
+    if (meta.mimeType === 'application/vnd.google-apps.spreadsheet') text = await drive(token, 'files/' + id + '/export?mimeType=text%2Fcsv', true);
+    else if (meta.mimeType === 'application/vnd.google-apps.document') text = await drive(token, 'files/' + id + '/export?mimeType=text%2Fplain', true);
+    else if (/^application\/vnd\.google-apps\./.test(meta.mimeType || '')) {
+      throw new Error('Tento typ súboru sa nedá synchronizovať – použi JSON, Google Tabuľku alebo Google Dokument.');
+    } else text = await drive(token, 'files/' + id + '?alt=media&supportsAllDrives=true', true);
+    return parseFileText(text);
+  }
+
+  const fileMeta = (token, id) => drive(token, 'files/' + encodeURIComponent(id) + '?fields=id,name,mimeType,modifiedTime&supportsAllDrives=true');
+
+  function syncSummary(res) {
+    const parts = [];
+    if (res.added) parts.push('pribudlo ' + res.added);
+    if (res.updated) parts.push('zmenené ' + res.updated);
+    if (res.removed) parts.push('zmazané ' + res.removed);
+    return '✓ Synchronizované' + (parts.length ? ': ' + parts.join(', ') : ' – bez zmien');
+  }
+
+  /** Stiahne súbor a pošle ho na server (zosúladenie položiek). */
+  async function syncWith(token, fileId, isPrivate) {
+    const meta = await fileMeta(token, fileId);
+    const entries = await readDriveFile(token, meta);
+    const res = await api('quickstash/syncFile', S.hh, { id: meta.id, name: meta.name }, entries, isPrivate);
+    S.data = res.data;
+    saveSnapshot();
+    return res;
+  }
+
+  async function syncNow() {
+    const link = S.data && S.data.sync;
+    if (!link) return driveDialog();
+    try {
+      const token = await FG.googleAccessToken(DRIVE_SCOPE);
+      const res = await syncWith(token, link.fileId, link.private);
+      render();
+      toast(syncSummary(res));
+    } catch (err) {
+      if (isLocked(err)) showLock();
+      else showError(err);
+    }
+  }
+
+  /** Id súboru z odkazu Google Drive (…/d/<id>/…, ?id=<id>) alebo samotné id. */
+  function fileIdFrom(text) {
+    const t = String(text || '').trim();
+    const m = /\/d\/([A-Za-z0-9_-]{10,})/.exec(t) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(t);
+    if (m) return m[1];
+    return /^[A-Za-z0-9_-]{10,200}$/.test(t) ? t : '';
+  }
+
+  const FILE_ICONS = { 'application/vnd.google-apps.spreadsheet': 'table', 'application/vnd.google-apps.document': 'description' };
+
+  /** Výber (alebo zmena) súboru na Google Drive a prvá synchronizácia. */
+  async function driveDialog() {
+    const link = S.data && S.data.sync;
+    let token;
+    try {
+      token = await FG.googleAccessToken(DRIVE_SCOPE);
+    } catch (err) {
+      return showError(err);
+    }
+    let files = [];
+    try {
+      const q =
+        "trashed = false and (mimeType = 'application/json' or mimeType = 'text/plain' or mimeType = 'text/csv' or " +
+        "mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.google-apps.document' or name contains '.json')";
+      const params = new URLSearchParams({ q, pageSize: '100', orderBy: 'modifiedTime desc', fields: 'files(id,name,mimeType,modifiedTime)' });
+      files = (await drive(token, 'files?' + params)).files || [];
+    } catch (err) {
+      return showError(err);
+    }
+    let chosen = link ? link.fileId : '';
+    if (link && !files.some((f) => f.id === link.fileId)) files.unshift({ id: link.fileId, name: link.fileName || 'Prepojený súbor', mimeType: '' });
+    const fileRow = (f) =>
+      '<button type="button" class="qs-file" data-file="' + esc(f.id) + '"><span class="ms">' + (FILE_ICONS[f.mimeType] || 'data_object') + '</span>' +
+      '<span><b>' + esc(f.name) + '</b>' + (f.modifiedTime ? '<small>upravený ' + esc(new Date(f.modifiedTime).toLocaleString('sk-SK', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</small>' : '') +
+      '</span></button>';
+    openModal(
+      '<h2>Synchronizácia s Google Drive</h2>' +
+        '<div class="subtitle">Vyber súbor – JSON z desktopového QuickStashu (<code>data.json</code>), Google Tabuľku so stĺpcami ' +
+        '<b>Názov | Hodnota | Typ</b> (heslo / text) alebo Google Dokument s JSON. Keď súbor upravíš, ťukni na <b>Synchronizovať</b>: ' +
+        'položky zo súboru sa prepíšu, nové pribudnú a zmazané zmiznú. Položky pridané tu v aplikácii ostanú.</div>' +
+        '<form id="f"><div class="field"><input type="search" id="fq" placeholder="Hľadať súbor…" autocomplete="off"></div>' +
+        '<div class="qs-files" id="files"></div>' +
+        '<div class="field"><label>alebo odkaz na súbor</label><input name="url" placeholder="https://drive.google.com/file/d/…" autocomplete="off"></div>' +
+        '<label class="qs-check"><input type="checkbox" name="priv"' + (!link || link.private ? ' checked' : '') + '><span>Len pre mňa' +
+        '<small>Nové položky zo súboru budú súkromné. Bez zaškrtnutia ich uvidí celá rodina.</small></span></label>' +
+        '<div class="actions">' +
+        (link ? '<button type="button" class="btn text danger-text" id="unlink" style="margin-right:auto"><span class="ms">link_off</span>Odpojiť</button>' : '') +
+        '<button type="button" class="btn text" id="cancel">Zrušiť</button><button class="btn"><span class="ms">sync</span>Synchronizovať</button></div></form>',
+      (root) => {
+        const f = root.querySelector('#f');
+        const box = root.querySelector('#files');
+        const show = () => {
+          const terms = fold(root.querySelector('#fq').value).split(/\s+/).filter(Boolean);
+          const list = files.filter((x) => terms.every((t) => fold(x.name).includes(t)));
+          box.innerHTML = list.length ? list.map(fileRow).join('') : '<div class="muted qs-files-empty">Žiadny vhodný súbor (JSON, Tabuľka, Dokument).</div>';
+          box.querySelectorAll('[data-file]').forEach((b) => {
+            b.classList.toggle('active', b.dataset.file === chosen);
+            b.onclick = () => {
+              chosen = b.dataset.file;
+              f.url.value = '';
+              show();
+            };
+          });
+        };
+        root.querySelector('#fq').oninput = show;
+        f.url.oninput = () => {
+          if (f.url.value.trim()) {
+            chosen = '';
+            show();
+          }
+        };
+        show();
+        root.querySelector('#cancel').onclick = closeModal;
+        const unlink = root.querySelector('#unlink');
+        if (unlink) {
+          unlink.onclick = async () => {
+            if (!(await confirmDialog('Odpojiť súbor?', 'Položky ostanú, len sa už nebudú synchronizovať.', 'Odpojiť'))) return driveDialog();
+            try {
+              S.data = await api('quickstash/unlinkSync', S.hh);
+              saveSnapshot();
+              render();
+              toast('Súbor odpojený');
+            } catch (err) {
+              if (isLocked(err)) showLock();
+              else showError(err);
+            }
+          };
+        }
+        f.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const id = f.url.value.trim() ? fileIdFrom(f.url.value) : chosen;
+          if (!id) return toast(f.url.value.trim() ? 'Toto nie je odkaz na súbor Google Drive.' : 'Vyber súbor.', true);
+          try {
+            const res = await syncWith(token, id, f.priv.checked);
+            closeModal(true);
+            render();
+            toast(syncSummary(res));
+          } catch (err) {
+            if (isLocked(err)) {
+              closeModal(true);
+              showLock();
+            } else showError(err);
+          }
+        };
+      }
+    );
+  }
+
+  // ---- Zámok biometriou (WebAuthn) ------------------------------------------------------------------
+
+  const b64e = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const b64d = (text) => Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((text.length + 3) % 4)), (ch) => ch.charCodeAt(0));
+  const webauthnSupported = () => Boolean(window.PublicKeyCredential && navigator.credentials);
+
+  function deviceName() {
+    const ua = navigator.userAgent;
+    const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Zariadenie';
+    const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+    return os + (browser ? ' · ' + browser : '');
+  }
+
+  function webauthnError(err) {
+    if (err && err.name === 'NotAllowedError') return 'Overenie bolo zrušené alebo vypršalo – skús znova.';
+    if (err && err.name === 'InvalidStateError') return 'Toto zariadenie už je pridané.';
+    if (err && err.name === 'SecurityError') return 'Overenie tu nie je povolené (otvor aplikáciu cez https).';
+    return FG.errorMessage(err);
+  }
+
+  let unlockPrep = null; // výzva pripravená vopred – Safari chce okno odtlačku hneď po ťuknutí
+  function prepareUnlock() {
+    unlockPrep = apiQuiet('quickstash/unlockBegin')
+      .then((b) => ({ ...b, at: Date.now() }))
+      .catch(() => null);
+  }
+
+  /** Zamknutá obrazovka – položky sú preč z pamäte, kým sa človek neoverí. */
+  function showLock() {
+    S.locked = true;
+    S.data = null;
+    S.revealed = null;
+    if (!lockOn()) setLockFlag(true);
+    if (modalOpen()) closeModal(true);
+    $('fab').classList.add('hidden');
+    $('view').innerHTML =
+      '<div class="empty qs-lock"><span class="ms">lock</span><h2>QuickStash je zamknutý</h2>' +
+      '<div>Odomkni ho odtlačkom prsta, tvárou alebo zámkom obrazovky.</div>' +
+      '<button type="button" class="btn" id="unlockBtn"><span class="ms">fingerprint</span>Odomknúť</button>' +
+      '<div class="hint" id="lockHint"></div></div>';
+    $('unlockBtn').onclick = () => doUnlock(false);
+    prepareUnlock();
+    // Chrome otvorí overenie aj bez ťuknutia; Safari (iPhone, Mac) len po ťuknutí
+    if (!/iPhone|iPad|Macintosh/.test(navigator.userAgent) && document.hasFocus()) doUnlock(true);
+  }
+
+  let unlocking = false;
+  async function doUnlock(auto) {
+    if (unlocking) return;
+    unlocking = true;
+    const hint = $('lockHint');
+    if (hint) hint.textContent = '';
+    try {
+      if (!webauthnSupported()) throw new Error('Tento prehliadač nepodporuje odtlačok prsta ani Face ID.');
+      let begin = unlockPrep && (await unlockPrep);
+      unlockPrep = null;
+      if (!begin || Date.now() - begin.at > 4 * 60000) begin = await apiQuiet('quickstash/unlockBegin');
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: b64d(begin.challenge),
+          rpId: begin.rpId,
+          allowCredentials: begin.allow.map((id) => ({ type: 'public-key', id: b64d(id) })),
+          userVerification: 'required',
+          timeout: 60000,
+        },
+      });
+      const r = cred.response;
+      await api('quickstash/unlock', {
+        id: cred.id,
+        clientDataJSON: b64e(r.clientDataJSON),
+        authenticatorData: b64e(r.authenticatorData),
+        signature: b64e(r.signature),
+      });
+      S.locked = false;
+      unlocking = false;
+      await start();
+    } catch (err) {
+      unlocking = false;
+      if (err && err.status === 400 && /nie je zapnutý/.test(err.message)) {
+        // zámok medzičasom vypli na inom zariadení
+        setLockFlag(false);
+        S.locked = false;
+        return start();
+      }
+      if (FG.isLoginRequired(err)) return;
+      prepareUnlock();
+      const box = $('lockHint');
+      if (box && !(auto && err && err.name === 'NotAllowedError')) box.textContent = webauthnError(err);
+    }
+  }
+
+  /** Zapne zámok / pridá toto zariadenie (vytvorí kľúč chránený biometriou). */
+  async function addThisDevice(prep) {
+    let begin = prep && (await prep);
+    if (!begin) begin = await api('quickstash/lockBegin');
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: b64d(begin.challenge),
+        rp: { id: begin.rpId, name: 'Family Grid' },
+        user: { id: b64d(begin.userId), name: begin.userName, displayName: FG.state.nickname || begin.userName },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -257 },
+        ],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+        excludeCredentials: begin.exclude.map((id) => ({ type: 'public-key', id: b64d(id) })),
+        attestation: 'none',
+        timeout: 60000,
+      },
+    });
+    const r = cred.response;
+    const publicKey = r.getPublicKey ? r.getPublicKey() : null;
+    if (!publicKey || !r.getAuthenticatorData) throw new Error('Tento prehliadač je na zámok odtlačkom príliš starý – aktualizuj ho.');
+    const info = await api('quickstash/lockEnable', {
+      id: cred.id,
+      publicKey: b64e(publicKey),
+      alg: r.getPublicKeyAlgorithm(),
+      clientDataJSON: b64e(r.clientDataJSON),
+      authenticatorData: b64e(r.getAuthenticatorData()),
+      device: deviceName(),
+    });
+    FG.writeStore(CRED_KEY, cred.id);
+    setLockFlag(true);
+    return info;
+  }
+
+  async function lockDialog() {
+    if (!webauthnSupported()) return toast('Tento prehliadač nepodporuje odtlačok prsta ani Face ID.', true);
+    let info;
+    try {
+      info = await api('quickstash/getLock');
+    } catch (err) {
+      return showError(err);
+    }
+    if (info.enabled && !info.unlocked) {
+      closeModal(true);
+      return showLock();
+    }
+    const platform = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false);
+    const mine = FG.readStore(CRED_KEY);
+    const canAdd = platform && !info.devices.some((d) => d.id === mine);
+    const prep = canAdd ? apiQuiet('quickstash/lockBegin').catch(() => null) : null;
+    const date = (iso) => (iso ? new Date(iso).toLocaleDateString('sk-SK') : '');
+    openModal(
+      '<h2>Zámok odtlačkom prsta</h2>' +
+        '<div class="subtitle">' +
+        (info.enabled
+          ? 'QuickStash sa na každom tvojom zariadení otvorí až po overení odtlačkom prsta, tvárou (Face ID) alebo zámkom obrazovky. Sám sa zamkne, keď je aplikácia viac ako minútu na pozadí.'
+          : 'Po zapnutí sa QuickStash otvorí až po overení odtlačkom prsta, tvárou (Face ID) alebo zámkom obrazovky – na každom tvojom zariadení (aj počítači, tam cez Windows Hello alebo telefón). Heslá sa potom neukladajú do pamäte telefónu.') +
+        '</div>' +
+        (info.devices.length
+          ? '<div class="qs-devices">' +
+            info.devices
+              .map(
+                (d) =>
+                  '<div class="qs-device"><span class="ms">fingerprint</span><span><b>' + esc(d.device) + (d.id === mine ? ' (toto zariadenie)' : '') + '</b>' +
+                  '<small>pridané ' + esc(date(d.createdAt)) + (d.lastUsedAt ? ' · naposledy ' + esc(date(d.lastUsedAt)) : '') + '</small></span>' +
+                  '<button type="button" class="icon-btn small" data-remove="' + esc(d.id) + '" title="Odobrať"><span class="ms">delete</span></button></div>'
+              )
+              .join('') +
+            '</div>'
+          : '') +
+        (!platform ? '<div class="hint">Toto zariadenie nemá odtlačok prsta ani Windows Hello. ' + (info.enabled ? 'Odomkneš ho prístupovým kľúčom z telefónu (QR kód).' : 'Zapni zámok na telefóne.') + '</div>' : '') +
+        '<div class="actions">' +
+        (info.enabled ? '<button type="button" class="btn text danger-text" id="off" style="margin-right:auto"><span class="ms">lock_open</span>Vypnúť</button>' : '') +
+        '<button type="button" class="btn text" id="cancel">Zavrieť</button>' +
+        (canAdd ? '<button type="button" class="btn" id="on"><span class="ms">fingerprint</span>' + (info.enabled ? 'Pridať toto zariadenie' : 'Zapnúť') + '</button>' : '') +
+        '</div>',
+      (root) => {
+        root.querySelector('#cancel').onclick = closeModal;
+        const on = root.querySelector('#on');
+        if (on) {
+          on.onclick = async () => {
+            try {
+              await addThisDevice(prep);
+              closeModal(true);
+              toast(info.enabled ? '✓ Zariadenie pridané' : '✓ Zámok zapnutý');
+            } catch (err) {
+              toast(webauthnError(err), true);
+              if (!err || err.name !== 'InvalidStateError') lockDialog();
+            }
+          };
+        }
+        const off = root.querySelector('#off');
+        if (off) {
+          off.onclick = async () => {
+            if (!(await confirmDialog('Vypnúť zámok?', 'QuickStash sa bude otvárať bez overenia na všetkých zariadeniach.', 'Vypnúť', true))) return lockDialog();
+            try {
+              await api('quickstash/lockDisable');
+              setLockFlag(false);
+              FG.writeStore(CRED_KEY, null);
+              saveSnapshot();
+              toast('Zámok vypnutý');
+            } catch (err) {
+              if (isLocked(err)) showLock();
+              else showError(err);
+            }
+          };
+        }
+        root.querySelectorAll('[data-remove]').forEach((b) => {
+          b.onclick = async () => {
+            const d = info.devices.find((x) => x.id === b.dataset.remove);
+            const last = info.devices.length === 1;
+            if (!(await confirmDialog('Odobrať ' + d.device + '?', last ? 'Je to posledné zariadenie – zámok sa vypne.' : 'Toto zariadenie sa potom odomkne len iným kľúčom.', 'Odobrať', true))) return lockDialog();
+            try {
+              const res = await api('quickstash/lockRemove', d.id);
+              if (d.id === mine) FG.writeStore(CRED_KEY, null);
+              if (!res.enabled) {
+                setLockFlag(false);
+                saveSnapshot();
+              }
+              lockDialog();
+            } catch (err) {
+              if (isLocked(err)) showLock();
+              else showError(err);
+            }
+          };
+        });
       }
     );
   }
@@ -384,13 +906,14 @@
     S.hh = h ? h.id : null;
     if (!S.hh) return render();
     FG.setHousehold(S.hh);
-    if (!S.data || S.data.householdId !== S.hh) S.data = FG.readJson(snapKey());
+    if (!S.data || S.data.householdId !== S.hh) S.data = lockOn() ? null : FG.readJson(snapKey());
     render();
     try {
       await load(Boolean(S.data));
       render();
     } catch (err) {
-      if (err.offline && S.data) toast('Bez internetu – ukazujem posledné uložené údaje');
+      if (isLocked(err)) showLock();
+      else if (err.offline && S.data) toast('Bez internetu – ukazujem posledné uložené údaje');
       else if (!FG.isLoginRequired(err)) showError(err);
     }
   }
@@ -398,9 +921,17 @@
   FG.start({
     onReady: () => start(),
     accountExtra: () => [
-      '<button type="button" class="btn tonal small" id="qsImport" style="margin:4px 8px 12px 0"><span class="ms">upload</span>Import zálohy</button>' +
+      '<button type="button" class="btn tonal small" id="qsDrive" style="margin:4px 8px 8px 0"><span class="ms">cloud_sync</span>Google Drive</button>' +
+        '<button type="button" class="btn tonal small" id="qsLock" style="margin:4px 0 8px"><span class="ms">fingerprint</span>Zámok odtlačkom</button><br>' +
+        '<button type="button" class="btn tonal small" id="qsImport" style="margin:4px 8px 12px 0"><span class="ms">upload</span>Import zálohy</button>' +
         '<button type="button" class="btn tonal small" id="qsExport" style="margin:4px 0 12px"><span class="ms">download</span>Stiahnuť zálohu</button>',
       (root) => {
+        root.querySelector('#qsDrive').onclick = () => {
+          if (!S.hh) return toast('Najprv vytvor rodinu.', true);
+          if (!S.data) return S.locked ? showLock() : toast('Počkaj, kým sa položky načítajú.', true);
+          driveDialog();
+        };
+        root.querySelector('#qsLock').onclick = () => lockDialog();
         root.querySelector('#qsImport').onclick = () => {
           if (!S.hh) return toast('Najprv vytvor rodinu.', true);
           importDialog();

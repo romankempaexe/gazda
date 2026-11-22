@@ -156,3 +156,115 @@
 .qs-seg .chip .ms {
   font-size: 18px;
 }
+
+/* synchronizácia so súborom na Google Drive */
+.qs-sync {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 6px 8px 6px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.qs-sync-file,
+.qs-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qs-sync-file > .ms,
+.qs-file > .ms {
+  color: var(--primary-strong);
+}
+.qs-sync-file b,
+.qs-file b {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qs-sync-file small,
+.qs-file small,
+.qs-device small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.qs-sync-file > span:last-child,
+.qs-file > span:last-child,
+.qs-device > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.qs-files {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+.qs-file.active {
+  background: var(--primary-soft);
+}
+.qs-files-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 14px;
+}
+.qs-note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: -4px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.qs-note .ms {
+  font-size: 18px;
+}
+
+/* zámok biometriou */
+.qs-lock .btn {
+  margin-top: 18px;
+}
+.qs-lock .hint {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--danger, #dc2626);
+}
+.qs-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.qs-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.qs-device > .ms {
+  color: var(--primary-strong);
+}
+.qs-device b {
+  font-weight: 600;
+  font-size: 14px;
+}

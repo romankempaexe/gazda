@@ -257,6 +257,48 @@
     return gisScript;
   }
 
+  let googleConfig = null;
+  async function googleClientId() {
+    if (!googleConfig) googleConfig = fetch('/api/auth/config').then((r) => r.json()).catch(() => (googleConfig = null));
+    const config = await googleConfig;
+    const id = config && config.result && config.result.googleClientId;
+    if (!id) throw new Error('Prihlásenie Google účtom ešte nie je nastavené (chýba Client ID).');
+    return id;
+  }
+
+  /** Pripraví Google prihlásenie vopred (okno súhlasu sa musí otvoriť hneď po ťuknutí). */
+  function prepareGoogleAccess() {
+    return Promise.all([googleClientId(), loadGoogleScript()]).catch(() => null);
+  }
+
+  const accessTokens = {}; // scope → { token, expires } (len v pamäti tejto stránky)
+
+  /**
+   * Prístupový token Google s oprávnením scope (napr. čítanie Google Drive) – Google ukáže okno
+   * súhlasu (pri ďalších razoch len krátko blikne). Volať z ťuknutia (otvára okno).
+   */
+  async function googleAccessToken(scope) {
+    const cached = accessTokens[scope];
+    if (cached && cached.expires > Date.now() + 60000) return cached.token;
+    const [clientId] = await Promise.all([googleClientId(), loadGoogleScript()]);
+    return new Promise((resolve, reject) => {
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope,
+        hint: state.email || undefined,
+        callback: (r) => {
+          if (r.error || !r.access_token) return reject(new Error('Google prístup nepovolil (' + (r.error_description || r.error || 'zrušené') + ').'));
+          if (!google.accounts.oauth2.hasGrantedAllScopes(r, scope)) return reject(new Error('Bez povolenia prístupu k súborom to nepôjde – zaškrtni ho v okne Google.'));
+          accessTokens[scope] = { token: r.access_token, expires: Date.now() + (Number(r.expires_in) || 3600) * 1000 };
+          resolve(r.access_token);
+        },
+        error_callback: (e) =>
+          reject(new Error(e && e.type === 'popup_failed_to_open' ? 'Prehliadač zablokoval okno Google – povoľ vyskakovacie okná a skús znova.' : 'Okno Google bolo zatvorené.')),
+      });
+      client.requestAccessToken();
+    });
+  }
+
   async function renderGoogleButton() {
     const hint = $('loginHint');
     try {
@@ -1125,6 +1167,9 @@
     installApp,
     canInstall,
     rememberApp,
+    prepareGoogleAccess,
+    googleAccessToken,
+    forgetGoogleAccess: (scope) => delete accessTokens[scope],
     setLoginHandler: (fn) => (onLoginRequired = fn),
   };
 })();

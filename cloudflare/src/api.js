@@ -203,6 +203,7 @@ export async function deleteHousehold(c, householdId) {
     del('financie_items'),
     del('financie_categories'),
     del('quickstash_entries'),
+    del('quickstash_sync'),
     del('zdravko_courses'),
     del('zdravko_reminders'),
     del('zdravko_records'),

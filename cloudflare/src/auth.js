@@ -63,6 +63,12 @@ export async function authenticate(db, request) {
   throw Object.assign(new AppError('Prihlás sa svojím Google účtom.', 401), { code: LOGIN_REQUIRED });
 }
 
+/** SHA-256 cookie relácie (identifikuje toto zariadenie), alebo ''. */
+export async function sessionHashOf(request) {
+  const value = readCookie(request, SESSION_COOKIE);
+  return /^[0-9a-f]{64}$/.test(value) ? hashToken(value) : '';
+}
+
 /** Odhlási toto zariadenie a vráti hlavičku Set-Cookie, ktorá cookie zmaže. */
 export async function endSession(db, request) {
   const value = readCookie(request, SESSION_COOKIE);

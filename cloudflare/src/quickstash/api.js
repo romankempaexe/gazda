@@ -7,6 +7,7 @@
 
 import { requireFamilyMember } from '../family.js';
 import { AppError, nowIso, requireText } from '../domain.js';
+import { requireUnlocked } from './lock.js';
 
 const uuid = () => crypto.randomUUID();
 const MAX_NAME = 80;
@@ -16,6 +17,7 @@ export const TYPES = ['text', 'password'];
 
 const toEntry = (r) => ({
   id: r.id,
+  synced: Boolean(r.sync_file), // prišla zo súboru na Google Drive
   name: r.name,
   value: r.value,
   type: r.type,
@@ -36,6 +38,7 @@ async function findEntry(c, id) {
     throw new AppError('Položka neexistuje (možno ju medzičasom niekto vymazal).', 404);
   }
   await requireFamilyMember(c, row.household_id);
+  await requireUnlocked(c);
   return row;
 }
 
@@ -66,14 +69,20 @@ async function checkUniqueName(c, householdId, name, exceptId) {
 
 export async function getData(c, householdId) {
   await requireFamilyMember(c, householdId);
-  const [household, entries] = await c.db.batch([
+  const lock = await requireUnlocked(c);
+  const [household, entries, sync] = await c.db.batch([
     c.db.prepare('SELECT quickstash_rev FROM households WHERE id = ?').bind(householdId),
     c.db.prepare(`SELECT * FROM quickstash_entries WHERE ${VISIBLE} ORDER BY name COLLATE NOCASE`).bind(householdId, c.email),
+    c.db.prepare('SELECT * FROM quickstash_sync WHERE email = ? AND household_id = ?').bind(c.email, householdId),
   ]);
+  const link = sync.results[0];
   return {
     householdId,
     rev: household.results[0] ? household.results[0].quickstash_rev : 0,
     entries: entries.results.map(toEntry),
+    lock, // zámok biometriou zapnutý – aplikácia si údaje neukladá do pamäte telefónu
+    // prepojený súbor na Google Drive (synchronizácia), alebo null
+    sync: link ? { fileId: link.file_id, fileName: link.file_name, private: Boolean(link.private), syncedAt: link.synced_at } : null,
   };
 }
 
@@ -104,6 +113,7 @@ export async function saveEntry(c, householdId, data) {
     return toEntry({ ...old, name, value, type, owner_email: owner, updated_at: now });
   }
   await requireFamilyMember(c, householdId);
+  await requireUnlocked(c);
   await checkUniqueName(c, householdId, name);
   const row = { id: uuid(), household_id: householdId, owner_email: owner, name, value, type, created_by: c.email, created_at: now, updated_at: now };
   await c.db
@@ -132,21 +142,9 @@ export async function deleteEntry(c, entryId) {
  */
 export async function importEntries(c, householdId, entries, mode, isPrivate) {
   await requireFamilyMember(c, householdId);
-  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new AppError('Neplatný súbor zálohy.');
+  await requireUnlocked(c);
   const owner = isPrivate ? c.email : '';
-  const incoming = [];
-  const seen = new Set();
-  for (const [key, v] of Object.entries(entries)) {
-    if (!v || typeof v !== 'object' || v.value === undefined || v.value === null) continue;
-    const name = String(key).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
-    const value = String(v.value).trim();
-    if (!name || !value || value.length > MAX_VALUE || seen.has(name.toLowerCase())) continue;
-    seen.add(name.toLowerCase());
-    incoming.push({ name, value, type: v.type === 'password' || (v.password === true && !v.isFile) ? 'password' : 'text' });
-  }
-  if (!incoming.length) throw new AppError('V súbore nie sú žiadne položky.');
-  if (incoming.length > MAX_IMPORT) throw new AppError('Naraz sa dá preniesť najviac ' + MAX_IMPORT + ' položiek.');
-
+  const incoming = parseEntries(entries);
   const statements = [];
   if (mode === 'replace') {
     statements.push(c.db.prepare('DELETE FROM quickstash_entries WHERE household_id = ? AND owner_email = ?').bind(householdId, owner));
@@ -178,4 +176,101 @@ export async function importEntries(c, householdId, entries, mode, isPrivate) {
   }
   await c.db.batch(statements);
   return { added, updated, data: await getData(c, householdId) };
+}
+
+/** Položky zo zálohy / súboru: { "<názov>": { value, type } } → [{ name, value, type }] (bez prázdnych a duplicít). */
+export function parseEntries(entries) {
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) throw new AppError('Neplatný súbor zálohy.');
+  const incoming = [];
+  const seen = new Set();
+  for (const [key, v] of Object.entries(entries)) {
+    if (!v || typeof v !== 'object' || v.value === undefined || v.value === null) continue;
+    const name = String(key).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+    const value = String(v.value).trim();
+    if (!name || !value || value.length > MAX_VALUE || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    incoming.push({ name, value, type: v.type === 'password' || (v.password === true && !v.isFile) ? 'password' : 'text' });
+  }
+  if (!incoming.length) throw new AppError('V súbore nie sú žiadne položky.');
+  if (incoming.length > MAX_IMPORT) throw new AppError('Naraz sa dá preniesť najviac ' + MAX_IMPORT + ' položiek.');
+  return incoming;
+}
+
+// ---- Synchronizácia so súborom na Google Drive -------------------------------------------------
+
+const FILE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
+
+/**
+ * Zosúladí položky so súborom na Google Drive (súbor prečíta prehliadač, sem pošle jeho obsah
+ * v rovnakom tvare ako záloha). Súbor je hlavný: položka s rovnakým názvom sa prepíše, nová
+ * pribudne a tá, ktorá prišla z tohto súboru a v ňom už nie je, sa zmaže. Položky pridané
+ * v aplikácii (nie zo súboru) ostanú. Prepojenie sa zapamätá (ďalšia synchronizácia jedným ťuknutím).
+ *
+ * file = { id, name }, isPrivate = nové položky len pre mňa (inak spoločné v rodine).
+ */
+export async function syncFile(c, householdId, file, entries, isPrivate) {
+  await requireFamilyMember(c, householdId);
+  await requireUnlocked(c);
+  file = file && typeof file === 'object' ? file : {};
+  const fileId = String(file.id ?? '');
+  if (!FILE_ID_RE.test(fileId)) throw new AppError('Neplatný súbor na Google Drive.');
+  const fileName = String(file.name ?? '').trim().slice(0, 200);
+  const incoming = parseEntries(entries);
+  const owner = isPrivate ? c.email : '';
+  const now = nowIso();
+
+  const { results } = await c.db.prepare(`SELECT id, name, value, type, sync_file FROM quickstash_entries WHERE ${VISIBLE}`).bind(householdId, c.email).all();
+  const existing = new Map(results.map((r) => [r.name.toLowerCase(), r]));
+  const names = new Set(incoming.map((e) => e.name.toLowerCase()));
+  const statements = [
+    c.db
+      .prepare(
+        `INSERT INTO quickstash_sync (email, household_id, file_id, file_name, private, synced_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (email, household_id) DO UPDATE SET file_id = excluded.file_id, file_name = excluded.file_name,
+           private = excluded.private, synced_at = excluded.synced_at`
+      )
+      .bind(c.email, householdId, fileId, fileName, isPrivate ? 1 : 0, now),
+  ];
+  let added = 0;
+  let updated = 0;
+  let removed = 0;
+  for (const e of incoming) {
+    const old = existing.get(e.name.toLowerCase());
+    if (old) {
+      if (old.value === e.value && old.type === e.type && old.sync_file === fileId) continue; // bez zmeny (verzia sa nezvýši)
+      if (old.value !== e.value || old.type !== e.type) updated++;
+      statements.push(
+        c.db.prepare('UPDATE quickstash_entries SET value = ?, type = ?, sync_file = ?, updated_at = ? WHERE id = ?').bind(e.value, e.type, fileId, now, old.id)
+      );
+    } else {
+      added++;
+      statements.push(
+        c.db
+          .prepare(
+            `INSERT INTO quickstash_entries (id, household_id, owner_email, name, value, type, created_by, created_at, updated_at, sync_file)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(uuid(), householdId, owner, e.name, e.value, e.type, c.email, now, now, fileId)
+      );
+    }
+  }
+  for (const r of results) {
+    if (r.sync_file === fileId && !names.has(r.name.toLowerCase())) {
+      removed++;
+      statements.push(c.db.prepare('DELETE FROM quickstash_entries WHERE id = ?').bind(r.id));
+    }
+  }
+  await c.db.batch(statements);
+  return { added, updated, removed, data: await getData(c, householdId) };
+}
+
+/** Zruší prepojenie so súborom (položky ostanú, len sa už nesynchronizujú). */
+export async function unlinkSync(c, householdId) {
+  await requireFamilyMember(c, householdId);
+  await requireUnlocked(c);
+  await c.db.batch([
+    c.db.prepare('DELETE FROM quickstash_sync WHERE email = ? AND household_id = ?').bind(c.email, householdId),
+    c.db.prepare(`UPDATE quickstash_entries SET sync_file = '' WHERE ${VISIBLE} AND sync_file <> ''`).bind(householdId, c.email),
+  ]);
+  return getData(c, householdId);
 }

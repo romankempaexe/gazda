@@ -146,6 +146,7 @@ export async function removeFamilyMember(c, householdId, email) {
     c.db.prepare("UPDATE users SET last_household_id = '' WHERE email = ? AND last_household_id = ?").bind(email, householdId),
     // jeho súkromné položky v QuickStashi tejto rodiny už nikto neuvidí
     c.db.prepare('DELETE FROM quickstash_entries WHERE household_id = ? AND owner_email = ?').bind(householdId, email),
+    c.db.prepare('DELETE FROM quickstash_sync WHERE household_id = ? AND email = ?').bind(householdId, email),
   ]);
   return getFamily(c);
 }

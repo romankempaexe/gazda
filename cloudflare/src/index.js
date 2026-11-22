@@ -14,7 +14,7 @@
  */
 
 import * as api from './api.js';
-import { authenticate, endSession, startSession } from './auth.js';
+import { authenticate, endSession, sessionHashOf, startSession } from './auth.js';
 import { AppError, todayYmd } from './domain.js';
 import { verifyGoogleIdToken } from './google.js';
 import { scheduledTick } from './notifications.js';
@@ -30,6 +30,7 @@ import * as zdravkoCourses from './zdravko/courses.js';
 import { importFirebase as zdravkoImport } from './zdravko/import.js';
 import { sendZdravkoReminders } from './zdravko/notifications.js';
 import * as quickstash from './quickstash/api.js';
+import * as quickstashLock from './quickstash/lock.js';
 import * as financie from './financie/api.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
@@ -123,6 +124,16 @@ const METHODS = {
   'quickstash/saveEntry': quickstash.saveEntry,
   'quickstash/deleteEntry': quickstash.deleteEntry,
   'quickstash/importEntries': quickstash.importEntries,
+  'quickstash/syncFile': quickstash.syncFile,
+  'quickstash/unlinkSync': quickstash.unlinkSync,
+  'quickstash/getLock': quickstashLock.getLock,
+  'quickstash/lockNow': quickstashLock.lockNow,
+  'quickstash/lockBegin': quickstashLock.lockBegin,
+  'quickstash/lockEnable': quickstashLock.lockEnable,
+  'quickstash/lockRemove': quickstashLock.lockRemove,
+  'quickstash/lockDisable': quickstashLock.lockDisable,
+  'quickstash/unlockBegin': quickstashLock.unlockBegin,
+  'quickstash/unlock': quickstashLock.unlock,
   // Financie
   'financie/getData': financie.getData,
   'financie/getRev': financie.getRev,
@@ -136,7 +147,7 @@ const METHODS = {
 };
 
 // Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači), import zálohy QuickStashu a Excelu Financií.
-const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage', 'quickstash/importEntries', 'financie/importExcel']);
+const LARGE_BODY = new Set(['skladko/saveItem', 'skladko/setItemImage', 'quickstash/importEntries', 'quickstash/syncFile', 'financie/importExcel']);
 const MAX_LARGE_BODY = 1024 * 1024;
 
 const MAX_BODY = 256 * 1024;
@@ -253,6 +264,7 @@ async function context(request, env, url, ctx) {
   return {
     db: env.DB,
     email: await authenticate(env.DB, request),
+    session: await sessionHashOf(request), // relácia = zariadenie (zámok QuickStashu)
     today: env.TODAY || todayYmd(), // TODAY len v testoch
     origin: url.origin,
     // Upozornenia sa posielajú až po odoslaní odpovede (nezdržia aplikáciu).

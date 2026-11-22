@@ -265,22 +265,51 @@ export async function notifyShopping(c, cinnostId) {
   else await work;
 }
 
+const SHOP_START_TTL = 15 * 60; // „nakupuje – pridaj hneď“ doručené neskôr ako o 15 min už nemá zmysel
+
 /** Niekto začal nakupovať – ostatní môžu ešte rýchlo doplniť, čo treba (cinnost ako ju vracia API). */
 export async function notifyShoppingStarted(c, cinnost) {
+  const items = cinnost.items || [];
+  const open = items.filter((i) => !i.done && !i.missing).length;
+  // všetko vybavené = nákup sa práve končí, výzva „pridaj“ by prišla neskoro
+  if (items.length && !open) return;
   const work = (async () => {
-    const open = (cinnost.items || []).filter((i) => !i.done && !i.missing).length;
     const message = {
       title: '🛒 ' + (await displayName(c.db, c.email)) + ' nakupuje' + (cinnost.name !== 'Nákup' ? ': ' + cinnost.name : ''),
       body: (open ? 'Na zozname: ' + open + '. ' : '') + 'Ak ešte niečo treba, pridaj to hneď.',
       tag: 'shop-start-' + cinnost.id,
       app: 'nakupy',
       url: shopUrl(cinnost.id),
+      urgency: 'high',
+      ttl: SHOP_START_TTL,
     };
     const recipients = await shoppingRecipients(c, cinnost);
     if (!recipients.length) return;
     const ctx = await pushContext(c.db, recipients);
     for (const email of recipients) await sendToUser(c.db, email, message, ctx);
   })().catch((err) => console.warn('Upozornenie o nákupe sa nepodarilo odoslať: ' + err));
+  if (c.waitUntil) c.waitUntil(work);
+  else await work;
+}
+
+/**
+ * Nákup sa skončil (ukončený, prerušený alebo zmazaný): výzva „nakupuje – ak ešte niečo treba,
+ * pridaj to hneď“ už neplatí, tak ju na zariadeniach ostatných zavrie (nič nové sa neukáže).
+ * cinnost = riadok z DB (pred zmenou); nerobí nič, ak nikto nenakupoval.
+ */
+export async function notifyShoppingEnded(c, cinnost) {
+  if (!cinnost || cinnost.kind !== 'nakup' || !cinnost.shopping_by) return;
+  const work = (async () => {
+    const { results } = await c.db
+      .prepare('SELECT email FROM members WHERE household_id = ? AND email <> ?')
+      .bind(cinnost.household_id, cinnost.shopping_by)
+      .all();
+    const recipients = results.map((m) => m.email);
+    if (!recipients.length) return;
+    const message = { close: true, tag: 'shop-start-' + cinnost.id, app: 'nakupy', ttl: SHOP_START_TTL };
+    const ctx = await pushContext(c.db, recipients);
+    for (const email of recipients) await sendToUser(c.db, email, message, ctx);
+  })().catch((err) => console.warn('Zrušenie upozornenia o nákupe sa nepodarilo: ' + err));
   if (c.waitUntil) c.waitUntil(work);
   else await work;
 }

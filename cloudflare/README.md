@@ -480,7 +480,10 @@ položky dostanú stav z dokončenia. Pri opakovanej činnosti treba vracať od 
   naživo zmeny od ostatných, displej nezhasína. Ostatní dostanú „X nakupuje“. Kto nakupuje,
   toho appka pri ďalšom otvorení (aj návrate do nej) hodí rovno na túto obrazovku; šípka ju
   len skryje, **Prerušiť** nákup zastaví (zoznam ostane). Keď je všetko kúpené alebo
-  „nemali“, tlačidlo **Ukončiť nákup** ho uloží do Histórie.
+  „nemali“, tlačidlo **Ukončiť nákup** ho uloží do Histórie. Po ukončení (aj prerušení či
+  zmazaní) nákupu sa výzva „X nakupuje – ak ešte niečo treba, pridaj to hneď“ ostatným
+  zavrie (`notifyShoppingEnded`, push s `close: true`, nič nové sa neukáže); výzva tiež
+  neodíde, keď je už všetko vybavené, a oneskorene (po 15 min) sa nedoručí.
 
 ## Pripomienky, šablóny, vzhľad, skratky
 

@@ -313,8 +313,15 @@ test('nákupný zoznam jedným ťuknutím: upozornenie ostatným pri vytvorení 
   await roman.api.addItem(task.id, 'Linka', '');
   assert.equal(sent.length, 0);
   await assert.rejects(roman.api.startShopping(task.id, true), /len nákup/);
-  // prerušenie nákupu (môže hocikto z rodiny)
+  // prerušenie nákupu (môže hocikto z rodiny): výzva „pridaj to hneď“ sa u ostatných zavrie
+  sent.length = 0;
   assert.equal((await jana.api.startShopping(c.id, false)).shoppingBy, undefined);
+  assert.deepEqual(sent.map((s) => s.url), [janaPhone.subscription.endpoint]);
+  msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.close, msg.tag, msg.app], [true, 'shop-start-' + c.id, 'nakupy']);
+  sent.length = 0;
+  await jana.api.startShopping(c.id, false); // nikto nenakupuje – nič
+  assert.equal(sent.length, 0);
   assert.equal((await roman.api.startShopping(c.id, true)).shoppingBy, 'roman@exe.sk');
 
   // rýchle písanie viacerých položiek za sebou: jedno upozornenie so všetkými, až keď autor prestane
@@ -328,8 +335,12 @@ test('nákupný zoznam jedným ťuknutím: upozornenie ostatným pri vytvorení 
   assert.deepEqual(sent.map((s) => s.url), [romanPhone.subscription.endpoint]);
   assert.equal(JSON.parse(await decrypt(romanPhone, sent[0].body)).body, '☐ Vajcia – 10 ks\n☐ Syr');
 
-  // ukončenie nákupu zmaže aj značky upozornení
+  // ukončenie nákupu zmaže aj značky upozornení a nikoho nevyzýva „pridaj“ – len zavrie starú výzvu
+  sent.length = 0;
   await roman.api.completeCinnost(c.id);
+  assert.deepEqual(sent.map((s) => s.url), [janaPhone.subscription.endpoint]);
+  msg = JSON.parse(await decrypt(janaPhone, sent[0].body));
+  assert.deepEqual([msg.close, msg.tag, msg.title, msg.body], [true, 'shop-start-' + c.id, undefined, '']);
   const left = await t.env.DB.prepare('SELECT COUNT(*) AS n FROM config WHERE key LIKE ?').bind('shop:' + c.id + ':%').first();
   assert.equal(left.n, 0);
 });

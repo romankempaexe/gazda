@@ -83,6 +83,14 @@ self.addEventListener('push', (event) => {
   }
   // Staré správy bez „app“ sú z Gazdy.
   const app = APPS.includes(data.app) ? data.app : 'gazda';
+  // nákup sa skončil – zavri jeho staré upozornenie „pridaj to hneď“, nič nové neukazuj
+  if (data.close) {
+    if (!data.tag) return;
+    event.waitUntil(
+      self.registration.getNotifications({ tag: app + ':' + data.tag }).then((list) => list.forEach((n) => n.close()))
+    );
+    return;
+  }
   const names = { family: 'Family Grid', gazda: 'Gazda', nakupy: 'Nákupy', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie' };
   event.waitUntil(
     self.registration.showNotification(data.title || names[app], {

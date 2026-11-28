@@ -1,4 +1,4 @@
-// Family Grid – spoločná časť pre rozcestník a podaplikácie Nákupy, Zdravko, Skládko, QuickStash a Financie
+// Family Grid – spoločná časť pre rozcestník a podaplikácie Nákupy, Zdravko, Skládko, QuickStash, Financie a Kontakty
 // (Gazda má svoju vlastnú, staršiu verziu tých istých funkcií v gazda/app.js):
 // volania servera, prihlásenie Google účtom, okná, upozornenia, inštalácia, vzhľad,
 // výber rodiny a zapamätanie poslednej podaplikácie.
@@ -14,8 +14,9 @@
     skladko: { name: 'Skládko', desc: 'Čo máme doma a kde to je', url: '/skladko/' },
     quickstash: { name: 'QuickStash', desc: 'Texty, odkazy a heslá na skopírovanie', url: '/quickstash/' },
     financie: { name: 'Financie', desc: 'Rodinný rozpočet: príjmy, výdavky, rezerva', url: '/financie/' },
+    kontakty: { name: 'Kontakty', desc: 'Telefónny zoznam dôležitých čísel', url: '/kontakty/' },
   };
-  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', nakupy: '#db2777', zdravko: '#1d72b8', skladko: '#ea580c', quickstash: '#0d9488', financie: '#7c3aed' };
+  const THEME_COLORS = { family: '#4f46e5', gazda: '#16a34a', nakupy: '#db2777', zdravko: '#1d72b8', skladko: '#ea580c', quickstash: '#0d9488', financie: '#7c3aed', kontakty: '#dc2626' };
   const LAST_APP_KEY = 'fg.lastApp';
   const THEME_KEY = 'gazda.theme'; // spoločné s Gazdou
   const LOGGED_OUT_KEY = 'gazda.loggedOut';
@@ -409,7 +410,7 @@
   function forgetDevice() {
     try {
       Object.keys(localStorage)
-        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|nakupy\.|zdravko\.|skladko\.|quickstash\.|financie\.)/.test(k))
+        .filter((k) => /^(fg\.me|fg\.calendar|fg\.household|gazda\.snap|gazda\.token|nakupy\.|zdravko\.|skladko\.|quickstash\.|financie\.|kontakty\.)/.test(k))
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
   }

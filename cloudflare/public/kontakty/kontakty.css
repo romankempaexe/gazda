@@ -1,0 +1,168 @@
+/* Kontakty – telefónny zoznam dôležitých čísel rodiny. */
+
+.kt-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+}
+.kt-search input {
+  padding-left: 42px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.kt-search > .ms {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.kt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 96px; /* miesto pre tlačidlo Pridať */
+}
+
+.kt-section {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 8px 4px 0;
+}
+
+.kt-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  animation: rise 0.2s ease both;
+}
+.kt-entry.fav {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.kt-avatar {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 17px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.kt-body {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  -webkit-touch-callout: none;
+}
+.kt-name {
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.kt-name > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kt-star {
+  flex-shrink: 0;
+  font-size: 17px;
+  color: #f59e0b;
+  font-variation-settings: 'FILL' 1;
+}
+.kt-line {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kt-line.kt-phone {
+  color: var(--text);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.kt-line.kt-note {
+  font-style: italic;
+}
+
+.kt-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.kt-actions a {
+  text-decoration: none;
+}
+.kt-call {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #16a34a;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.35);
+}
+.kt-call .ms {
+  font-variation-settings: 'FILL' 1;
+}
+.kt-call:active {
+  transform: scale(0.94);
+}
+
+.kt-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+.kt-check input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+.kt-check .ms {
+  font-size: 17px;
+  vertical-align: -3px;
+  margin-right: 4px;
+  color: #f59e0b;
+  font-variation-settings: 'FILL' 1;
+}
+.kt-check small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}

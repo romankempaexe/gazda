@@ -95,8 +95,8 @@ function clearSnapshot() {
   try {
     localStorage.removeItem(SNAPSHOT_KEY);
     localStorage.removeItem('gazda.token'); // z čias osobných odkazov
-    // Nákupy, QuickStash (aj heslá) a Financie (rozpočet) majú údaje v pamäti telefónu – pri odhlásení preč
-    Object.keys(localStorage).filter((k) => /^(nakupy|quickstash|financie)\./.test(k)).forEach((k) => localStorage.removeItem(k));
+    // Nákupy, QuickStash (aj heslá), Financie (rozpočet) a Kontakty majú údaje v pamäti telefónu – pri odhlásení preč
+    Object.keys(localStorage).filter((k) => /^(nakupy|quickstash|financie|kontakty)\./.test(k)).forEach((k) => localStorage.removeItem(k));
   } catch (e) {}
 }
 

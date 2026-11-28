@@ -1,6 +1,6 @@
 /**
  * Family Grid na Cloudflare Workers: rozcestník (/) a podaplikácie Gazda (/gazda/), Nákupy (/nakupy/),
- * Zdravko (/zdravko/), Skládko (/skladko/), QuickStash (/quickstash/) a Financie (/financie/) – jedno prihlásenie,
+ * Zdravko (/zdravko/), Skládko (/skladko/), QuickStash (/quickstash/), Financie (/financie/) a Kontakty (/kontakty/) – jedno prihlásenie,
  * jedna databáza.
  *
  * Statické súbory (public/) obsluhuje Cloudflare priamo, sem prichádzajú len
@@ -32,6 +32,7 @@ import { sendZdravkoReminders } from './zdravko/notifications.js';
 import * as quickstash from './quickstash/api.js';
 import * as quickstashLock from './quickstash/lock.js';
 import * as financie from './financie/api.js';
+import * as kontakty from './kontakty/api.js';
 import { analyzeLeafletPage, getLeaflet, getOffers, identifyLeafletProduct, getLeaflets, leafletImage, parseShoppingText } from './leaflets.js';
 
 // Funkcie, ktoré smie prehliadač volať (všetky vyžadujú prihlásenie).
@@ -145,6 +146,12 @@ const METHODS = {
   'financie/deleteCategory': financie.deleteCategory,
   'financie/setReserve': financie.setReserve,
   'financie/importExcel': financie.importExcel,
+  // Kontakty (telefónny zoznam)
+  'kontakty/getData': kontakty.getData,
+  'kontakty/getRev': kontakty.getRev,
+  'kontakty/saveContact': kontakty.saveContact,
+  'kontakty/deleteContact': kontakty.deleteContact,
+  'kontakty/setFavorite': kontakty.setFavorite,
 };
 
 // Väčšie telo požiadavky: fotky položiek (zmenšené v prehliadači), import zálohy QuickStashu a Excelu Financií.
@@ -299,7 +306,7 @@ function manifest() {
     id: '/',
     name: 'Family Grid',
     short_name: 'Family Grid',
-    description: 'Rodinné aplikácie na jednom mieste – Gazda, Nákupy, Zdravko, Skládko, QuickStash a Financie',
+    description: 'Rodinné aplikácie na jednom mieste – Gazda, Nákupy, Zdravko, Skládko, QuickStash, Financie a Kontakty',
     lang: 'sk',
     start_url: '/',
     scope: '/',
@@ -319,6 +326,7 @@ function manifest() {
       { name: 'Skládko', short_name: 'Skládko', url: '/skladko/', icons: icon('skladko') },
       { name: 'QuickStash', short_name: 'QuickStash', url: '/quickstash/', icons: icon('quickstash') },
       { name: 'Financie', short_name: 'Financie', url: '/financie/', icons: icon('financie') },
+      { name: 'Kontakty', short_name: 'Kontakty', url: '/kontakty/', icons: icon('kontakty') },
     ],
   };
   return new Response(JSON.stringify(body), {

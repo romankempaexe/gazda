@@ -22,7 +22,7 @@
         var back = history.state && history.state.fg;
         if (back) window.FG_GRID = true;
         else if (p.has('akcia')) location.replace((p.get('akcia') === 'nakup' ? '/nakupy/' : '/gazda/') + location.search);
-        else if (!p.has('grid') && location.hash !== '#kalendar' && /^(gazda|nakupy|zdravko|skladko|quickstash|financie)$/.test(last || '')) location.replace('/' + last + '/');
+        else if (!p.has('grid') && location.hash !== '#kalendar' && /^(gazda|nakupy|zdravko|skladko|quickstash|financie|kontakty)$/.test(last || '')) location.replace('/' + last + '/');
         else if (p.has('grid')) {
           window.FG_GRID = true; // rozcestník si človek vyžiadal – nepresmerovať
           history.replaceState(history.state, '', '/' + location.hash);

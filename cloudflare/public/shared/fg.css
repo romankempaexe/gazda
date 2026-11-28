@@ -42,8 +42,21 @@
   --primary-gradient: linear-gradient(135deg, #a78bfa 0%, #6d28d9 100%);
   --bg: #f6f4fa;
 }
+:root[data-app='kontakty'] {
+  --primary: #dc2626;
+  --primary-strong: #b91c1c;
+  --primary-soft: #fee2e2;
+  --primary-gradient: linear-gradient(135deg, #f87171 0%, #b91c1c 100%);
+  --bg: #faf4f4;
+}
 
 @media (prefers-color-scheme: dark) {
+  :root[data-app='kontakty']:not([data-theme='light']) {
+    --primary: #f87171;
+    --primary-strong: #fca5a5;
+    --primary-soft: rgba(248, 113, 113, 0.16);
+    --bg: #120a0a;
+  }
   :root[data-app='family']:not([data-theme='light']) {
     --primary: #818cf8;
     --primary-strong: #a5b4fc;
@@ -116,6 +129,12 @@
   --primary-strong: #c4b5fd;
   --primary-soft: rgba(167, 139, 250, 0.16);
   --bg: #0e0c12;
+}
+:root[data-app='kontakty'][data-theme='dark'] {
+  --primary: #f87171;
+  --primary-strong: #fca5a5;
+  --primary-soft: rgba(248, 113, 113, 0.16);
+  --bg: #120a0a;
 }
 
 :root[data-app] .brand {
@@ -225,6 +244,7 @@
 .fg-tile[data-app='skladko'] .info { color: #c2410c; }
 .fg-tile[data-app='quickstash'] .info { color: #0f766e; }
 .fg-tile[data-app='financie'] .info { color: #6d28d9; }
+.fg-tile[data-app='kontakty'] .info { color: #b91c1c; }
 .fg-tile .info.warn { color: var(--accent); }
 
 /* Tiene tlačidiel vo farbe podaplikácie (app.css ich má zelené). */

@@ -24,6 +24,7 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 | `/skladko/` | Skládko – čo máme doma a kde (`public/skladko/`, `src/skladko/`) – pozri nižšie |
 | `/quickstash/` | QuickStash – texty, odkazy a heslá na skopírovanie (`public/quickstash/`, `src/quickstash/`) – pozri nižšie |
 | `/financie/` | Financie – rodinný rozpočet podľa tabuľky Financie (`public/financie/`, `src/financie/`) – pozri nižšie |
+| `/kontakty/` | Kontakty – telefónny zoznam dôležitých čísel rodiny (`public/kontakty/`, `src/kontakty/`) – pozri nižšie |
 
 - **Posledná podaplikácia:** Family Grid sa otvára rovno v naposledy otvorenej podaplikácii
   (`localStorage` `fg.lastApp`, na novom zariadení podľa `users.last_app` zo servera).
@@ -46,14 +47,14 @@ worker a jedny upozornenia (každá podaplikácia v nich má vlastnú ikonu).
 - **Zvolená rodina** je spoločná pre všetky podaplikácie (`setCurrentFamily` →
   `users.last_household_id`, podľa nej sa otvorí aj Gazda); kto má viac rodín, prepne ich v
   dialógu rodiny alebo v Gazde.
-- **Upozornenia:** správa má pole `app` (`gazda` | `nakupy` | `zdravko` | `skladko` | `quickstash` | `financie` | `family`);
+- **Upozornenia:** správa má pole `app` (`gazda` | `nakupy` | `zdravko` | `skladko` | `quickstash` | `financie` | `kontakty` | `family`);
   service worker podľa neho zvolí ikonu `/icons/<app>/icon-192.png` a odznak `badge-96.png`
   a po ťuknutí otvorí `/<app>/`.
 - **Spoločný kód v prehliadači:** `public/shared/app.css` (vzhľad), `public/shared/fg.css`
   (farby podaplikácií, dlaždice) a `public/shared/fg.js` (server, prihlásenie, okná,
   upozornenia, inštalácia, výber rodiny). Gazda má tie isté funkcie ešte vo vlastnom `app.js`.
 - **Ikony:** `node scripts/render-icons.cjs public/icons` z kresieb v `scripts/icon-art.cjs`
-  (priečinky `family`, `gazda`, `nakupy`, `zdravko`, `skladko`, `quickstash`, `financie`);
+  (priečinky `family`, `gazda`, `nakupy`, `zdravko`, `skladko`, `quickstash`, `financie`, `kontakty`);
   len jednu podaplikáciu: `node scripts/render-icons.cjs public/icons nakupy`.
 
 ## Kalendár na plochu (Google Kalendár / iPhone)
@@ -192,6 +193,27 @@ desktopového QuickStashu (repozitár `quickstash`, PySide6 a Apps Script) ako p
 - **Bezpečnosť:** heslá sú v D1 (šifrovaná na disku Cloudflare) a v pamäti telefónu (posledné
   údaje na otvorenie bez internetu) – pri odhlásení sa zmažú.
 - Tabuľka `quickstash_entries` (migrácia 0016, synchronizácia a zámok 0022), funkcie `POST /api/quickstash/<funkcia>` v `src/quickstash/api.js`.
+
+## Kontakty (`/kontakty/`)
+
+Telefónny zoznam dôležitých čísel rodiny (lekár, škola, škôlka, susedia, servis, poisťovňa…) ako
+podaplikácia Family Grid. Kontakty patria **zvolenej rodine** – vidia a menia ich všetci jej členovia,
+zmeny od ostatných sa ukážu samé (`kontakty/getRev`, `households.kontakty_rev`).
+
+- **Kontakt:** meno, telefónne číslo, voliteľne e-mail a poznámka (stačí číslo alebo e-mail).
+  Číslo môže mať `+` na začiatku, medzery, pomlčky či lomky (3–16 číslic).
+- **Zavolať:** zelené tlačidlo pri kontakte je odkaz `tel:` – telefón rovno vytočí číslo;
+  obálka otvorí e-mail (`mailto:`). Ťuknutie na kontakt ho otvorí na úpravu / vymazanie,
+  dlhé podržanie skopíruje číslo.
+- **Dôležité** (hviezdička) sú navrchu zoznamu. Prázdny zoznam ponúkne jedným ťuknutím
+  tiesňové čísla 112, 155, 150 a 158.
+- **Hľadanie** podľa mena, e-mailu, poznámky aj čísla (medzery v čísle nevadia).
+- Posledné údaje sú v telefóne (`localStorage` `kontakty.snap.<rodina>`), takže čísla sú po ruke
+  aj bez signálu; pri odhlásení sa zmažú.
+- **Dlaždica** na rozcestníku: počet kontaktov zvolenej rodiny.
+- Tabuľka `kontakty_entries` a stĺpec `households.kontakty_rev` (migrácia 0024), funkcie
+  `POST /api/kontakty/<funkcia>` v `src/kontakty/api.js` (`getData`, `getRev`, `saveContact`,
+  `deleteContact`, `setFavorite`).
 
 ## Financie (`/financie/`)
 

@@ -5,8 +5,8 @@
 // Stratégia: najprv sieť (aby sa nové verzie prejavili hneď), pri výpadku pamäť.
 // Volania /api/* sa neukladajú nikdy.
 
-const CACHE = 'family-grid-v17';
-const APPS = ['family', 'gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie'];
+const CACHE = 'family-grid-v18';
+const APPS = ['family', 'gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie', 'kontakty'];
 const SHELL = [
   '/',
   '/shared/app.css',
@@ -36,6 +36,9 @@ const SHELL = [
   '/financie/',
   '/financie/app.js',
   '/financie/financie.css',
+  '/kontakty/',
+  '/kontakty/app.js',
+  '/kontakty/kontakty.css',
   ...APPS.flatMap((a) => ['/icons/' + a + '/icon.svg', '/icons/' + a + '/icon-192.png', '/icons/' + a + '/badge-96.png']),
 ];
 
@@ -91,7 +94,7 @@ self.addEventListener('push', (event) => {
     );
     return;
   }
-  const names = { family: 'Family Grid', gazda: 'Gazda', nakupy: 'Nákupy', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie' };
+  const names = { family: 'Family Grid', gazda: 'Gazda', nakupy: 'Nákupy', zdravko: 'Zdravko', skladko: 'Skládko', quickstash: 'QuickStash', financie: 'Financie', kontakty: 'Kontakty' };
   event.waitUntil(
     self.registration.showNotification(data.title || names[app], {
       body: data.body || '',

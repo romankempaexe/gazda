@@ -44,6 +44,9 @@
     if (app === 'quickstash') {
       return o.entries ? { text: plural(o.entries, 'položka', 'položky', 'položiek') } : '';
     }
+    if (app === 'kontakty') {
+      return o.contacts ? { text: plural(o.contacts, 'kontakt', 'kontakty', 'kontaktov') } : '';
+    }
     if (app === 'financie') {
       if (o.remaining === undefined) return '';
       const eur = Math.round(Math.abs(o.remaining) / 100).toLocaleString('sk-SK') + ' €';

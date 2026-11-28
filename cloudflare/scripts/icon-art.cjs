@@ -80,6 +80,19 @@ const APPS = {
     stroke: 'M196 352 L196 318 M256 352 L256 284 M316 352 L316 246',
     strokeWidth: 34,
   },
+  // Kontakty: slúchadlo telefónu na karte telefónneho zoznamu
+  kontakty: {
+    bg: ['#fca5a5', '#b91c1c'],
+    mark: ['#f87171', '#b91c1c'],
+    shadow: '#450a0a',
+    shape: (w) =>
+      `<rect x="124" y="96" width="264" height="320" rx="42" fill="${w}"/>` +
+      `<rect x="96" y="150" width="44" height="40" rx="14" fill="${w}" opacity=".55"/>` +
+      `<rect x="96" y="236" width="44" height="40" rx="14" fill="${w}" opacity=".55"/>` +
+      `<rect x="96" y="322" width="44" height="40" rx="14" fill="${w}" opacity=".55"/>`,
+    fill:
+      'M214 176 c10 -6 22 -3 28 7 l18 30 c6 10 3 22 -6 29 l-14 10 c8 22 26 40 48 50 l11 -14 c7 -9 19 -12 29 -6 l30 18 c10 6 13 18 7 28 l-10 17 c-8 13 -24 20 -40 16 c-64 -16 -114 -66 -130 -130 c-4 -16 3 -32 16 -40 Z',
+  },
 };
 
 function art({ app = 'gazda', scale = 1, background = 'rounded', mono = false } = {}) {

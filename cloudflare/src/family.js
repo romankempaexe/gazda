@@ -5,7 +5,7 @@
 import { getHouseholds } from './api.js';
 import { ALL, AppError, requireText } from './domain.js';
 
-export const APPS = ['gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie'];
+export const APPS = ['gazda', 'nakupy', 'zdravko', 'skladko', 'quickstash', 'financie', 'kontakty'];
 
 /** Člen rodiny (domácnosti)? Inak chyba 403. Spoločné pre Zdravka, Skládko, QuickStash a Financie. */
 export async function requireFamilyMember(c, householdId) {
@@ -20,7 +20,7 @@ export async function requireFamilyMember(c, householdId) {
 /** Údaje pre rozcestník: používateľ, rodiny, posledná podaplikácia a prehľad dlaždíc. */
 export async function getFamily(c) {
   const res = await getHouseholds(c);
-  const [user, gazda, skladko, zdravko, quickstash, financie, nakupy] = await c.db.batch([
+  const [user, gazda, skladko, zdravko, quickstash, financie, nakupy, kontakty] = await c.db.batch([
     c.db.prepare('SELECT last_app, last_household_id FROM users WHERE email = ?').bind(c.email),
     // Gazda: moje domáce práce (aj spoločné) na dnes a po termíne – ako „Môj rozpis“ (nákupy sú v Nákupoch).
     c.db
@@ -79,6 +79,15 @@ export async function getFamily(c) {
          WHERE c.kind = 'nakup'`
       )
       .bind(c.email),
+    // Kontakty: počet kontaktov zvolenej rodiny (inak prvej).
+    c.db
+      .prepare(
+        `SELECT COUNT(*) AS contacts FROM kontakty_entries k
+         WHERE k.household_id = COALESCE(
+           (SELECT u.last_household_id FROM users u JOIN members m ON m.household_id = u.last_household_id AND m.email = u.email WHERE u.email = ?1),
+           (SELECT household_id FROM members WHERE email = ?1 ORDER BY rowid LIMIT 1))`
+      )
+      .bind(c.email),
   ]);
   const u = user.results[0] || {};
   const n = nakupy.results[0] || {};
@@ -87,6 +96,7 @@ export async function getFamily(c) {
   const z = zdravko.results[0] || {};
   const q = quickstash.results[0] || {};
   const f = financie.results[0] || {};
+  const kt = kontakty.results[0] || {};
   return {
     ...res,
     lastApp: APPS.includes(u.last_app) ? u.last_app : '',
@@ -98,6 +108,7 @@ export async function getFamily(c) {
       zdravko: { upcoming: z.upcoming || 0, nextAt: z.next_at || '' },
       quickstash: { entries: q.entries || 0 },
       // zostáva za mesiac v centoch (ročné výdavky prepočítané na mesiac)
+      kontakty: { contacts: kt.contacts || 0 },
       financie: f.items ? { remaining: Math.round((f.income || 0) - (f.monthly || 0) - (f.yearly || 0) / 12) } : {},
     },
   };
